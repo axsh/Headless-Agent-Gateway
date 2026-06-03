@@ -2,8 +2,12 @@ package hag
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/axsh/hag/config"
@@ -162,5 +166,118 @@ func TestNew_InvalidConfigPath(t *testing.T) {
 	_, err := New(WithConfigPath("/nonexistent/config.yaml"))
 	if err == nil {
 		t.Fatal("expected error for invalid config path")
+	}
+}
+
+// TC-P2-01: WithConfigPath overrides WithConfig.
+func TestNew_ConfigPathOverridesConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	content := []byte(`
+llm_gateway:
+  port: 17000
+vault:
+  backend: "env"
+`)
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfgDirect := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Port: 18000,
+		},
+	}
+
+	stub := llmgateway.NewStubGateway()
+	srv, err := New(WithConfigPath(cfgPath), WithConfig(cfgDirect), WithGateway(stub))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	// WithConfigPath should take priority over WithConfig.
+	if srv.cfg.LLMGateway.Port != 17000 {
+		t.Errorf("cfg.LLMGateway.Port = %d, want 17000 (from WithConfigPath)", srv.cfg.LLMGateway.Port)
+	}
+}
+
+// TC-P2-02: Gateway Launch failure propagates through Server.Launch().
+func TestServer_Launch_GatewayError(t *testing.T) {
+	failing := &failingGateway{err: fmt.Errorf("port in use")}
+	srv, err := New(WithGateway(failing))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = srv.Launch(context.Background())
+	if err == nil {
+		t.Fatal("expected Launch() to return error")
+	}
+	if !strings.Contains(err.Error(), "gateway launch") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "gateway launch")
+	}
+	if !strings.Contains(err.Error(), "port in use") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "port in use")
+	}
+}
+
+// failingGateway is a test double that fails on Launch.
+type failingGateway struct {
+	llmgateway.StubGateway
+	err error
+}
+
+func (f *failingGateway) Launch(_ context.Context) error {
+	return f.err
+}
+
+// TC-P2-07: hag.Server end-to-end lifecycle with real ProxyServer.
+func TestServer_EndToEnd_WithProxyServer(t *testing.T) {
+	// Use port=0 for ephemeral port. No WithGateway -> auto-creates ProxyServer.
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Port: 0,
+		},
+	}
+	srv, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx := context.Background()
+	if err := srv.Launch(ctx); err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+
+	// Verify the gateway is a real ProxyServer and reachable.
+	url := srv.Gateway().ProxyURL()
+	if url == "" {
+		t.Fatal("ProxyURL() returned empty string")
+	}
+
+	resp, err := http.Get(url + "/health")
+	if err != nil {
+		t.Fatalf("GET /health error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /health status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var health llmgateway.HealthStatus
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+	if health.Status != "ok" {
+		t.Errorf("health.status = %q, want %q", health.Status, "ok")
+	}
+
+	// Shutdown and verify unreachable.
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	_, err = http.Get(url + "/health")
+	if err == nil {
+		t.Fatal("expected error after Shutdown(), got nil")
 	}
 }
