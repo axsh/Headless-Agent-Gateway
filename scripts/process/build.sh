@@ -140,7 +140,41 @@ build_go() {
     if [[ "$found_any" == "false" ]]; then
         warn "No Go projects found under features/*/."
         warn "Expected structure: features/{name}/go.mod"
-        return 0
+    fi
+
+    # ============================================================
+    # Shared Libraries: shared/libs/go/
+    # ============================================================
+    if [[ -f "shared/libs/go/go.mod" ]]; then
+        step "Shared Libraries: shared/libs/go"
+        cd "$PROJECT_ROOT/shared/libs/go"
+
+        # --- Unit Tests ---
+        info "Running Go unit tests for shared/libs/go..."
+
+        SHARED_PKGS=$(go list ./... | grep -v '/tests/' | grep -v '/tests$' || true)
+
+        if [[ -z "$SHARED_PKGS" ]]; then
+            warn "No Go unit test packages found for shared/libs/go."
+        elif echo "$SHARED_PKGS" | xargs go test -v -count=1; then
+            success "Unit tests passed for shared/libs/go."
+        else
+            fail "Unit tests failed for shared/libs/go."
+            FAILED=true
+            return 1
+        fi
+
+        # --- Build (verify compilation only, no binary output) ---
+        info "Verifying shared/libs/go compilation..."
+        if go build ./...; then
+            success "Shared libs compilation verified."
+        else
+            fail "Shared libs compilation failed."
+            FAILED=true
+            return 1
+        fi
+
+        cd "$PROJECT_ROOT"
     fi
 }
 
