@@ -66,12 +66,22 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 		"key", MaskSecret(routed.KeyValue),
 	)
 
-	// TODO: Forward to Bifrost SDK when initialized (Part 3.5+)
-	// For now, return service unavailable until Bifrost SDK is ready.
-	WriteErrorResponse(w, &GatewayError{
-		Type:    "api_error",
-		Message: "Bifrost SDK not yet initialized. Awaiting credential configuration (Part 3.5).",
-		Code:    "backend_not_ready",
-		Status:  http.StatusServiceUnavailable,
-	})
+	// Forward to upstream OpenAI API
+	fwd := newProviderForwarder()
+	resp, err := fwd.forwardToProvider(routed.Provider, "/v1/chat/completions", body, routed.KeyValue, r.Header)
+	if err != nil {
+		if gwErr, ok := err.(*GatewayError); ok {
+			WriteErrorResponse(w, gwErr)
+		} else {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "upstream request failed: " + err.Error(),
+				Code:    "upstream_error",
+				Status:  http.StatusBadGateway,
+			})
+		}
+		return
+	}
+	defer resp.Body.Close()
+	proxyResponse(w, resp)
 }

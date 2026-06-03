@@ -84,9 +84,29 @@ func TestHandleAnthropicMessages_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestHandleAnthropicMessages_KnownModel_NoBifrost(t *testing.T) {
-	// When driver exists but Bifrost SDK is not initialized, it should return
-	// a service unavailable error indicating the backend is not ready.
+func TestHandleAnthropicMessages_KnownModel_ForwardsToUpstream(t *testing.T) {
+	// When a known model is routed, the handler should forward to upstream.
+	// Use a mock upstream server to verify the request reaches it.
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify auth header
+		if r.Header.Get("x-api-key") == "" {
+			t.Error("expected x-api-key header")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]string{
+				{"type": "text", "text": "mock response"},
+			},
+		})
+	}))
+	defer mockUpstream.Close()
+
+	// Temporarily override the base URL
+	origURL := providerBaseURLs["anthropic"]
+	providerBaseURLs["anthropic"] = mockUpstream.URL
+	defer func() { providerBaseURLs["anthropic"] = origURL }()
+
 	proxy := newTestProxyWithDriver(t)
 
 	body := map[string]any{
@@ -104,8 +124,7 @@ func TestHandleAnthropicMessages_KnownModel_NoBifrost(t *testing.T) {
 
 	proxy.handleAnthropicMessages(rr, req)
 
-	// Without Bifrost SDK initialized, should return 503
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }

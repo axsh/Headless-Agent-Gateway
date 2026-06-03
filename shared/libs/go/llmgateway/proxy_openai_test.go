@@ -52,7 +52,28 @@ func TestHandleOpenAIChatCompletions_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestHandleOpenAIChatCompletions_KnownModel_NoBifrost(t *testing.T) {
+func TestHandleOpenAIChatCompletions_KnownModel_ForwardsToUpstream(t *testing.T) {
+	// Use a mock upstream server to verify the request is forwarded.
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify auth header
+		if r.Header.Get("Authorization") == "" {
+			t.Error("expected Authorization header")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": "mock response"}},
+			},
+		})
+	}))
+	defer mockUpstream.Close()
+
+	// Temporarily override the base URL
+	origURL := providerBaseURLs["openai"]
+	providerBaseURLs["openai"] = mockUpstream.URL
+	defer func() { providerBaseURLs["openai"] = origURL }()
+
 	cfg := &config.AppConfig{}
 	profiles := testProfiles()
 	driver, _ := NewBifrostDriver(cfg, profiles, nil, nil)
@@ -72,8 +93,7 @@ func TestHandleOpenAIChatCompletions_KnownModel_NoBifrost(t *testing.T) {
 
 	proxy.handleOpenAIChatCompletions(rr, req)
 
-	// Without Bifrost SDK initialized, should return 503
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
