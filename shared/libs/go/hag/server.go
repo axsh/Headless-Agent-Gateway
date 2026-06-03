@@ -129,10 +129,23 @@ func resolveVault(o *options) vault.VaultStore {
 }
 
 // resolveGateway resolves the LLMGatewayBackend from options.
-// If WithGateway is set, use it. Otherwise create a ProxyServer.
+// If WithGateway is set, use it. Otherwise:
+//   - If model profiles are configured, create a BifrostDriver.
+//   - Otherwise create a standalone ProxyServer.
 func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log logger.Logger) (llmgateway.LLMGatewayBackend, error) {
 	if o.gateway != nil {
 		return o.gateway, nil
 	}
+
+	// If model profiles path is configured, try to load and use BifrostDriver.
+	if cfg.LLMGateway.ModelProfilesPath != "" {
+		profiles, err := config.LoadModelProfiles(cfg.LLMGateway.ModelProfilesPath)
+		if err != nil {
+			return nil, fmt.Errorf("load model profiles: %w", err)
+		}
+		return llmgateway.NewBifrostDriver(cfg, profiles, vs, log)
+	}
+
+	// No profiles configured; use standalone ProxyServer.
 	return llmgateway.NewProxyServer(cfg, vs, log)
 }
