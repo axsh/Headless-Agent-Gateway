@@ -165,24 +165,3 @@ func (p *ProxyServer) handleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleAnthropicMessages is a stub for the Anthropic Messages API.
-// TODO: Implement in Part3 with BifrostDriver integration.
-func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
-	WriteErrorResponse(w, &GatewayError{
-		Type:    "api_error",
-		Message: "Anthropic Messages API not yet implemented",
-		Code:    "not_implemented",
-		Status:  http.StatusNotImplemented,
-	})
-}
-
-// handleOpenAIChatCompletions is a stub for the OpenAI Chat Completions API.
-// TODO: Implement in Part3 with BifrostDriver integration.
-func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Request) {
-	WriteErrorResponse(w, &GatewayError{
-		Type:    "api_error",
-		Message: "OpenAI Chat Completions API not yet implemented",
-		Code:    "not_implemented",
-		Status:  http.StatusNotImplemented,
-	})
-}

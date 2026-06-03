@@ -154,14 +154,16 @@ func TestProxyServer_AnthropicStub(t *testing.T) {
 	}
 	defer p.Shutdown(nil)
 
+	// Standalone ProxyServer (no driver) - nil body produces 400 from JSON parsing.
 	resp, err := http.Post(p.ProxyURL()+"/v1/messages", "application/json", nil)
 	if err != nil {
 		t.Fatalf("POST /v1/messages error = %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotImplemented)
+	// Without driver, nil body -> 400 Bad Request (invalid JSON)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
 }
 
@@ -172,14 +174,16 @@ func TestProxyServer_OpenAIStub(t *testing.T) {
 	}
 	defer p.Shutdown(nil)
 
+	// Standalone ProxyServer (no driver) - nil body produces 400 from JSON parsing.
 	resp, err := http.Post(p.ProxyURL()+"/v1/chat/completions", "application/json", nil)
 	if err != nil {
 		t.Fatalf("POST /v1/chat/completions error = %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotImplemented)
+	// Without driver, nil body -> 400 Bad Request (invalid JSON)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
 }
 
@@ -372,7 +376,8 @@ func TestProxyServer_ConcurrentRequests(t *testing.T) {
 	}
 }
 
-// TC-P2-06: Stub 501 responses return JSON error body.
+// TC-P2-06: Error responses return JSON error body.
+// Standalone ProxyServer (no driver) returns 400 for nil/empty body.
 func TestProxyServer_StubErrorResponseBody(t *testing.T) {
 	p := newTestProxy(t)
 	if err := p.Launch(nil); err != nil {
@@ -393,8 +398,9 @@ func TestProxyServer_StubErrorResponseBody(t *testing.T) {
 			}
 			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusNotImplemented {
-				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotImplemented)
+			// Standalone proxy with nil body -> 400
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 			}
 
 			ct := resp.Header.Get("Content-Type")
@@ -411,11 +417,11 @@ func TestProxyServer_StubErrorResponseBody(t *testing.T) {
 			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 				t.Fatalf("json decode error: %v", err)
 			}
-			if body.Error.Type != "api_error" {
-				t.Errorf("error.type = %q, want %q", body.Error.Type, "api_error")
+			if body.Error.Type != "invalid_request_error" {
+				t.Errorf("error.type = %q, want %q", body.Error.Type, "invalid_request_error")
 			}
-			if body.Error.Code != "not_implemented" {
-				t.Errorf("error.code = %q, want %q", body.Error.Code, "not_implemented")
+			if body.Error.Code != "invalid_json" {
+				t.Errorf("error.code = %q, want %q", body.Error.Code, "invalid_json")
 			}
 		})
 	}
