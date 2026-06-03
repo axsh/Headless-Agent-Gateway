@@ -281,3 +281,50 @@ func TestServer_EndToEnd_WithProxyServer(t *testing.T) {
 		t.Fatal("expected error after Shutdown(), got nil")
 	}
 }
+
+func TestServer_ReloadModelProfiles_And_Skeletons(t *testing.T) {
+	// Create a temp file for model_profiles.yaml
+	dir := t.TempDir()
+	profilesPath := filepath.Join(dir, "model_profiles.yaml")
+	content := []byte(`
+providers:
+  openai:
+    keys:
+      - name: default
+        value: sk-openai-test-key
+        models:
+          - name: gpt-4o
+`)
+	if err := os.WriteFile(profilesPath, content, 0644); err != nil {
+		t.Fatalf("write profiles: %v", err)
+	}
+
+	// Create server
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Port:              0,
+			ModelProfilesPath: profilesPath,
+		},
+	}
+	srv, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Verify skeletons
+	if srv.AgentService() == nil {
+		t.Error("expected non-nil AgentService")
+	}
+
+	// Test reload
+	err = srv.ReloadModelProfiles(profilesPath)
+	if err != nil {
+		t.Fatalf("ReloadModelProfiles failed: %v", err)
+	}
+
+	// Verify loaded models
+	models := srv.Gateway().ListModels()
+	if len(models) != 1 || models[0].Model != "gpt-4o" {
+		t.Errorf("expected 1 model 'gpt-4o', got %v", models)
+	}
+}

@@ -100,6 +100,11 @@ func (p *ProxyServer) ProxyURL() string {
 	return fmt.Sprintf("http://localhost:%d", p.port)
 }
 
+// ReloadProfiles updates the loaded model profiles at runtime.
+func (p *ProxyServer) ReloadProfiles(profiles *config.ModelProfilesConfig) {
+	p.profiles = profiles
+}
+
 // ListModels returns model info from loaded profiles.
 func (p *ProxyServer) ListModels() []ModelInfo {
 	if p.profiles == nil {

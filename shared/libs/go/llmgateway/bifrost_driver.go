@@ -72,6 +72,16 @@ func (d *BifrostDriver) Shutdown(ctx context.Context) error {
 	return d.proxy.Shutdown(ctx)
 }
 
+// ReloadProfiles updates the loaded model profiles at runtime.
+func (d *BifrostDriver) ReloadProfiles(profiles *config.ModelProfilesConfig) {
+	d.profiles = profiles
+	d.router = NewModelRouter(profiles, d.logger)
+	d.account = NewBifrostAccount(profiles, d.vault, d.logger)
+	if d.proxy != nil {
+		d.proxy.ReloadProfiles(profiles)
+	}
+}
+
 // ListModels returns the list of configured models from profiles.
 func (d *BifrostDriver) ListModels() []ModelInfo {
 	return d.proxy.ListModels()

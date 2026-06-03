@@ -7,19 +7,23 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/axsh/hag/agentservice"
 	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/logger"
 	"github.com/axsh/hag/vault"
+	"github.com/axsh/hag/wsserver"
 )
 
 // Server is the HAG core facade that orchestrates all components.
 // Users interact with HAG through this type.
 type Server struct {
-	cfg     *config.AppConfig
-	logger  logger.Logger
-	vault   vault.VaultStore
-	gateway llmgateway.LLMGatewayBackend
+	cfg          *config.AppConfig
+	logger       logger.Logger
+	vault        vault.VaultStore
+	gateway      llmgateway.LLMGatewayBackend
+	agentService *agentservice.Server
+	wsServer     *wsserver.Server
 }
 
 // New creates a new HAG Server with the given options.
@@ -55,11 +59,16 @@ func New(opts ...Option) (*Server, error) {
 		return nil, fmt.Errorf("hag: %w", err)
 	}
 
+	as := agentservice.New()
+	ws := wsserver.New()
+
 	return &Server{
-		cfg:     cfg,
-		logger:  log,
-		vault:   vs,
-		gateway: gw,
+		cfg:          cfg,
+		logger:       log,
+		vault:        vs,
+		gateway:      gw,
+		agentService: as,
+		wsServer:     ws,
 	}, nil
 }
 
@@ -72,6 +81,10 @@ func (s *Server) Launch(ctx context.Context) error {
 		return fmt.Errorf("hag: gateway launch: %w", err)
 	}
 
+	if err := s.wsServer.Launch(ctx); err != nil {
+		return fmt.Errorf("hag: wsserver launch: %w", err)
+	}
+
 	s.logger.Info("HAG server started")
 	return nil
 }
@@ -79,6 +92,10 @@ func (s *Server) Launch(ctx context.Context) error {
 // Shutdown gracefully stops all components in reverse launch order.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("shutting down HAG server")
+
+	if err := s.wsServer.Shutdown(ctx); err != nil {
+		return fmt.Errorf("hag: wsserver shutdown: %w", err)
+	}
 
 	if err := s.gateway.Shutdown(ctx); err != nil {
 		return fmt.Errorf("hag: gateway shutdown: %w", err)
@@ -91,6 +108,25 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Gateway returns the LLM Gateway Proxy backend.
 func (s *Server) Gateway() llmgateway.LLMGatewayBackend {
 	return s.gateway
+}
+
+// AgentService returns the AgentService instance.
+func (s *Server) AgentService() agentservice.AgentService {
+	return s.agentService
+}
+
+// ReloadModelProfiles reloads the model profiles at runtime.
+func (s *Server) ReloadModelProfiles(path string) error {
+	profiles, err := config.LoadModelProfiles(path)
+	if err != nil {
+		return err
+	}
+	if bd, ok := s.gateway.(*llmgateway.BifrostDriver); ok {
+		bd.ReloadProfiles(profiles)
+	} else if ps, ok := s.gateway.(*llmgateway.ProxyServer); ok {
+		ps.ReloadProfiles(profiles)
+	}
+	return nil
 }
 
 // resolveConfig resolves the AppConfig from options.
