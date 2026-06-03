@@ -315,42 +315,42 @@ None.
 
 ### Step 1: go-keyring 依存追加
 
-- `shared/libs/go/go.mod` に `github.com/zalando/go-keyring v0.2.8` を追加
-- `go mod tidy` 実行
-- `git add && git commit -m "deps: add go-keyring dependency for OS keyring access"`
+- [x] `shared/libs/go/go.mod` に `github.com/zalando/go-keyring v0.2.8` を追加
+- [x] `go mod tidy` 実行
+- [x] `git add && git commit -m "deps: add go-keyring dependency for OS keyring access"`
 
 ### Step 2: KeyringVaultBackend 実装 (TDD)
 
-1. `shared/libs/go/vault/keyring_backend_test.go` を作成
+1. [x] `shared/libs/go/vault/keyring_backend_test.go` を作成
     - `TestMain` で `keyring.MockInit()` を呼び出し
     - テストケース 1-8 を実装 (上記 Proposed Changes 参照)
-2. テスト実行 -> コンパイルエラー確認 (実装がまだないため)
-3. `shared/libs/go/vault/keyring_backend.go` を作成 (上記 Proposed Changes 参照)
-4. テスト実行 -> 全 PASS 確認
-5. `git add && git commit -m "feat: add KeyringVaultBackend for OS keyring secret storage"`
+2. [x] テスト実行 -> コンパイルエラー確認 (実装がまだないため)
+3. [x] `shared/libs/go/vault/keyring_backend.go` を作成 (上記 Proposed Changes 参照)
+4. [x] テスト実行 -> 全 PASS 確認
+5. [x] `git add && git commit -m "feat: add KeyringVaultBackend for OS keyring secret storage"`
 
 ### Step 3: WithKeyringVault() オプション追加
 
-1. `shared/libs/go/hag/options.go` に `WithKeyringVault()` を追加
-2. `shared/libs/go/hag/server_test.go` に `TestNew_WithKeyringVault` を追加
+1. [x] `shared/libs/go/hag/options.go` に `WithKeyringVault()` を追加
+2. [x] `shared/libs/go/hag/server_test.go` に `TestNew_WithKeyringVault` を追加
     - `WithKeyringVault()` で Server を作成し、gateway が正常に動作することを確認
-3. テスト実行 -> 全 PASS 確認
-4. `git add && git commit -m "feat: add WithKeyringVault() option to hag.Server"`
+3. [x] テスト実行 -> 全 PASS 確認
+4. [x] `git add && git commit -m "feat: add WithKeyringVault() option to hag.Server"`
 
 ### Step 4: vault-cli 実装 (TDD)
 
-1. `examples/vault-cli/go.mod` を作成
-2. `examples/vault-cli/main_test.go` を作成 (テストケース 1-10)
+1. [x] `examples/vault-cli/go.mod` を作成
+2. [x] `examples/vault-cli/main_test.go` を作成 (テストケース 1-10)
     - `TestMain` で `keyring.MockInit()` を呼び出し
-3. テスト実行 -> コンパイルエラー確認
-4. `examples/vault-cli/main.go` を作成
-5. テスト実行 -> 全 PASS 確認
-6. `git add && git commit -m "feat: add vault-cli example for OS keyring management"`
+3. [x] テスト実行 -> コンパイルエラー確認
+4. [x] `examples/vault-cli/main.go` を作成
+5. [x] テスト実行 -> 全 PASS 確認
+6. [x] `git add && git commit -m "feat: add vault-cli example for OS keyring management"`
 
 ### Step 5: ビルド検証
 
-1. `./scripts/process/build.sh` で全テスト通過を確認
-2. `git push`
+1. [x] `./scripts/process/build.sh` で全テスト通過を確認
+2. [/] `git push`
 
 ### Step 6: Verification Plan の実行
 
