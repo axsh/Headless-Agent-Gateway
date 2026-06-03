@@ -57,3 +57,12 @@ func WithGateway(gw llmgateway.LLMGatewayBackend) Option {
 		o.gateway = gw
 	}
 }
+
+// WithKeyringVault configures the server to use OS Keyring for secret storage.
+// This replaces the default EnvVaultBackend with KeyringVaultBackend.
+// tenantID scopes the keyring entries; if empty, "default" is used.
+func WithKeyringVault(tenantID ...string) Option {
+	return func(o *options) {
+		o.vault = vault.NewKeyringVaultBackend(tenantID...)
+	}
+}
