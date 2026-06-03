@@ -176,6 +176,53 @@ build_go() {
 
         cd "$PROJECT_ROOT"
     fi
+
+    # ============================================================
+    # Examples: examples/*/
+    # ============================================================
+    local examples_found=false
+    for example_dir in examples/*/; do
+        [[ -d "$example_dir" ]] || continue
+        if [[ ! -f "$example_dir/go.mod" ]]; then
+            continue
+        fi
+
+        examples_found=true
+        local example_name
+        example_name=$(basename "$example_dir")
+
+        step "Example: $example_name"
+        cd "$PROJECT_ROOT/$example_dir"
+
+        # --- Unit Tests ---
+        info "Running tests for example $example_name..."
+        EXAMPLE_PKGS=$(go list ./... 2>/dev/null || true)
+        if [[ -n "$EXAMPLE_PKGS" ]]; then
+            if echo "$EXAMPLE_PKGS" | xargs go test -v -count=1; then
+                success "Tests passed for example $example_name."
+            else
+                fail "Tests failed for example $example_name."
+                FAILED=true
+                return 1
+            fi
+        fi
+
+        # --- Build ---
+        info "Building example $example_name..."
+        if go build -o "$PROJECT_ROOT/bin/$example_name" .; then
+            success "Build succeeded for example $example_name → bin/$example_name"
+        else
+            fail "Build failed for example $example_name."
+            FAILED=true
+            return 1
+        fi
+
+        cd "$PROJECT_ROOT"
+    done
+
+    if [[ "$examples_found" == "true" ]]; then
+        info "Example binaries built to bin/."
+    fi
 }
 
 # ============================================================
