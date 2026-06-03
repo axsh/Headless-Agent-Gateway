@@ -171,4 +171,7 @@ func TestRunStatusLogic(t *testing.T) {
 	if !strings.Contains(output, "openai: not registered") {
 		t.Errorf("status output missing 'openai: not registered': %q", output)
 	}
+	if !strings.Contains(output, "google: not registered") {
+		t.Errorf("status output missing 'google: not registered': %q", output)
+	}
 }

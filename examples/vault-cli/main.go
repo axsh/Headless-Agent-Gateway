@@ -31,7 +31,7 @@ const (
 )
 
 // knownProviders are LLM providers checked by the "status" command.
-var knownProviders = []string{"anthropic", "openai"}
+var knownProviders = []string{"anthropic", "openai", "google"}
 
 // ────────────────────────────────────────────────────────────
 // Option structs
