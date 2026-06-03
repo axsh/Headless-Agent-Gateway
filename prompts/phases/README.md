@@ -27,3 +27,9 @@ phases/
 3. Create an implementation plan in `<branch-name>/plans/`
 4. Review and approve the plan
 5. Execute the plan
+
+## Current Progress (feat-llm-backend)
+
+- **000-foundation**:
+  - LLM Gateway Proxy, Config & Secrets, Keyring Vault, and Hierarchical Agent Log (Go `tasklog` package) backends have been implemented.
+
