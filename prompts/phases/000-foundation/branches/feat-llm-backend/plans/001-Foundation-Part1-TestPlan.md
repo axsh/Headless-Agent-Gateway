@@ -671,27 +671,27 @@ None.
 ## 4. Step-by-Step Implementation Guide
 
 1. **テスト用ヘルパー作成**:
-    - [ ] `shared/libs/go/logger/testutil_test.go` にbufferWriter (LogWriter interface実装) を作成
-    - [ ] `shared/libs/go/logger/testutil_test.go` にmockLogger (Logger interface実装) を作成
+    - [x] `shared/libs/go/logger/testutil_test.go` にbufferWriter (LogWriter interface実装) を作成
+    - [x] `shared/libs/go/logger/testutil_test.go` にmockLogger (Logger interface実装) を作成
 
 2. **Logger テスト作成**:
-    - [ ] `shared/libs/go/logger/level_test.go`: TC-L13 (ParseLevel)
-    - [ ] `shared/libs/go/logger/logger_test.go`: TC-L01 (interface準拠), TC-L14 (カスタムLogger)
-    - [ ] `shared/libs/go/logger/default_test.go`: TC-L03, TC-L04a/b/c, TC-L05, TC-L06
-    - [ ] `shared/libs/go/logger/writer_test.go`: TC-L11
+    - [x] `shared/libs/go/logger/level_test.go`: TC-L13 (ParseLevel)
+    - [x] `shared/libs/go/logger/logger_test.go`: TC-L01 (interface準拠), TC-L14 (カスタムLogger)
+    - [x] `shared/libs/go/logger/default_test.go`: TC-L03, TC-L04a/b/c, TC-L05, TC-L06
+    - [x] `shared/libs/go/logger/writer_test.go`: TC-L11
 
 3. **Config テスト作成**:
-    - [ ] `shared/libs/go/config/config_test.go`: TC-C01
-    - [ ] `shared/libs/go/config/model_profiles_test.go`: TC-C02, TC-C03
-    - [ ] `shared/libs/go/config/loader_test.go`: TC-C04a/b/c
+    - [x] `shared/libs/go/config/config_test.go`: TC-C01
+    - [x] `shared/libs/go/config/model_profiles_test.go`: TC-C02, TC-C03
+    - [x] `shared/libs/go/config/loader_test.go`: TC-C04a/b/c
 
 4. **Vault テスト作成**:
-    - [ ] `shared/libs/go/vault/resolve_test.go`: TC-V02
-    - [ ] `shared/libs/go/vault/env_backend_test.go`: TC-V03a/b/c/d, TC-V07
+    - [x] `shared/libs/go/vault/resolve_test.go`: TC-V02
+    - [x] `shared/libs/go/vault/env_backend_test.go`: TC-V03a/b/c/d, TC-V07
 
 5. **実装とテスト通過**:
-    - [ ] Part1実装計画に従い、テスト先行で実装
-    - [ ] 全テスト通過を確認
+    - [x] Part1実装計画に従い、テスト先行で実装
+    - [x] 全テスト通過を確認 (build.sh PASS, 45テストケース)
 
 ---
 
