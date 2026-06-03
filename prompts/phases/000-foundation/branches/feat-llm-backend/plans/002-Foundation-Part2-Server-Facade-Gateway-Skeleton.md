@@ -473,7 +473,7 @@ BifrostDriver の実連携、Anthropic/OpenAI ハンドラの実装、SSEスト�
 
 10. **Step 10: Git push**
     - [x] こまめにコミット (Step 1-5: llmgateway 3a46a18, Step 6-8: hag 65f4ece)
-    - [ ] 全テスト通過後に push
+    - [x] 全テスト通過後に push -- commit f467ddb
 
 ---
 

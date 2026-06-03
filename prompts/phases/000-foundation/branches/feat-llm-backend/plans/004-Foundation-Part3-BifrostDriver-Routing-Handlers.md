@@ -316,11 +316,11 @@ Part2 で構築した ProxyServer (HTTP Proxy スケルトン) 上のスタブ�
     - [x] `git add && git commit -m "feat: add ModelRouter for model_profiles.yaml routing"`
 
 4. **Step 4: BifrostAccount アダプタ (TDD)**
-    - [/] `bifrost_account_test.go` を作成
-    - [ ] テスト実行 -> 失敗確認
-    - [ ] `bifrost_account.go` を実装
-    - [ ] テスト実行 -> 全PASS確認
-    - [ ] `git add && git commit -m "feat: add BifrostAccount adapter for profiles-to-SDK conversion"`
+    - [x] `bifrost_account_test.go` を作成
+    - [x] テスト実行 -> 失敗確認
+    - [x] `bifrost_account.go` を実装
+    - [x] テスト実行 -> 全PASS確認
+    - [x] `git add && git commit -m "feat: add BifrostAccount adapter for profiles-to-SDK conversion"`
 
 5. **Step 5: BifrostDriver (TDD)**
     - [x] `bifrost_driver_test.go` を作成 (New, ListModels, Health, ProxyURL)
@@ -352,13 +352,13 @@ Part2 で構築した ProxyServer (HTTP Proxy スケルトン) 上のスタブ�
 
 9. **Step 9: ビルド検証**
     - [x] `./scripts/process/build.sh` で全テスト通過を確認
-    - [ ] `git push`
+    - [x] `git push` -- commit f467ddb
 
 10. **Step 10: 統合テスト (実プロバイダ接続)** -- Part 3.5 完了後に実施
     - Part 3.5 (KeyringVaultBackend + vault-cli) で OS Keyring に API キーを登録してから実施する
-    - [ ] `vault-cli set --provider anthropic --stdin` で API キーを OS Keyring に登録
-    - [ ] `./scripts/process/build.sh && ./scripts/process/integration_test.sh --categories "llm"`
-    - [ ] 総合判定プロセス (testing-rules.md 12) を実施
+    - [x] `vault-cli set --provider anthropic --stdin` で API キーを OS Keyring に登録
+    - [x] `./scripts/process/build.sh && ./scripts/process/integration_test.sh` -- 全4テスト PASS (Anthropic non-stream/stream, OpenAI non-stream, ServerLifecycle)
+    - [x] 総合判定プロセス (testing-rules.md 12) を実施
 
 ---
 
