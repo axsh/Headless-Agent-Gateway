@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+
+	"github.com/axsh/hag/vault"
 )
 
 // anthropicRequest represents the minimal fields we parse from Anthropic Messages API.
@@ -60,15 +62,31 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Resolve vault reference if needed
+	apiKey := routed.KeyValue
+	if vault.IsVaultRef(apiKey) && p.vault != nil {
+		resolved, err := p.vault.Resolve(apiKey)
+		if err != nil {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "failed to resolve API key from vault",
+				Code:    "vault_error",
+				Status:  http.StatusInternalServerError,
+			})
+			return
+		}
+		apiKey = resolved
+	}
+
 	p.logger.Info("anthropic request routed",
 		"model", routed.Model,
 		"provider", routed.Provider,
-		"key", MaskSecret(routed.KeyValue),
+		"key", MaskSecret(apiKey),
 	)
 
 	// Forward to upstream Anthropic API
 	fwd := newProviderForwarder()
-	resp, err := fwd.forwardToProvider(routed.Provider, "/v1/messages", body, routed.KeyValue, r.Header)
+	resp, err := fwd.forwardToProvider(routed.Provider, "/v1/messages", body, apiKey, r.Header)
 	if err != nil {
 		if gwErr, ok := err.(*GatewayError); ok {
 			WriteErrorResponse(w, gwErr)
