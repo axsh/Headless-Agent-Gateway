@@ -1,0 +1,25 @@
+# Test model profiles for LLM integration tests.
+# API keys are resolved from OS Keyring via vault:// references.
+default_profile:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+
+providers:
+  anthropic:
+    keys:
+      - name: default
+        value: "vault://providers/anthropic/default"
+        models:
+          - name: claude-sonnet-4-20250514
+  openai:
+    keys:
+      - name: default
+        value: "vault://providers/openai/default"
+        models:
+          - name: gpt-4.1-mini
+  google:
+    keys:
+      - name: default
+        value: "vault://providers/google/default"
+        models:
+          - name: gemini-2.5-flash
