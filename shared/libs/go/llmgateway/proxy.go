@@ -21,6 +21,7 @@ type ProxyServer struct {
 	server   *http.Server
 	listener net.Listener
 	port     int
+	driver   *BifrostDriver // back-reference for handler delegation (nil when standalone)
 }
 
 // NewProxyServer creates a ProxyServer.
