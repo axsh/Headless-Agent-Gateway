@@ -96,7 +96,7 @@ func TestModelRouter_ResolveModel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			router := NewModelRouter(tt.profiles, nil)
-			got, err := router.ResolveModel(tt.modelName)
+			got, err := router.ResolveModel(tt.modelName, "")
 
 			if tt.wantErr != nil {
 				if err == nil {
@@ -124,5 +124,34 @@ func TestModelRouter_ResolveModel(t *testing.T) {
 				t.Error("KeyValue should not be empty")
 			}
 		})
+	}
+}
+
+func TestModelRouter_SessionFallback(t *testing.T) {
+	profiles := testProfiles()
+	router := NewModelRouter(profiles, nil)
+
+	// 1. Resolve first model in session "session-1" -> should succeed and record it.
+	got1, err := router.ResolveModel("claude-sonnet-4-20250514", "session-1")
+	if err != nil {
+		t.Fatalf("ResolveModel failed: %v", err)
+	}
+	if got1.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("expected model 'claude-sonnet-4-20250514', got %q", got1.Model)
+	}
+
+	// 2. Resolve unknown model in session "session-1" -> should fallback to recorded default.
+	got2, err := router.ResolveModel("unknown-model", "session-1")
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got error: %v", err)
+	}
+	if got2.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("expected model to fallback to 'claude-sonnet-4-20250514', got %q", got2.Model)
+	}
+
+	// 3. Resolve unknown model in session "session-2" -> should fail because no default recorded.
+	_, err = router.ResolveModel("unknown-model", "session-2")
+	if err == nil {
+		t.Fatalf("expected failure for unregistered session, got nil error")
 	}
 }

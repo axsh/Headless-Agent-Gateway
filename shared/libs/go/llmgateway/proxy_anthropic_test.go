@@ -128,3 +128,90 @@ func TestHandleAnthropicMessages_KnownModel_ForwardsToUpstream(t *testing.T) {
 		t.Errorf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
+
+func TestHandleAnthropicMessages_ToolCallFallback(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":   "msg_123",
+			"type": "message",
+			"role": "assistant",
+			"content": []map[string]string{
+				{"type": "text", "text": "Using search tool:\n<tool_call>{\"name\": \"google_search\", \"arguments\": {\"query\": \"golang\"}}</tool_call>"},
+			},
+			"model":       "claude-sonnet-4-20250514",
+			"stop_reason": "end_turn",
+		})
+	}))
+	defer mockUpstream.Close()
+
+	origURL := providerBaseURLs["anthropic"]
+	providerBaseURLs["anthropic"] = mockUpstream.URL
+	defer func() { providerBaseURLs["anthropic"] = origURL }()
+
+	cfg := &config.AppConfig{}
+
+	profiles := &config.ModelProfilesConfig{
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {
+				Keys: []config.KeyConfig{
+					{
+						Name:  "primary",
+						Value: "sk-ant-test-key",
+						Models: []config.ModelConfig{
+							{
+								Name: "claude-sonnet-4-20250514",
+								Behavior: &config.ModelBehavior{
+									ToolCallFallback: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	driver, _ := NewBifrostDriver(cfg, profiles, nil, nil)
+	proxy := driver.proxy
+
+	body := map[string]any{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 100,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse response JSON: %v", err)
+	}
+
+	content := response["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(content))
+	}
+
+	block := content[0].(map[string]any)
+	if block["type"] != "tool_use" {
+		t.Errorf("expected type 'tool_use', got %v", block["type"])
+	}
+	if block["name"] != "google_search" {
+		t.Errorf("expected name 'google_search', got %v", block["name"])
+	}
+	if response["stop_reason"] != "tool_use" {
+		t.Errorf("expected stop_reason 'tool_use', got %v", response["stop_reason"])
+	}
+}

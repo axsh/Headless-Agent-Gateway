@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -77,6 +78,7 @@ func (f *providerForwarder) forwardToProvider(
 }
 
 // proxyResponse copies the upstream response to the downstream client.
+// It detects and handles text/event-stream streaming response natively by flushing chunks.
 func proxyResponse(w http.ResponseWriter, resp *http.Response) {
 	// Copy relevant headers
 	for key, vals := range resp.Header {
@@ -85,5 +87,25 @@ func proxyResponse(w http.ResponseWriter, resp *http.Response) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
+
+	// Stream text/event-stream data immediately
+	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		flusher, ok := w.(http.Flusher)
+		if ok {
+			buf := make([]byte, 4096)
+			for {
+				n, err := resp.Body.Read(buf)
+				if n > 0 {
+					w.Write(buf[:n])
+					flusher.Flush()
+				}
+				if err != nil {
+					break
+				}
+			}
+			return
+		}
+	}
+
 	io.Copy(w, resp.Body)
 }

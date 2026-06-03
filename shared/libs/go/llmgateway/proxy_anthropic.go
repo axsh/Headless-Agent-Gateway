@@ -1,9 +1,12 @@
 package llmgateway
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/axsh/hag/vault"
 )
@@ -51,7 +54,9 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	routed, err := p.driver.router.ResolveModel(req.Model)
+	sessionID := ExtractSessionID(r.Header.Get("x-api-key"))
+
+	routed, err := p.driver.router.ResolveModel(req.Model, sessionID)
 	if err != nil {
 		WriteErrorResponse(w, &GatewayError{
 			Type:    "not_found_error",
@@ -84,9 +89,15 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		"key", MaskSecret(apiKey),
 	)
 
+	// Rewrite model field in body if it has changed due to routing/fallback
+	forwardBody := body
+	if routed.Model != req.Model {
+		forwardBody = rewriteModelField(body, req.Model, routed.Model)
+	}
+
 	// Forward to upstream Anthropic API
 	fwd := newProviderForwarder()
-	resp, err := fwd.forwardToProvider(routed.Provider, "/v1/messages", body, apiKey, r.Header)
+	resp, err := fwd.forwardToProvider(routed.Provider, "/v1/messages", forwardBody, apiKey, r.Header)
 	if err != nil {
 		if gwErr, ok := err.(*GatewayError); ok {
 			WriteErrorResponse(w, gwErr)
@@ -101,5 +112,20 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 	defer resp.Body.Close()
+
+	// Apply ToolCallFallback if enabled
+	if routed.ToolCallFallback && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		respBody, err := io.ReadAll(resp.Body)
+		if err == nil {
+			rewritten, ok := TryFallbackAnthropicResponse(respBody)
+			if ok {
+				resp.Body = io.NopCloser(bytes.NewReader(rewritten))
+				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewritten)))
+			} else {
+				resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			}
+		}
+	}
+
 	proxyResponse(w, resp)
 }
