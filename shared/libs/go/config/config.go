@@ -10,6 +10,9 @@ type AppConfig struct {
 
 	// Log holds logging settings.
 	Log LogConfig `yaml:"log"`
+
+	// WebSocket holds WebSocket server settings.
+	WebSocket WebSocketConfig `yaml:"websocket"`
 }
 
 // LLMGatewayConfig holds LLM Gateway Proxy settings.
@@ -40,4 +43,11 @@ type VaultConfig struct {
 type LogConfig struct {
 	// Level is the minimum log level: "debug", "info", "warn", "error".
 	Level string `yaml:"level"`
+}
+
+// WebSocketConfig holds WebSocket server settings.
+type WebSocketConfig struct {
+	// Port is the WebSocket server listen port.
+	// When 0, the OS assigns an ephemeral port.
+	Port int `yaml:"port"`
 }

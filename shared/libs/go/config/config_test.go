@@ -80,6 +80,18 @@ vault:
 				},
 			},
 		},
+		{
+			name: "websocket config",
+			input: `
+websocket:
+  port: 19000
+`,
+			want: AppConfig{
+				WebSocket: WebSocketConfig{
+					Port: 19000,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
