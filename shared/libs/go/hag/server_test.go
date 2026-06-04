@@ -13,6 +13,7 @@ import (
 	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/logger"
+	"github.com/axsh/hag/tasklog"
 	"github.com/axsh/hag/vault"
 )
 
@@ -326,5 +327,55 @@ providers:
 	models := srv.Gateway().ListModels()
 	if len(models) != 1 || models[0].Model != "gpt-4o" {
 		t.Errorf("expected 1 model 'gpt-4o', got %v", models)
+	}
+}
+
+func TestServer_TaskLog(t *testing.T) {
+	stub := llmgateway.NewStubGateway()
+	srv, err := New(WithGateway(stub))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	tl := srv.TaskLog()
+	if tl == nil {
+		t.Fatal("TaskLog() returned nil")
+	}
+
+	// TaskLog should be functional.
+	entry := tasklog.NewAgentLogEntry("test-agent", tasklog.WithKind("text"))
+	tl.Add(entry)
+	entries := tl.Entries()
+	if len(entries) != 1 {
+		t.Errorf("Entries() len = %d, want 1", len(entries))
+	}
+}
+
+func TestServer_WebSocketURL(t *testing.T) {
+	stub := llmgateway.NewStubGateway()
+	cfg := &config.AppConfig{
+		WebSocket: config.WebSocketConfig{Port: 0},
+	}
+	srv, err := New(WithGateway(stub), WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Before Launch, URL should be empty (port is 0).
+	if url := srv.WebSocketURL(); url != "" {
+		t.Errorf("before Launch: WebSocketURL() = %q, want empty", url)
+	}
+
+	ctx := context.Background()
+	if err := srv.Launch(ctx); err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	defer srv.Shutdown(ctx)
+
+	url := srv.WebSocketURL()
+	if url == "" {
+		t.Fatal("after Launch: WebSocketURL() returned empty string")
+	}
+	if !strings.HasPrefix(url, "ws://") {
+		t.Errorf("WebSocketURL() = %q, want ws:// prefix", url)
 	}
 }

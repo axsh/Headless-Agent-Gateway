@@ -11,6 +11,7 @@ import (
 	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/logger"
+	"github.com/axsh/hag/tasklog"
 	"github.com/axsh/hag/vault"
 	"github.com/axsh/hag/wsserver"
 )
@@ -24,6 +25,7 @@ type Server struct {
 	gateway      llmgateway.LLMGatewayBackend
 	agentService *agentservice.Server
 	wsServer     *wsserver.Server
+	taskLog      *tasklog.TaskLog
 }
 
 // New creates a new HAG Server with the given options.
@@ -60,7 +62,10 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	as := agentservice.New()
-	ws := wsserver.New()
+	tl := tasklog.New()
+
+	wsPort := cfg.WebSocket.Port
+	ws := wsserver.New(wsPort, tl, log)
 
 	return &Server{
 		cfg:          cfg,
@@ -69,6 +74,7 @@ func New(opts ...Option) (*Server, error) {
 		gateway:      gw,
 		agentService: as,
 		wsServer:     ws,
+		taskLog:      tl,
 	}, nil
 }
 
@@ -113,6 +119,18 @@ func (s *Server) Gateway() llmgateway.LLMGatewayBackend {
 // AgentService returns the AgentService instance.
 func (s *Server) AgentService() agentservice.AgentService {
 	return s.agentService
+}
+
+// TaskLog returns the TaskLog instance.
+// Callers can use TaskLog().Add() to inject log entries.
+func (s *Server) TaskLog() *tasklog.TaskLog {
+	return s.taskLog
+}
+
+// WebSocketURL returns the WebSocket server URL.
+// Returns empty string if the server has not been launched.
+func (s *Server) WebSocketURL() string {
+	return s.wsServer.URL()
 }
 
 // ReloadModelProfiles reloads the model profiles at runtime.
