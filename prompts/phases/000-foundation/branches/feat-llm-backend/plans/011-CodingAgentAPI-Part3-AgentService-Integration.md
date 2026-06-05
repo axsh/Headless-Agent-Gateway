@@ -729,37 +729,37 @@ None.
 
 ## Step-by-Step Implementation Guide
 
-1.  **Step 1: session_store_test.go + session_store.go (MemorySessionStore)**:
+1.  [x] **Step 1: session_store_test.go + session_store.go (MemorySessionStore)**:
     *   テストを先に作成し、CRUD + ステータス遷移を検証
-    *   `MemorySessionStore` を実装
+    *   `MemorySessionStore` を実装 (copy-on-store, status transition validation)
     *   テスト Green を確認
 
-2.  **Step 2: health_test.go + health.go (ヘルスチェック)**:
+2.  [x] **Step 2: health_test.go + health.go (ヘルスチェック)**:
     *   LLMGP モックサーバーを使ったテストを作成
     *   `handleHealth()` + `checkGatewayHealth()` を実装
     *   テスト Green を確認
 
-3.  **Step 3: handler_test.go + handler.go (HTTPハンドラ)**:
+3.  [x] **Step 3: handler_test.go + handler.go (HTTPハンドラ)**:
     *   テストを先に作成
     *   REST エンドポイント + SSE ストリーミングを実装
     *   テスト Green を確認
 
-4.  **Step 4: log_stream_test.go + log_stream.go (ログSSE)**:
+4.  [x] **Step 4: log_stream_test.go + log_stream.go (ログSSE)**:
     *   テストを先に作成
     *   ログポーリング + SSE 配信を実装
     *   テスト Green を確認
 
-5.  **Step 5: service.go の書き換え**:
-    *   既存スタブ実装を本番実装に置き換える
+5.  [x] **Step 5: service.go の書き換え**:
+    *   既存スタブ実装を本番実装に置き換える (`NewWithStore`, `/logs` routing)
     *   全テスト Green を確認
 
-6.  **Step 6: hag/options.go + hag/server.go の修正**:
+6.  [x] **Step 6: hag/options.go + hag/server.go の修正**:
     *   `WithAgentService` Option を追加
-    *   `New()` の AgentService 初期化を強化
+    *   `New()` の AgentService 初期化を強化 (`resolveAgentService` ヘルパー)
     *   既存テスト (`hag/server_test.go`) が引き続き Green であることを確認
 
-7.  **Step 7: ビルド検証**:
-    *   Verification Plan を実行
+7.  [x] **Step 7: ビルド検証**:
+    *   Verification Plan を実行 -- build.sh PASSED (14秒)
 
 ## Verification Plan
 
