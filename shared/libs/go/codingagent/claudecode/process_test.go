@@ -1,0 +1,122 @@
+package claudecode_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/codingagent/claudecode"
+)
+
+func TestBuildArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *codingagent.SessionConfig
+		contains []string
+	}{
+		{
+			name: "basic with prompt and model",
+			cfg: &codingagent.SessionConfig{
+				Prompt: "hello world",
+				Model:  "anthropic/claude-sonnet-4",
+			},
+			contains: []string{
+				"--output-format", "stream-json",
+				"-p", "hello world",
+				"--model", "anthropic/claude-sonnet-4",
+				"--permission-mode", "bypassPermissions",
+			},
+		},
+		{
+			name: "with allowed tools",
+			cfg: &codingagent.SessionConfig{
+				Prompt:       "test",
+				AllowedTools: []string{"Read", "Edit", "Write"},
+			},
+			contains: []string{"--allowedTools", "Read,Edit,Write"},
+		},
+		{
+			name: "with SDK session ID",
+			cfg: &codingagent.SessionConfig{
+				Prompt:       "test",
+				SDKSessionID: "sdk-abc-123",
+			},
+			contains: []string{"--session-id", "sdk-abc-123"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := claudecode.BuildArgs(tt.cfg)
+			argsStr := strings.Join(args, " ")
+			for _, want := range tt.contains {
+				if !strings.Contains(argsStr, want) {
+					t.Errorf("args %q should contain %q", argsStr, want)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		ac      *codingagent.AdapterConfig
+		cfg     *codingagent.SessionConfig
+		wantKey string
+		wantVal string
+		wantNot string
+	}{
+		{
+			name:    "gateway URL sets ANTHROPIC_BASE_URL",
+			ac:      &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000"},
+			cfg:     &codingagent.SessionConfig{},
+			wantKey: "ANTHROPIC_BASE_URL",
+			wantVal: "http://localhost:14000",
+		},
+		{
+			name:    "disable sandbox sets CLAUDE_CODE_SKIP_SANDBOX",
+			ac:      &codingagent.AdapterConfig{DisableSandbox: true},
+			cfg:     &codingagent.SessionConfig{},
+			wantKey: "CLAUDE_CODE_SKIP_SANDBOX",
+			wantVal: "1",
+		},
+		{
+			name:    "sandbox enabled does not set CLAUDE_CODE_SKIP_SANDBOX",
+			ac:      &codingagent.AdapterConfig{DisableSandbox: false},
+			cfg:     &codingagent.SessionConfig{},
+			wantNot: "CLAUDE_CODE_SKIP_SANDBOX",
+		},
+		{
+			name: "API key always set to not-needed",
+			ac:   &codingagent.AdapterConfig{},
+			cfg:  &codingagent.SessionConfig{},
+			wantKey: "ANTHROPIC_API_KEY",
+			wantVal: "not-needed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := claudecode.BuildEnv(tt.ac, tt.cfg)
+			envMap := make(map[string]string)
+			for _, e := range env {
+				parts := strings.SplitN(e, "=", 2)
+				if len(parts) == 2 {
+					envMap[parts[0]] = parts[1]
+				}
+			}
+
+			if tt.wantKey != "" {
+				if val, ok := envMap[tt.wantKey]; !ok || val != tt.wantVal {
+					t.Errorf("%s = %q, want %q", tt.wantKey, val, tt.wantVal)
+				}
+			}
+			if tt.wantNot != "" {
+				if _, ok := envMap[tt.wantNot]; ok {
+					t.Errorf("%s should not be set", tt.wantNot)
+				}
+			}
+		})
+	}
+}
