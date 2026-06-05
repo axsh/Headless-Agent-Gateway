@@ -262,6 +262,49 @@ volumes:
 
 ---
 
+#### C9: Coding Agent Web API クライアント Example
+
+- **C9-1**: `examples/cawa-client/main.go` に Coding Agent Web API (CAWA) のクライアント実装を作成する。統合テストやデバッグ時のリファレンス実装として使用する
+
+- **C9-2**: 以下のサブコマンドを提供する
+
+| サブコマンド | 説明 |
+|---|---|
+| `health` | `GET /health` を呼び出し、ステータス・エージェント一覧・CLIバージョン・Gateway状態を表示 |
+| `agents` | `GET /api/v1/agents` を呼び出し、利用可能なエージェント一覧を表示 |
+| `run` | セッション作成 -> メッセージ送信 (SSE) -> ストリーミング出力 -> セッション完了の一連フローを実行 |
+| `session` | `GET /api/v1/sessions/:id` でセッション状態を取得 |
+| `logs` | `GET /api/v1/sessions/:id/logs` でSSEログストリームに接続し、リアルタイム表示 |
+| `terminate` | `POST /api/v1/sessions/:id/terminate` でセッションを強制終了 |
+
+- **C9-3**: `run` サブコマンドの実行フロー
+
+```
+cawa-client run --server http://localhost:3100 \
+  --agent claudecode \
+  --model "anthropic/claude-sonnet-4" \
+  --prompt "Hello, write a simple hello.py"
+
+# 1. POST /api/v1/sessions {agent, model} -> session_id取得
+# 2. POST /api/v1/sessions/:id/messages {message} (Accept: text/event-stream)
+# 3. SSEストリームを逐次読み取り、標準出力に表示
+#    - text イベント -> テキスト出力
+#    - tool_use イベント -> ツール名と引数を表示
+#    - tool_result イベント -> ツール結果を表示
+#    - [DONE] -> 完了
+# 4. GET /api/v1/sessions/:id -> 最終ステータス表示
+```
+
+- **C9-4**: SSEパーサーを実装する。`bufio.Scanner` で `data:` プレフィックスの行を逐次読み取り、JSONデコードしてイベントを処理する
+
+- **C9-5**: `--server` フラグでCAWAのURLを指定する (デフォルト: `http://localhost:3100`)
+
+- **C9-6**: `build.sh` のビルド対象に `examples/cawa-client` を追加し、`bin/cawa-client` として出力する
+
+- **C9-7**: コンテナ統合テスト (`scripts/test/container_test.sh`) では、この `cawa-client` バイナリを使用してAPIを呼び出す (curl の代わり)
+
+---
+
 ### 任意要件
 
 - **OC1**: Bearer認証ミドルウェア (`/health`以外のエンドポイント) -- 将来フェーズ
@@ -284,6 +327,10 @@ shared/libs/go/
             process.go     -- [MODIFY] Graceful Shutdown (SIGTERM -> SIGKILL)
         codex/
             process.go     -- [MODIFY] Graceful Shutdown
+
+examples/
+    cawa-client/           -- [NEW] CAWA Web APIクライアント
+        main.go            -- サブコマンド (health, agents, run, session, logs, terminate)
 
 container/
     all-in-one/            -- [NEW] UC-Bコンテナ構成
@@ -394,6 +441,15 @@ Wait 5 seconds (with select/timer)
 4. `curl http://localhost:3100/health` でgateway.status が "ok" であること
 5. `docker-compose down` で全コンテナが停止すること
 
+### シナリオ7: CAWAクライアントExample
+
+1. `go build` で `examples/cawa-client` がコンパイル成功すること
+2. `cawa-client health --server http://localhost:3100` でヘルスチェック結果が表示されること
+3. `cawa-client agents` でエージェント一覧が表示されること
+4. `cawa-client run --agent claudecode --prompt "hello"` でSSEストリームが標準出力に表示されること
+5. `cawa-client session --id <session_id>` でセッション状態が取得できること
+6. `cawa-client logs --id <session_id>` でSSEログがリアルタイム表示されること
+
 ---
 
 ## テスト項目 (Testing for the Requirements)
@@ -419,13 +475,14 @@ Wait 5 seconds (with select/timer)
 | CLIバージョン取得 | `agentservice/health_test.go` | cli_versionsフィールドがレスポンスに含まれること |
 | Graceful Shutdown | `claudecode/process_test.go` | SIGTERM -> タイムアウト -> SIGKILLのシーケンス |
 | Graceful Shutdown | `codex/process_test.go` | 同上 |
+| CAWAクライアント | `examples/cawa-client` | build.shでビルド成功、bin/cawa-client出力 |
 
 ### コンテナ統合テスト
 
 | ユースケース | テスト方法 | 確認内容 |
 |---|---|---|
-| UC-B: All-in-One | `scripts/test/container_test.sh all-in-one` | ビルド、起動、ヘルスチェック、停止 |
-| UC-C: Hybrid | `scripts/test/container_test.sh hybrid` | Gateway/Agent分離、コンテナ間通信 |
+| UC-B: All-in-One | `scripts/test/container_test.sh all-in-one` | ビルド、起動、cawa-clientでヘルスチェック・API呼び出し、停止 |
+| UC-C: Hybrid | `scripts/test/container_test.sh hybrid` | Gateway/Agent分離、cawa-clientでコンテナ間通信確認 |
 
 ---
 
