@@ -61,8 +61,19 @@ func New(opts ...Option) (*Server, error) {
 		return nil, fmt.Errorf("hag: %w", err)
 	}
 
-	as := agentservice.New()
 	tl := tasklog.New()
+
+	// Build gateway URL from port for health check cascading.
+	gatewayURL := ""
+	if cfg.LLMGateway.Port > 0 {
+		gatewayURL = fmt.Sprintf("http://localhost:%d", cfg.LLMGateway.Port)
+	}
+
+	as := agentservice.New(
+		agentservice.WithLogger(log),
+		agentservice.WithTaskLog(tl),
+		agentservice.WithGatewayURL(gatewayURL),
+	)
 
 	wsPort := cfg.WebSocket.Port
 	ws := wsserver.New(wsPort, tl, log)
