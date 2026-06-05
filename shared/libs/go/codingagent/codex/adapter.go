@@ -12,6 +12,7 @@ import (
 type CodexAdapter struct {
 	config *codingagent.AdapterConfig
 	mu     sync.Mutex
+	procs  []*ProcessManager
 }
 
 // compile-time interface compliance check
@@ -25,9 +26,7 @@ func New(config *codingagent.AdapterConfig) *CodexAdapter {
 // Name returns "codex".
 func (a *CodexAdapter) Name() string { return "codex" }
 
-// CreateSession starts a new Codex session.
-// Note: Full subprocess management is deferred to integration phase;
-// this implementation provides the structural foundation.
+// CreateSession starts a new Codex session by launching the CLI subprocess.
 func (a *CodexAdapter) CreateSession(
 	ctx context.Context, opts ...codingagent.SessionOption,
 ) (codingagent.Session, error) {
@@ -40,29 +39,45 @@ func (a *CodexAdapter) CreateSession(
 		return nil, fmt.Errorf("codex: write config: %w", err)
 	}
 
-	_ = configPath // Will be used by process manager in full implementation
-	return &codexSession{id: "codex-placeholder"}, nil
+	ch, pm, err := StartProcess(ctx, a.config, cfg, configPath)
+	if err != nil {
+		return nil, fmt.Errorf("codex: create session: %w", err)
+	}
+
+	a.mu.Lock()
+	a.procs = append(a.procs, pm)
+	a.mu.Unlock()
+
+	sid := fmt.Sprintf("codex-%d", pm.cmd.Process.Pid)
+	return &codexSession{id: sid, ch: ch, pm: pm}, nil
 }
 
-// Close releases resources.
+// Close stops all active processes and releases resources.
 func (a *CodexAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, pm := range a.procs {
+		pm.Stop()
+	}
+	a.procs = nil
 	return nil
 }
 
 // codexSession is a Codex Session implementation.
 type codexSession struct {
 	id string
+	ch <-chan codingagent.StreamEvent
+	pm *ProcessManager
 }
 
 // Send returns the streaming event channel.
+// For single-shot sessions, the prompt is already sent via JSON-RPC at startup.
 func (s *codexSession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
-	ch := make(chan codingagent.StreamEvent)
-	close(ch)
-	return ch, nil
+	return s.ch, nil
 }
 
 // ID returns the session identifier.
 func (s *codexSession) ID() string { return s.id }
 
-// Close terminates the session.
-func (s *codexSession) Close() error { return nil }
+// Close terminates the session and stops the subprocess.
+func (s *codexSession) Close() error { return s.pm.Stop() }
