@@ -592,41 +592,41 @@ wire_api = "chat"
 
 ## Step-by-Step Implementation Guide
 
-1.  **Step 1: claudecode/ ディレクトリ作成**
+1.  [x] **Step 1: claudecode/ ディレクトリ作成**
 
-2.  **Step 2: claudecode/protocol_test.go + protocol.go (JSON Lines パーサー)**:
+2.  [x] **Step 2: claudecode/protocol_test.go + protocol.go (JSON Lines パーサー)**:
     *   テストを先に作成し、全パターンのイベント変換を検証
     *   `ParseJSONLinesEvent()` を実装
     *   テスト Green を確認
 
-3.  **Step 3: claudecode/process_test.go + process.go (サブプロセス管理)**:
-    *   `buildArgs()`, `buildEnv()` のテストを作成
+3.  [x] **Step 3: claudecode/process_test.go + process.go (サブプロセス管理)**:
+    *   `BuildArgs()`, `BuildEnv()` のテストを作成
     *   `StartProcess()`, `ProcessManager.Stop()` を実装
     *   テスト Green を確認
 
-4.  **Step 4: claudecode/adapter_test.go + adapter.go**:
+4.  [x] **Step 4: claudecode/adapter_test.go + adapter.go**:
     *   インターフェース準拠テストを作成
     *   `ClaudeCodeAdapter` を実装
     *   テスト Green を確認
 
-5.  **Step 5: codex/ ディレクトリ作成**
+5.  [x] **Step 5: codex/ ディレクトリ作成**
 
-6.  **Step 6: codex/config_test.go + config.go (config.toml生成)**:
+6.  [x] **Step 6: codex/config_test.go + config.go (config.toml生成)**:
     *   テストを先に作成
     *   `GenerateConfigTOML()`, `WriteConfigTOML()` を実装
     *   テスト Green を確認
 
-7.  **Step 7: codex/protocol_test.go + protocol.go (JSON-RPC 2.0)**:
+7.  [x] **Step 7: codex/protocol_test.go + protocol.go (JSON-RPC 2.0)**:
     *   テストを先に作成
     *   JSON-RPC メッセージ構築・解析関数を実装
     *   テスト Green を確認
 
-8.  **Step 8: codex/process_test.go + process.go + adapter_test.go + adapter.go**:
+8.  [x] **Step 8: codex/process_test.go + process.go + adapter_test.go + adapter.go**:
     *   プロセス管理とAdapter本体を実装
     *   テスト Green を確認
 
-9.  **Step 9: ビルド検証**:
-    *   Verification Plan を実行
+9.  [x] **Step 9: ビルド検証**:
+    *   Verification Plan を実行 -- build.sh PASSED (14秒)
 
 ## Verification Plan
 
