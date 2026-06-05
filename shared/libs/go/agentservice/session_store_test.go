@@ -93,3 +93,46 @@ func TestMemorySessionStore_GetNotFound(t *testing.T) {
 		t.Errorf("error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestMemorySessionStore_StatusTransition(t *testing.T) {
+	tests := []struct {
+		name  string
+		from  string
+		to    string
+		valid bool
+	}{
+		{"active to completed", codingagent.StatusActive, codingagent.StatusCompleted, true},
+		{"active to error", codingagent.StatusActive, codingagent.StatusError, true},
+		{"active to closed", codingagent.StatusActive, codingagent.StatusClosed, true},
+		{"completed to active (invalid)", codingagent.StatusCompleted, codingagent.StatusActive, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := agentservice.NewMemorySessionStore()
+			record := &codingagent.SessionRecord{
+				ID:     "sess-transition",
+				Status: tt.from,
+			}
+			store.Create(record)
+
+			record.Status = tt.to
+			err := store.Update(record)
+
+			if tt.valid {
+				if err != nil {
+					t.Errorf("expected valid transition %s -> %s, got error: %v", tt.from, tt.to, err)
+				}
+				got, _ := store.Get("sess-transition")
+				if got.Status != tt.to {
+					t.Errorf("Status = %v, want %v", got.Status, tt.to)
+				}
+			} else {
+				if err == nil {
+					t.Errorf("expected error for invalid transition %s -> %s, got nil", tt.from, tt.to)
+				}
+			}
+		})
+	}
+}
+

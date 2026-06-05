@@ -1,6 +1,7 @@
 package hag
 
 import (
+	"github.com/axsh/hag/agentservice"
 	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/logger"
@@ -11,11 +12,12 @@ import (
 type Option func(*options)
 
 type options struct {
-	cfg        *config.AppConfig
-	configPath string
-	logger     logger.Logger
-	vault      vault.VaultStore
-	gateway    llmgateway.LLMGatewayBackend
+	cfg          *config.AppConfig
+	configPath   string
+	logger       logger.Logger
+	vault        vault.VaultStore
+	gateway      llmgateway.LLMGatewayBackend
+	agentService *agentservice.Server
 }
 
 // WithConfig sets the configuration directly.
@@ -64,5 +66,13 @@ func WithGateway(gw llmgateway.LLMGatewayBackend) Option {
 func WithKeyringVault(tenantID ...string) Option {
 	return func(o *options) {
 		o.vault = vault.NewKeyringVaultBackend(tenantID...)
+	}
+}
+
+// WithAgentService injects an externally constructed AgentService server.
+// When set, New() uses this instead of building one internally.
+func WithAgentService(as *agentservice.Server) Option {
+	return func(o *options) {
+		o.agentService = as
 	}
 }

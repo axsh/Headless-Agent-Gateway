@@ -69,11 +69,7 @@ func New(opts ...Option) (*Server, error) {
 		gatewayURL = fmt.Sprintf("http://localhost:%d", cfg.LLMGateway.Port)
 	}
 
-	as := agentservice.New(
-		agentservice.WithLogger(log),
-		agentservice.WithTaskLog(tl),
-		agentservice.WithGatewayURL(gatewayURL),
-	)
+	as := resolveAgentService(o, log, tl, gatewayURL)
 
 	wsPort := cfg.WebSocket.Port
 	ws := wsserver.New(wsPort, tl, log)
@@ -214,3 +210,16 @@ func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log 
 	// No profiles configured; use standalone ProxyServer.
 	return llmgateway.NewProxyServer(cfg, vs, log)
 }
+
+// resolveAgentService returns the externally provided AgentService or builds one.
+func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string) *agentservice.Server {
+	if o.agentService != nil {
+		return o.agentService
+	}
+	return agentservice.New(
+		agentservice.WithLogger(log),
+		agentservice.WithTaskLog(tl),
+		agentservice.WithGatewayURL(gatewayURL),
+	)
+}
+

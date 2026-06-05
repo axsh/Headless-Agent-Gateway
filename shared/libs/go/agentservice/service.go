@@ -55,6 +55,18 @@ func New(opts ...ServerOption) *Server {
 	return s
 }
 
+// NewWithStore creates a Server with a custom SessionStore (for testing).
+func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server {
+	s := &Server{
+		agents:   make(map[string]codingagent.CodingAgent),
+		sessions: store,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
 // RegisterAgent registers a CodingAgent with the server.
 func (s *Server) RegisterAgent(agent codingagent.CodingAgent) {
 	s.agents[agent.Name()] = agent
@@ -94,6 +106,8 @@ func (s *Server) routeSessionByID(w http.ResponseWriter, r *http.Request) {
 		s.handleSendMessage(w, r)
 	} else if strings.HasSuffix(path, "/terminate") {
 		s.handleTerminate(w, r)
+	} else if strings.HasSuffix(path, "/logs") {
+		s.handleLogStream(w, r)
 	} else {
 		switch r.Method {
 		case http.MethodGet:

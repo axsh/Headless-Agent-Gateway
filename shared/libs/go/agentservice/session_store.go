@@ -11,6 +11,16 @@ import (
 // ErrNotFound is returned when a session is not found.
 var ErrNotFound = errors.New("session not found")
 
+// ErrInvalidTransition is returned when an invalid status transition is attempted.
+var ErrInvalidTransition = errors.New("invalid status transition")
+
+// isTerminalStatus returns true if the status is a terminal state.
+func isTerminalStatus(status string) bool {
+	return status == codingagent.StatusCompleted ||
+		status == codingagent.StatusError ||
+		status == codingagent.StatusClosed
+}
+
 // MemorySessionStore is an in-memory SessionStore implementation.
 type MemorySessionStore struct {
 	mu       sync.RWMutex
@@ -27,14 +37,17 @@ func NewMemorySessionStore() *MemorySessionStore {
 // compile-time interface compliance check
 var _ codingagent.SessionStore = (*MemorySessionStore)(nil)
 
-// Create stores a new session record.
+// Create stores a new session record (stores a copy).
 func (m *MemorySessionStore) Create(s *codingagent.SessionRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
+	copy := *s
+	copy.CreatedAt = now
+	copy.UpdatedAt = now
 	s.CreatedAt = now
 	s.UpdatedAt = now
-	m.sessions[s.ID] = s
+	m.sessions[s.ID] = &copy
 	return nil
 }
 
@@ -49,15 +62,23 @@ func (m *MemorySessionStore) Get(id string) (*codingagent.SessionRecord, error) 
 	return s, nil
 }
 
-// Update updates an existing session record.
+// Update updates an existing session record (stores a copy).
+// Returns ErrInvalidTransition if transitioning from a terminal status to active.
 func (m *MemorySessionStore) Update(s *codingagent.SessionRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.sessions[s.ID]; !ok {
+	existing, ok := m.sessions[s.ID]
+	if !ok {
 		return ErrNotFound
 	}
-	s.UpdatedAt = time.Now()
-	m.sessions[s.ID] = s
+	// Validate status transition: terminal states cannot go back to active
+	if isTerminalStatus(existing.Status) && s.Status == codingagent.StatusActive {
+		return ErrInvalidTransition
+	}
+	copy := *s
+	copy.UpdatedAt = time.Now()
+	s.UpdatedAt = copy.UpdatedAt
+	m.sessions[s.ID] = &copy
 	return nil
 }
 
