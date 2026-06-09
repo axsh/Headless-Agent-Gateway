@@ -16,6 +16,14 @@ type AnthropicFullRequest struct {
 	MaxTokens   int             `json:"max_tokens"`
 	Temperature *float64        `json:"temperature,omitempty"`
 	Stream      *bool           `json:"stream,omitempty"`
+	Tools       []AnthropicTool `json:"tools,omitempty"`
+}
+
+// AnthropicTool represents a tool definition in Anthropic format.
+type AnthropicTool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema"`
 }
 
 // AnthropicMsg represents a message in Anthropic format.
@@ -25,9 +33,15 @@ type AnthropicMsg struct {
 }
 
 // ContentBlock represents a content block in Anthropic format.
+// It supports text, tool_use, and tool_result block types.
 type ContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   string          `json:"content,omitempty"`
 }
 
 // AnthropicResponse represents the Anthropic Messages API response.
@@ -56,12 +70,15 @@ type OpenAIRequest struct {
 	MaxTokens   *int        `json:"max_tokens,omitempty"`
 	Temperature *float64    `json:"temperature,omitempty"`
 	Stream      *bool       `json:"stream,omitempty"`
+	Tools       []OpenAITool `json:"tools,omitempty"`
 }
 
 // OpenAIMsg represents a message in OpenAI format.
 type OpenAIMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content"`
+	ToolCalls  []OpenAIToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
 // OpenAIResponse represents the OpenAI Chat Completions API response.
@@ -75,6 +92,32 @@ type OpenAIResponse struct {
 type OpenAIChoice struct {
 	Message      OpenAIMsg `json:"message"`
 	FinishReason string    `json:"finish_reason"`
+}
+
+// OpenAITool represents a tool definition in OpenAI format.
+type OpenAITool struct {
+	Type     string         `json:"type"`
+	Function OpenAIFunction `json:"function"`
+}
+
+// OpenAIFunction represents a function definition in OpenAI format.
+type OpenAIFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// OpenAIToolCall represents a tool call in OpenAI response.
+type OpenAIToolCall struct {
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`
+	Function OpenAIFuncCall `json:"function"`
+}
+
+// OpenAIFuncCall represents a function call in OpenAI response.
+type OpenAIFuncCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // OpenAIUsage represents token usage in OpenAI format.
@@ -118,16 +161,25 @@ func ConvertAnthropicRequestToOpenAI(body []byte) ([]byte, error) {
 		}
 	}
 
+	// Convert tools if present.
+	for _, tool := range req.Tools {
+		oaiReq.Tools = append(oaiReq.Tools, OpenAITool{
+			Type: "function",
+			Function: OpenAIFunction{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters:  tool.InputSchema,
+			},
+		})
+	}
+
 	// Convert each Anthropic message to OpenAI message.
 	for i, msg := range req.Messages {
-		content, err := extractText(msg.Content)
+		converted, err := convertAnthropicMsg(i, msg)
 		if err != nil {
-			return nil, fmt.Errorf("parse message[%d] content: %w", i, err)
+			return nil, err
 		}
-		oaiReq.Messages = append(oaiReq.Messages, OpenAIMsg{
-			Role:    msg.Role,
-			Content: content,
-		})
+		oaiReq.Messages = append(oaiReq.Messages, converted...)
 	}
 
 	return json.Marshal(oaiReq)
@@ -155,9 +207,18 @@ func ConvertOpenAIResponseToAnthropic(body []byte, model string) ([]byte, error)
 	if len(oaiResp.Choices) > 0 {
 		choice := oaiResp.Choices[0]
 		if choice.Message.Content != "" {
-			resp.Content = []ContentBlock{
-				{Type: "text", Text: choice.Message.Content},
-			}
+			resp.Content = append(resp.Content, ContentBlock{
+				Type: "text", Text: choice.Message.Content,
+			})
+		}
+		// Convert tool_calls to tool_use content blocks.
+		for _, tc := range choice.Message.ToolCalls {
+			resp.Content = append(resp.Content, ContentBlock{
+				Type:  "tool_use",
+				ID:    tc.ID,
+				Name:  tc.Function.Name,
+				Input: json.RawMessage(tc.Function.Arguments),
+			})
 		}
 		resp.StopReason = mapFinishReason(choice.FinishReason)
 	}
@@ -200,7 +261,86 @@ func mapFinishReason(reason string) string {
 		return "end_turn"
 	case "length":
 		return "max_tokens"
+	case "tool_calls":
+		return "tool_use"
 	default:
 		return reason
 	}
+}
+
+// convertAnthropicMsg converts one Anthropic message to one or more OpenAI messages.
+// tool_use blocks become assistant messages with tool_calls.
+// tool_result blocks become tool-role messages.
+func convertAnthropicMsg(idx int, msg AnthropicMsg) ([]OpenAIMsg, error) {
+	// Try as plain string first.
+	var plainStr string
+	if err := json.Unmarshal(msg.Content, &plainStr); err == nil {
+		return []OpenAIMsg{{Role: msg.Role, Content: plainStr}}, nil
+	}
+
+	// Parse as array of content blocks.
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+		return nil, fmt.Errorf("parse message[%d] content: %w", idx, err)
+	}
+
+	// Classify blocks.
+	var textParts []string
+	var toolUses []OpenAIToolCall
+	var toolResults []OpenAIMsg
+
+	for _, rawBlock := range blocks {
+		var block struct {
+			Type      string          `json:"type"`
+			Text      string          `json:"text"`
+			ID        string          `json:"id"`
+			Name      string          `json:"name"`
+			Input     json.RawMessage `json:"input"`
+			ToolUseID string          `json:"tool_use_id"`
+			Content   string          `json:"content"`
+		}
+		if err := json.Unmarshal(rawBlock, &block); err != nil {
+			return nil, fmt.Errorf("parse message[%d] block: %w", idx, err)
+		}
+
+		switch block.Type {
+		case "text":
+			textParts = append(textParts, block.Text)
+		case "tool_use":
+			args, _ := json.Marshal(json.RawMessage(block.Input))
+			toolUses = append(toolUses, OpenAIToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: OpenAIFuncCall{
+					Name:      block.Name,
+					Arguments: string(args),
+				},
+			})
+		case "tool_result":
+			toolResults = append(toolResults, OpenAIMsg{
+				Role:       "tool",
+				Content:    block.Content,
+				ToolCallID: block.ToolUseID,
+			})
+		}
+	}
+
+	var result []OpenAIMsg
+
+	// If there are tool_result blocks, they become separate tool messages.
+	if len(toolResults) > 0 {
+		result = append(result, toolResults...)
+		return result, nil
+	}
+
+	// Otherwise emit a single message with text and/or tool_calls.
+	oaiMsg := OpenAIMsg{
+		Role:    msg.Role,
+		Content: strings.Join(textParts, ""),
+	}
+	if len(toolUses) > 0 {
+		oaiMsg.ToolCalls = toolUses
+	}
+	result = append(result, oaiMsg)
+	return result, nil
 }

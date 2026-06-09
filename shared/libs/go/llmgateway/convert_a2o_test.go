@@ -286,3 +286,166 @@ func TestConvertAnthropicRequestToOpenAI_SystemAsArray(t *testing.T) {
 		t.Errorf("system content = %q, want %q", req.Messages[0].Content, "Rule 1. Rule 2.")
 	}
 }
+
+func TestConvertAnthropicRequestToOpenAI_WithTools(t *testing.T) {
+	input := `{
+		"model": "gpt-4o",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "What is the weather?"}
+		],
+		"tools": [
+			{
+				"name": "get_weather",
+				"description": "Get the weather for a location",
+				"input_schema": {
+					"type": "object",
+					"properties": {
+						"location": {"type": "string"}
+					},
+					"required": ["location"]
+				}
+			}
+		]
+	}`
+
+	result, err := ConvertAnthropicRequestToOpenAI([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var req OpenAIRequest
+	if err := json.Unmarshal(result, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(req.Tools) != 1 {
+		t.Fatalf("tools count = %d, want 1", len(req.Tools))
+	}
+	if req.Tools[0].Type != "function" {
+		t.Errorf("tool type = %q, want function", req.Tools[0].Type)
+	}
+	if req.Tools[0].Function.Name != "get_weather" {
+		t.Errorf("tool name = %q, want get_weather", req.Tools[0].Function.Name)
+	}
+	if req.Tools[0].Function.Description != "Get the weather for a location" {
+		t.Errorf("tool description unexpected")
+	}
+	// Verify parameters is valid JSON
+	var params map[string]any
+	if err := json.Unmarshal(req.Tools[0].Function.Parameters, &params); err != nil {
+		t.Fatalf("unmarshal parameters: %v", err)
+	}
+	if params["type"] != "object" {
+		t.Errorf("params type = %v, want object", params["type"])
+	}
+}
+
+func TestConvertOpenAIResponseToAnthropic_WithToolCalls(t *testing.T) {
+	input := `{
+		"id": "chatcmpl-tool",
+		"choices": [{
+			"message": {
+				"role": "assistant",
+				"content": null,
+				"tool_calls": [{
+					"id": "call_abc123",
+					"type": "function",
+					"function": {
+						"name": "get_weather",
+						"arguments": "{\"location\":\"Tokyo\"}"
+					}
+				}]
+			},
+			"finish_reason": "tool_calls"
+		}],
+		"usage": {"prompt_tokens": 20, "completion_tokens": 10}
+	}`
+
+	result, err := ConvertOpenAIResponseToAnthropic([]byte(input), "gpt-4o")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var resp AnthropicResponse
+	if err := json.Unmarshal(result, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.StopReason != "tool_use" {
+		t.Errorf("stop_reason = %q, want tool_use", resp.StopReason)
+	}
+
+	if len(resp.Content) != 1 {
+		t.Fatalf("content count = %d, want 1", len(resp.Content))
+	}
+	if resp.Content[0].Type != "tool_use" {
+		t.Errorf("content type = %q, want tool_use", resp.Content[0].Type)
+	}
+	if resp.Content[0].ID != "call_abc123" {
+		t.Errorf("tool id = %q, want call_abc123", resp.Content[0].ID)
+	}
+	if resp.Content[0].Name != "get_weather" {
+		t.Errorf("tool name = %q, want get_weather", resp.Content[0].Name)
+	}
+
+	var inputData map[string]any
+	if err := json.Unmarshal(resp.Content[0].Input, &inputData); err != nil {
+		t.Fatalf("unmarshal input: %v", err)
+	}
+	if inputData["location"] != "Tokyo" {
+		t.Errorf("tool input location = %v, want Tokyo", inputData["location"])
+	}
+}
+
+func TestConvertAnthropicRequestToOpenAI_ToolResultMessage(t *testing.T) {
+	input := `{
+		"model": "gpt-4o",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "What is the weather?"},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "call_abc", "name": "get_weather", "input": {"location": "Tokyo"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "call_abc", "content": "Sunny, 25C"}
+			]}
+		]
+	}`
+
+	result, err := ConvertAnthropicRequestToOpenAI([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var req OpenAIRequest
+	if err := json.Unmarshal(result, &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Messages: user, assistant (with tool_calls), tool (result)
+	if len(req.Messages) != 3 {
+		t.Fatalf("messages count = %d, want 3", len(req.Messages))
+	}
+
+	// Second message should be assistant with tool_calls
+	if req.Messages[1].Role != "assistant" {
+		t.Errorf("msg[1] role = %q, want assistant", req.Messages[1].Role)
+	}
+	if len(req.Messages[1].ToolCalls) != 1 {
+		t.Fatalf("msg[1] tool_calls count = %d, want 1", len(req.Messages[1].ToolCalls))
+	}
+	if req.Messages[1].ToolCalls[0].ID != "call_abc" {
+		t.Errorf("tool_call id = %q, want call_abc", req.Messages[1].ToolCalls[0].ID)
+	}
+
+	// Third message should be tool role
+	if req.Messages[2].Role != "tool" {
+		t.Errorf("msg[2] role = %q, want tool", req.Messages[2].Role)
+	}
+	if req.Messages[2].ToolCallID != "call_abc" {
+		t.Errorf("msg[2] tool_call_id = %q, want call_abc", req.Messages[2].ToolCallID)
+	}
+	if req.Messages[2].Content != "Sunny, 25C" {
+		t.Errorf("msg[2] content = %q, want 'Sunny, 25C'", req.Messages[2].Content)
+	}
+}
