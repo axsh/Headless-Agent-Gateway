@@ -26,7 +26,6 @@ type ProcessManager struct {
 // BuildArgs constructs claude CLI arguments from SessionConfig.
 func BuildArgs(cfg *codingagent.SessionConfig) []string {
 	args := []string{
-		"--bare",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "bypassPermissions",

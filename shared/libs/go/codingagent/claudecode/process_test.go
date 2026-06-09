@@ -45,11 +45,6 @@ func TestBuildArgs(t *testing.T) {
 			contains: []string{"--session-id", "sdk-abc-123"},
 		},
 		{
-			name:     "includes --bare flag",
-			cfg:      &codingagent.SessionConfig{Prompt: "test"},
-			contains: []string{"--bare"},
-		},
-		{
 			name:     "includes --verbose flag",
 			cfg:      &codingagent.SessionConfig{Prompt: "test"},
 			contains: []string{"--verbose"},
