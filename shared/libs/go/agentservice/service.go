@@ -1,8 +1,12 @@
 package agentservice
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -25,6 +29,9 @@ type Server struct {
 	taskLog     *tasklog.TaskLog
 	gatewayURL  string
 	cliVersions map[string]string // cached at init
+	httpServer  *http.Server
+	ln          net.Listener
+	port        int // actual listen port (set after Launch)
 }
 
 // ServerOption configures a Server.
@@ -72,6 +79,53 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 // RegisterAgent registers a CodingAgent with the server.
 func (s *Server) RegisterAgent(agent codingagent.CodingAgent) {
 	s.agents[agent.Name()] = agent
+}
+
+// Launch starts the AgentService HTTP server on the given port.
+// port=0 uses OS-assigned ephemeral port. Non-blocking.
+func (s *Server) Launch(ctx context.Context, port int) error {
+	handler := s.HTTPHandler()
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return fmt.Errorf("agentservice listen: %w", err)
+	}
+	s.ln = ln
+	s.port = ln.Addr().(*net.TCPAddr).Port
+	s.httpServer = &http.Server{Handler: handler}
+	go func() {
+		if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if s.logger != nil {
+				s.logger.Error("agentservice serve error", "error", err)
+			}
+		}
+	}()
+	if s.logger != nil {
+		s.logger.Info("agentservice started", "port", s.port)
+	}
+	return nil
+}
+
+// Shutdown gracefully stops the AgentService HTTP server.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer == nil {
+		return nil
+	}
+	if s.logger != nil {
+		s.logger.Info("shutting down agentservice")
+	}
+	// Close all active coding agent processes.
+	for _, agent := range s.agents {
+		if closer, ok := agent.(interface{ Close() error }); ok {
+			closer.Close()
+		}
+	}
+	return s.httpServer.Shutdown(ctx)
+}
+
+// Port returns the actual port the server is listening on.
+// Returns 0 if the server has not been launched.
+func (s *Server) Port() int {
+	return s.port
 }
 
 // HTTPHandler returns the HTTP handler with all endpoint routes.
