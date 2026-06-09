@@ -27,6 +27,10 @@ import (
 	"github.com/axsh/hag/hag"
 )
 
+// e2eDefaultModel is the model used for E2E tests.
+// Must match a model registered in examples/standalone/model_profiles.yaml.
+const e2eDefaultModel = "claude-sonnet-4-20250514"
+
 // freePort returns a free TCP port by briefly listening on :0.
 func freePort(t *testing.T) int {
 	t.Helper()
@@ -150,6 +154,7 @@ func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{
 		"agent":    agent,
+		"model":    e2eDefaultModel,
 		"work_dir": workDir,
 	})
 	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
