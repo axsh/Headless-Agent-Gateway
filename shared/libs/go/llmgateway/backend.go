@@ -15,6 +15,10 @@ type LLMGatewayBackend interface {
 	// ListModels returns the list of configured models.
 	ListModels() []ModelInfo
 
+	// DefaultModel returns the default model from model profiles.
+	// Returns nil if no default profile is configured.
+	DefaultModel() *ModelInfo
+
 	// Health returns the backend health status.
 	Health() HealthStatus
 

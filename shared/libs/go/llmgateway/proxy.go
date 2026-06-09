@@ -125,6 +125,19 @@ func (p *ProxyServer) ListModels() []ModelInfo {
 	return models
 }
 
+// DefaultModel returns the default model from profiles.
+// Returns nil if no default profile is configured.
+func (p *ProxyServer) DefaultModel() *ModelInfo {
+	if p.profiles == nil {
+		return nil
+	}
+	dp := p.profiles.DefaultProfile
+	if dp.Provider == "" || dp.Model == "" {
+		return nil
+	}
+	return &ModelInfo{Provider: dp.Provider, Model: dp.Model}
+}
+
 // Health returns the proxy server health status.
 func (p *ProxyServer) Health() HealthStatus {
 	return HealthStatus{
@@ -162,11 +175,16 @@ func (p *ProxyServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(p.Health())
 }
 
-// handleModels returns the list of configured models.
+// handleModels returns the list of configured models with optional default.
 func (p *ProxyServer) handleModels(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
 		"models": p.ListModels(),
-	})
+	}
+	if dm := p.DefaultModel(); dm != nil {
+		resp["default_model"] = dm
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
+
 

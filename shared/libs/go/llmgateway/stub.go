@@ -31,6 +31,11 @@ func (s *StubGateway) ListModels() []ModelInfo {
 	return nil
 }
 
+// DefaultModel returns nil (no default model in stub).
+func (s *StubGateway) DefaultModel() *ModelInfo {
+	return nil
+}
+
 // Health returns a stub health status.
 func (s *StubGateway) Health() HealthStatus {
 	return HealthStatus{Status: "stub"}

@@ -52,3 +52,11 @@ func TestStubGateway_Health(t *testing.T) {
 		t.Errorf("Health().Status = %q, want %q", health.Status, "stub")
 	}
 }
+
+func TestStubGateway_DefaultModel(t *testing.T) {
+	stub := NewStubGateway()
+	dm := stub.DefaultModel()
+	if dm != nil {
+		t.Errorf("DefaultModel() = %v, want nil", dm)
+	}
+}

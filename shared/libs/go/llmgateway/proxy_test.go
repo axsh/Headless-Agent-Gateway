@@ -436,3 +436,65 @@ func TestProxyServer_ProxyURL_BeforeLaunch(t *testing.T) {
 		t.Errorf("ProxyURL() before Launch = %q, want %q", url, want)
 	}
 }
+
+// T1: DefaultModel returns nil when no profiles are loaded.
+func TestProxyServer_DefaultModel_Nil(t *testing.T) {
+	p := newTestProxy(t)
+	dm := p.DefaultModel()
+	if dm != nil {
+		t.Errorf("DefaultModel() = %v, want nil (no profiles loaded)", dm)
+	}
+}
+
+// T2: DefaultModel returns correct ModelInfo when profiles are loaded.
+func TestProxyServer_DefaultModel_WithProfiles(t *testing.T) {
+	p, _ := newTestProxyWithProfiles(t)
+	dm := p.DefaultModel()
+	if dm == nil {
+		t.Fatal("DefaultModel() = nil, want non-nil")
+	}
+	if dm.Provider != "anthropic" {
+		t.Errorf("DefaultModel().Provider = %q, want %q", dm.Provider, "anthropic")
+	}
+	if dm.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("DefaultModel().Model = %q, want %q", dm.Model, "claude-sonnet-4-20250514")
+	}
+}
+
+// T3: GET /v1/models includes default_model field when profiles are loaded.
+func TestProxyServer_ModelsWithDefaultModel(t *testing.T) {
+	p, _ := newTestProxyWithProfiles(t)
+	if err := p.Launch(nil); err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	defer p.Shutdown(nil)
+
+	resp, err := http.Get(p.ProxyURL() + "/v1/models")
+	if err != nil {
+		t.Fatalf("GET /v1/models error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var body struct {
+		Models       []ModelInfo `json:"models"`
+		DefaultModel *ModelInfo  `json:"default_model"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+
+	if body.DefaultModel == nil {
+		t.Fatal("default_model should not be nil when profiles have default_profile")
+	}
+	if body.DefaultModel.Provider != "anthropic" {
+		t.Errorf("default_model.provider = %q, want %q", body.DefaultModel.Provider, "anthropic")
+	}
+	if body.DefaultModel.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-20250514")
+	}
+}
+

@@ -87,6 +87,11 @@ func (d *BifrostDriver) ListModels() []ModelInfo {
 	return d.proxy.ListModels()
 }
 
+// DefaultModel returns the default model from profiles.
+func (d *BifrostDriver) DefaultModel() *ModelInfo {
+	return d.proxy.DefaultModel()
+}
+
 // Health returns the backend health status.
 func (d *BifrostDriver) Health() HealthStatus {
 	return d.proxy.Health()
