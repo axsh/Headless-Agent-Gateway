@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,10 @@ import (
 
 	"github.com/axsh/hag/agentservice"
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/config"
+	"github.com/axsh/hag/hag"
+	"github.com/axsh/hag/llmgateway"
+	"github.com/axsh/hag/logger"
 	"github.com/axsh/hag/tasklog"
 )
 
@@ -366,5 +371,101 @@ func TestAgentServiceSDKSessionID(t *testing.T) {
 	}
 	if record.Status != codingagent.StatusCompleted {
 		t.Errorf("status = %q, want completed", record.Status)
+	}
+}
+
+// TestAgentServiceLaunchShutdown verifies that AgentService can
+// Launch on an ephemeral port and Shutdown gracefully.
+func TestAgentServiceLaunchShutdown(t *testing.T) {
+	srv := agentservice.New(
+		agentservice.WithLogger(logger.NewDefault(logger.LevelDebug)),
+	)
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
+
+	ctx := context.Background()
+
+	// Launch on ephemeral port
+	err := srv.Launch(ctx, 0)
+	if err != nil {
+		t.Fatalf("Launch failed: %v", err)
+	}
+
+	port := srv.Port()
+	if port == 0 {
+		t.Fatal("Port should be non-zero after Launch")
+	}
+
+	// Verify health endpoint is reachable
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", port))
+	if err != nil {
+		t.Fatalf("health request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Verify response body contains expected fields
+	var health map[string]any
+	json.NewDecoder(resp.Body).Decode(&health)
+	if health["status"] != "ok" {
+		t.Fatalf("expected status ok, got %v", health["status"])
+	}
+	agents, ok := health["agents"].([]any)
+	if !ok {
+		t.Fatal("agents field missing or wrong type")
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+
+	// Shutdown
+	err = srv.Shutdown(ctx)
+	if err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+
+	// Verify port is no longer accepting connections
+	_, err = http.Get(fmt.Sprintf("http://localhost:%d/health", port))
+	if err == nil {
+		t.Fatal("expected connection refused after shutdown")
+	}
+}
+
+// TestAgentServiceConfigPort verifies AgentService reads port from config
+// via hag.Server integration.
+func TestAgentServiceConfigPort(t *testing.T) {
+	cfg := &config.AppConfig{
+		AgentService: config.AgentServiceConfig{Port: 0}, // ephemeral
+	}
+	stub := llmgateway.NewStubGateway()
+	srv, err := hag.New(
+		hag.WithConfig(cfg),
+		hag.WithGateway(stub),
+	)
+	if err != nil {
+		t.Fatalf("hag.New failed: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := srv.Launch(ctx); err != nil {
+		t.Fatalf("Launch failed: %v", err)
+	}
+	defer srv.Shutdown(ctx)
+
+	// AgentService should be running on some port
+	port := srv.AgentService().Port()
+	if port == 0 {
+		t.Fatal("AgentService port should be non-zero after Launch")
+	}
+
+	// Health should be accessible
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", port))
+	if err != nil {
+		t.Fatalf("health request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 }
