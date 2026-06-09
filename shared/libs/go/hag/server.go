@@ -137,8 +137,8 @@ func (s *Server) Gateway() llmgateway.LLMGatewayBackend {
 	return s.gateway
 }
 
-// AgentService returns the AgentService instance.
-func (s *Server) AgentService() agentservice.AgentService {
+// AgentService returns the AgentService Server instance.
+func (s *Server) AgentService() *agentservice.Server {
 	return s.agentService
 }
 

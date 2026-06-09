@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/codingagent/claudecode"
 	"github.com/axsh/hag/hag"
 )
 
@@ -22,6 +25,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize HAG server: %v", err)
 	}
+
+	// Register coding agents before Launch (so HTTPHandler has agents available)
+	registerCodingAgents(srv)
 
 	ctx := context.Background()
 
@@ -49,3 +55,16 @@ func main() {
 
 	fmt.Println("HAG server stopped.")
 }
+
+// registerCodingAgents registers coding agent adapters with the AgentService.
+// Agents are only registered if their CLI tool is available on PATH.
+func registerCodingAgents(srv *hag.Server) {
+	if _, err := exec.LookPath("claude"); err == nil {
+		adapter := claudecode.New(&codingagent.AdapterConfig{})
+		srv.AgentService().RegisterAgent(adapter)
+		fmt.Println("Registered coding agent: claudecode")
+	} else {
+		fmt.Println("Warning: claude CLI not found, claudecode agent not registered")
+	}
+}
+
