@@ -266,6 +266,8 @@ vault:
   backend: "env"                                 # シークレットバックエンド (env/keyring/file)
 websocket:
   port: 18080                                    # WebSocket サーバポート (省略時は OS がランダム割り当て)
+agent_service:
+  port: 3100                                     # AgentService HTTP ポート (デフォルト: 3100)
 ```
 
 #### model_profiles.yaml の書式
@@ -288,7 +290,81 @@ providers:
           - name: claude-sonnet-4-20250514
 ```
 
-### 3. log-viewer - WebSocket ログビューア
+### 3. Coding Agent デモ (cawa-client)
+
+standalone サーバに対して Coding Agent API を操作するデモです。
+`cawa-client` は AgentService (ポート 3100) に接続し、ヘルスチェック、エージェント一覧、セッション作成/メッセージ送信 (SSE) を行います。
+
+> **前提条件**: standalone サーバが起動していること (上記「2. standalone」を参照)。
+> Claude Code CLI (`claude`) がインストール済みで PATH に通っている場合、`run` コマンドで実際にコーディングエージェントを起動できます。
+
+#### Step 1: ヘルスチェック
+
+```bash
+./bin/cawa-client health
+```
+
+出力例:
+```json
+{
+  "status": "ok",
+  "agents": ["claudecode"],
+  "cli_versions": {"claudecode": "1.0.33"},
+  "gateway": {"status": "ok"}
+}
+```
+
+`agents` が空の場合、`claude` CLI が PATH に見つからなかったことを意味します。
+
+#### Step 2: エージェント一覧
+
+```bash
+./bin/cawa-client agents
+```
+
+出力例:
+```json
+[{"name": "claudecode"}]
+```
+
+#### Step 3: セッション作成とメッセージ送信
+
+```bash
+# Claude Code エージェントでプロンプトを実行 (SSE ストリーミング)
+./bin/cawa-client run --agent claudecode --prompt "Hello, what can you do?"
+```
+
+SSE イベントがリアルタイムで表示されます:
+```
+event: message
+data: {"type":"system","session_id":"claude-12345"}
+
+event: message
+data: {"type":"text","content":"I can help you with..."}
+
+event: message
+data: {"type":"result"}
+
+data: [DONE]
+```
+
+#### その他のコマンド
+
+```bash
+# セッション状態の確認
+./bin/cawa-client session --id <session-id>
+
+# セッションのログをストリーミング
+./bin/cawa-client logs --id <session-id>
+
+# セッションの終了
+./bin/cawa-client terminate --id <session-id>
+
+# 接続先サーバを変更する場合
+./bin/cawa-client --server http://localhost:4000 health
+```
+
+### 4. log-viewer - WebSocket ログビューア
 
 WebSocket 経由でエージェントのログをリアルタイムに表示するビューアです。
 シミュレータモードを使えば、HAG サーバとダミーログ生成を一括で起動して動作を確認できます。
@@ -323,7 +399,7 @@ go build -o ../../bin/log-viewer .
 ../../bin/log-viewer --url ws://localhost:18080/ws
 ```
 
-### 4. vault-cli - シークレット管理 CLI
+### 5. vault-cli - シークレット管理 CLI
 
 OS のキーリング (macOS Keychain / Windows Credential Manager / Linux Secret Service) を使って
 LLM プロバイダの API キーを安全に管理するための CLI ツールです。
