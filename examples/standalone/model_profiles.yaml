@@ -1,3 +1,7 @@
+default_profile:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+
 providers:
   openai:
     keys:

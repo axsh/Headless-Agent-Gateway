@@ -61,12 +61,25 @@ func main() {
 func registerCodingAgents(srv *hag.Server) {
 	if _, err := exec.LookPath("claude"); err == nil {
 		gwURL := srv.Gateway().ProxyURL()
+
+		// Resolve default model from Gateway (model_profiles.yaml).
+		defaultModel := ""
+		if dm := srv.Gateway().DefaultModel(); dm != nil {
+			defaultModel = dm.Model
+		}
+
 		adapter := claudecode.New(&codingagent.AdapterConfig{
 			GatewayURL:   gwURL,
-			DefaultModel: "claude-sonnet-4-20250514",
+			DefaultModel: defaultModel,
 		})
 		srv.AgentService().RegisterAgent(adapter)
-		fmt.Printf("Registered coding agent: claudecode (gateway=%s)\n", gwURL)
+
+		// Fetch and cache model list for AgentService validation.
+		if err := srv.AgentService().FetchModelsFromGateway(); err != nil {
+			fmt.Printf("Warning: failed to fetch models from gateway: %v\n", err)
+		}
+
+		fmt.Printf("Registered coding agent: claudecode (gateway=%s, default_model=%s)\n", gwURL, defaultModel)
 	} else {
 		fmt.Println("Warning: claude CLI not found, claudecode agent not registered")
 	}
