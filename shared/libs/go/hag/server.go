@@ -86,7 +86,7 @@ func New(opts ...Option) (*Server, error) {
 }
 
 // Launch starts all components. Non-blocking.
-// Currently starts the LLM Gateway Proxy.
+// Start order: Gateway -> WebSocket -> AgentService.
 func (s *Server) Launch(ctx context.Context) error {
 	s.logger.Info("starting HAG server")
 
@@ -98,13 +98,27 @@ func (s *Server) Launch(ctx context.Context) error {
 		return fmt.Errorf("hag: wsserver launch: %w", err)
 	}
 
+	// AgentService HTTP server
+	agentPort := s.cfg.AgentService.Port
+	if agentPort == 0 {
+		agentPort = 3100 // default port
+	}
+	if err := s.agentService.Launch(ctx, agentPort); err != nil {
+		return fmt.Errorf("hag: agentservice launch: %w", err)
+	}
+
 	s.logger.Info("HAG server started")
 	return nil
 }
 
 // Shutdown gracefully stops all components in reverse launch order.
+// Stop order: AgentService -> WebSocket -> Gateway.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("shutting down HAG server")
+
+	if err := s.agentService.Shutdown(ctx); err != nil {
+		return fmt.Errorf("hag: agentservice shutdown: %w", err)
+	}
 
 	if err := s.wsServer.Shutdown(ctx); err != nil {
 		return fmt.Errorf("hag: wsserver shutdown: %w", err)
