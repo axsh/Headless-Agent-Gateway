@@ -146,6 +146,19 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 
 	// Cross-provider response conversion (OpenAI -> Anthropic).
 	if routed.Provider == "openai" && resp.StatusCode == http.StatusOK {
+		// Streaming: convert OpenAI SSE -> Anthropic SSE
+		if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.WriteHeader(http.StatusOK)
+			if streamErr := ConvertOpenAIStreamToAnthropic(resp.Body, w, routed.Model); streamErr != nil {
+				p.logger.Error("stream conversion error", "error", streamErr)
+			}
+			return
+		}
+
+		// Non-streaming: convert full response
 		respBody, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
 			WriteErrorResponse(w, &GatewayError{

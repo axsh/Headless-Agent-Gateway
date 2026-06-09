@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/axsh/hag/config"
@@ -337,5 +338,64 @@ func TestHandleAnthropicMessages_UnsupportedProvider(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d; body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestHandleAnthropicMessages_CrossProviderOpenAI_Streaming(t *testing.T) {
+	sseResponse := "data: {\"id\":\"chatcmpl-s1\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"id\":\"chatcmpl-s1\",\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"id\":\"chatcmpl-s1\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: [DONE]\n\n"
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("expected path /v1/chat/completions, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(sseResponse))
+	}))
+	defer mockUpstream.Close()
+
+	origURL := providerBaseURLs["openai"]
+	providerBaseURLs["openai"] = mockUpstream.URL
+	defer func() { providerBaseURLs["openai"] = origURL }()
+
+	proxy := newTestProxyWithDriver(t)
+
+	body := map[string]any{
+		"model":      "gpt-4o",
+		"max_tokens": 100,
+		"stream":     true,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Verify response is SSE format with Anthropic events
+	output := rr.Body.String()
+	if !strings.Contains(output, "event: message_start") {
+		t.Error("missing message_start event")
+	}
+	if !strings.Contains(output, "event: content_block_delta") {
+		t.Error("missing content_block_delta event")
+	}
+	if !strings.Contains(output, "event: message_stop") {
+		t.Error("missing message_stop event")
+	}
+	if !strings.Contains(output, `"text":"Hi"`) {
+		t.Error("missing text content 'Hi'")
 	}
 }
