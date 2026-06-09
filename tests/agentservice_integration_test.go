@@ -804,40 +804,12 @@ func TestAgentServiceDefaultModelFromProfiles(t *testing.T) {
 
 // TestModelPassthroughToLLMGP verifies that the model name specified in session creation
 // is passed through to the LLMGP proxy. This is R6 from spec 015.
+// It verifies that agentservice accepts cross-provider models (e.g., gpt-4o for claudecode)
+// and stores the model name in the session record.
 func TestModelPassthroughToLLMGP(t *testing.T) {
-	// Track received model in mock LLMGP
-	var receivedModel string
-	mockLLMGP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/messages" {
-			var body struct {
-				Model string `json:"model"`
-			}
-			json.NewDecoder(r.Body).Decode(&body)
-			receivedModel = body.Model
-			// Return a minimal valid Anthropic response
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":   "msg-test",
-				"type": "message",
-				"role": "assistant",
-				"content": []map[string]string{
-					{"type": "text", "text": "test"},
-				},
-				"model":       "gpt-4o",
-				"stop_reason": "end_turn",
-				"usage":       map[string]int{"input_tokens": 1, "output_tokens": 1},
-			})
-			return
-		}
-		// Root path - reachability check
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"endpoints": []string{}})
-	}))
-	defer mockLLMGP.Close()
-
 	// Create server with model profiles so validation passes
 	profiles := &config.ModelProfilesConfig{
+
 		Providers: map[string]config.ProviderConfig{
 			"openai": {
 				Keys: []config.KeyConfig{
@@ -853,17 +825,9 @@ func TestModelPassthroughToLLMGP(t *testing.T) {
 		},
 	}
 
-	log := logger.NewDefault(logger.LevelDebug)
-	appCfg := &config.AppConfig{}
-	gw, err := llmgateway.NewBifrostDriver(appCfg, profiles, nil, log)
-	if err != nil {
-		t.Fatalf("NewBifrostDriver: %v", err)
-	}
-
 	tl := tasklog.New()
 	srv := agentservice.New(
 		agentservice.WithTaskLog(tl),
-		agentservice.WithLLMGateway(gw),
 	)
 	srv.SetModelProfiles(profiles)
 	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
@@ -906,10 +870,4 @@ func TestModelPassthroughToLLMGP(t *testing.T) {
 	if sessionDetail.Model != "gpt-4o" {
 		t.Errorf("session model = %q, want %q", sessionDetail.Model, "gpt-4o")
 	}
-
-	// The mock LLMGP is not directly called by agentservice (that's Claude CLI's job),
-	// but we've verified that the model name passes through agentservice validation
-	// and is stored in the session record for the agent to use.
-	_ = receivedModel
-	_ = mockLLMGP
 }
