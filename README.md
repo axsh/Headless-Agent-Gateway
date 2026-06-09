@@ -305,12 +305,20 @@ standalone サーバに対して Coding Agent API を操作するデモです。
 ```
 
 出力例:
-```json
+```
+Status: 200
 {
-  "status": "ok",
-  "agents": ["claudecode"],
-  "cli_versions": {"claudecode": "1.0.33"},
-  "gateway": {"status": "ok"}
+  "agents": [
+    "claudecode"
+  ],
+  "cli_versions": {
+    "claudecode": "2.0.14 (Claude Code)"
+  },
+  "gateway": {
+    "status": "ok",
+    "url": "http://localhost:14000"
+  },
+  "status": "ok"
 }
 ```
 
@@ -323,29 +331,30 @@ standalone サーバに対して Coding Agent API を操作するデモです。
 ```
 
 出力例:
-```json
-[{"name": "claudecode"}]
+```
+claudecode
 ```
 
 #### Step 3: セッション作成とメッセージ送信
 
 ```bash
 # Claude Code エージェントでプロンプトを実行 (SSE ストリーミング)
-./bin/cawa-client run --agent claudecode --prompt "Hello, what can you do?"
+./bin/cawa-client run --agent claudecode --prompt "Create a hello.py file" --work-dir ./tmp/
 ```
 
-SSE イベントがリアルタイムで表示されます:
+出力例:
 ```
-event: message
-data: {"type":"system","session_id":"claude-12345"}
+Session created: 30c5db0aeb058d6e1a97f0f03e81ba41
 
-event: message
-data: {"type":"text","content":"I can help you with..."}
+--- Stream completed ---
 
-event: message
-data: {"type":"result"}
-
-data: [DONE]
+{
+  "agent_name": "claudecode",
+  "created_at": "2026-06-09T22:18:22.130Z",
+  "id": "30c5db0aeb058d6e1a97f0f03e81ba41",
+  "status": "completed",
+  "work_dir": "./tmp/"
+}
 ```
 
 #### その他のコマンド
