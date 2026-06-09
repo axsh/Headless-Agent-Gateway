@@ -54,7 +54,6 @@ func New(opts ...ServerOption) *Server {
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.cliVersions = detectCLIVersions(s.agents)
 	return s
 }
 
@@ -67,7 +66,6 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.cliVersions = detectCLIVersions(s.agents)
 	return s
 }
 
@@ -77,7 +75,11 @@ func (s *Server) RegisterAgent(agent codingagent.CodingAgent) {
 }
 
 // HTTPHandler returns the HTTP handler with all endpoint routes.
+// CLI versions are detected lazily here, after all agents are registered.
 func (s *Server) HTTPHandler() http.Handler {
+	if s.cliVersions == nil {
+		s.cliVersions = detectCLIVersions(s.agents)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/agents", s.routeAgents)
