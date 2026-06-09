@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -50,10 +51,9 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 
 	if ac.GatewayURL != "" {
 		env["ANTHROPIC_BASE_URL"] = ac.GatewayURL
+		// Gateway handles auth; CLI needs a non-empty key to proceed.
+		env["ANTHROPIC_API_KEY"] = "not-needed"
 	}
-
-	// CLI requires API key but gateway handles auth, so set a placeholder.
-	env["ANTHROPIC_API_KEY"] = "not-needed"
 
 	if ac.DisableSandbox {
 		env["CLAUDE_CODE_SKIP_SANDBOX"] = "1"
@@ -90,6 +90,10 @@ func StartProcess(
 		return nil, nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 
+	// R3: Capture stderr for diagnostics.
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, nil, fmt.Errorf("start claude: %w", err)
@@ -110,6 +114,20 @@ func StartProcess(
 				case <-procCtx.Done():
 					return
 				}
+			}
+		}
+		// R4: Check exit code and report stderr on failure.
+		if err := cmd.Wait(); err != nil {
+			errMsg := strings.TrimSpace(stderrBuf.String())
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			select {
+			case ch <- codingagent.StreamEvent{
+				Type:    codingagent.EventError,
+				Content: errMsg,
+			}:
+			case <-procCtx.Done():
 			}
 		}
 	}()

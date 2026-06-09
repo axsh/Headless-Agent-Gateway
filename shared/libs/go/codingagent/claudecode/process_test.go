@@ -88,9 +88,21 @@ func TestBuildEnv(t *testing.T) {
 			wantNot: "CLAUDE_CODE_SKIP_SANDBOX",
 		},
 		{
-			name: "API key always set to not-needed",
-			ac:   &codingagent.AdapterConfig{},
-			cfg:  &codingagent.SessionConfig{},
+			name:    "no gateway URL: ANTHROPIC_API_KEY not set",
+			ac:      &codingagent.AdapterConfig{},
+			cfg:     &codingagent.SessionConfig{},
+			wantNot: "ANTHROPIC_API_KEY",
+		},
+		{
+			name:    "no gateway URL: ANTHROPIC_BASE_URL not set",
+			ac:      &codingagent.AdapterConfig{},
+			cfg:     &codingagent.SessionConfig{},
+			wantNot: "ANTHROPIC_BASE_URL",
+		},
+		{
+			name:    "with gateway URL: ANTHROPIC_API_KEY set to not-needed",
+			ac:      &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000"},
+			cfg:     &codingagent.SessionConfig{},
 			wantKey: "ANTHROPIC_API_KEY",
 			wantVal: "not-needed",
 		},
@@ -118,5 +130,24 @@ func TestBuildEnv(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildEnv_SessionEnvVarsOverride(t *testing.T) {
+	ac := &codingagent.AdapterConfig{GatewayURL: "http://gw:14000"}
+	cfg := &codingagent.SessionConfig{
+		EnvVars: map[string]string{"ANTHROPIC_API_KEY": "real-key"},
+	}
+	env := claudecode.BuildEnv(ac, cfg)
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	if envMap["ANTHROPIC_API_KEY"] != "real-key" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want %q (session env should override)",
+			envMap["ANTHROPIC_API_KEY"], "real-key")
 	}
 }
