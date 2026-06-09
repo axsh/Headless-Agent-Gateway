@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,12 +24,23 @@ import (
 
 	"github.com/axsh/hag/codingagent"
 	"github.com/axsh/hag/codingagent/claudecode"
-	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/hag"
 )
 
+// freePort returns a free TCP port by briefly listening on :0.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("find free port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return port
+}
+
 // startE2EServer starts a real HAG server with LLM Gateway and claudecode agent.
-// It uses the standalone config.yaml with ephemeral ports for AgentService and WebSocket.
+// It uses the standalone model_profiles.yaml and dynamically-assigned ports.
 // Returns the AgentService base URL and a cleanup function.
 func startE2EServer(t *testing.T) (string, func()) {
 	t.Helper()
@@ -38,46 +50,36 @@ func startE2EServer(t *testing.T) (string, func()) {
 		t.Fatalf("E2E test requires claude CLI on PATH: %v", err)
 	}
 
-	// Use the real config.yaml (with model profiles) but override ports to ephemeral.
-	configPath, err := filepath.Abs("../examples/standalone/config.yaml")
-	if err != nil {
-		t.Fatalf("resolve config path: %v", err)
-	}
-
-	srv, err := hag.New(hag.WithConfigPath(configPath))
-	if err != nil {
-		t.Fatalf("hag.New failed: %v", err)
-	}
-
-	// Override ports to 0 (ephemeral) so tests don't conflict.
-	// We need to use AgentService port 0 by modifying config before Launch.
-	// Since WithConfigPath already set the config, we adjust via the internal API.
-	// The config uses port 3100 by default. We need a different approach:
-	// Create a temp config with port 0.
-	tmpDir := t.TempDir()
-	tmpConfig := filepath.Join(tmpDir, "config.yaml")
 	modelProfilesSrc, _ := filepath.Abs("../examples/standalone/model_profiles.yaml")
 
+	// Discover free ports for all services.
+	gwPort := freePort(t)
+	wsPort := freePort(t)
+	asPort := freePort(t)
+
+	tmpDir := t.TempDir()
+	tmpConfig := filepath.Join(tmpDir, "config.yaml")
+
 	configContent := fmt.Sprintf(`llm_gateway:
-  port: 0
+  port: %d
   model_profiles_path: "%s"
 log:
   level: "info"
 vault:
   backend: "keyring"
 websocket:
-  port: 0
+  port: %d
 agent_service:
-  port: 0
-`, filepath.ToSlash(modelProfilesSrc))
+  port: %d
+`, gwPort, filepath.ToSlash(modelProfilesSrc), wsPort, asPort)
 
 	if err := os.WriteFile(tmpConfig, []byte(configContent), 0644); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
 
-	srv, err = hag.New(hag.WithConfigPath(tmpConfig))
+	srv, err := hag.New(hag.WithConfigPath(tmpConfig))
 	if err != nil {
-		t.Fatalf("hag.New with temp config failed: %v", err)
+		t.Fatalf("hag.New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -86,7 +88,7 @@ agent_service:
 	}
 
 	// Register real claudecode agent with gateway URL.
-	// ProxyURL must be called after Launch to get the actual ephemeral port.
+	// ProxyURL must be called after Launch to get the actual port.
 	gwURL := srv.Gateway().ProxyURL()
 	adapter := claudecode.New(&codingagent.AdapterConfig{
 		GatewayURL: gwURL,
@@ -113,21 +115,33 @@ func parseE2ESSEEvents(t *testing.T, body *http.Response) ([]codingagent.StreamE
 	gotDone := false
 
 	scanner := bufio.NewScanner(body.Body)
+	lineCount := 0
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineCount++
 		if !strings.HasPrefix(line, "data: ") {
+			if line != "" {
+				t.Logf("SSE non-data line[%d]: %q", lineCount, line)
+			}
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			t.Logf("SSE [DONE] received after %d lines", lineCount)
 			gotDone = true
 			break
 		}
 		var ev codingagent.StreamEvent
-		if json.Unmarshal([]byte(data), &ev) == nil {
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			t.Logf("SSE parse error line[%d]: %v, data=%q", lineCount, err, data)
+		} else {
 			events = append(events, ev)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		t.Logf("SSE scanner error: %v", err)
+	}
+	t.Logf("SSE total: %d lines read, %d events parsed, done=%v", lineCount, len(events), gotDone)
 	return events, gotDone
 }
 
@@ -335,43 +349,39 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 // TestE2E_CodingAgentError verifies that when claude CLI encounters an error
 // (e.g. invalid model), the error is propagated through SSE.
 func TestE2E_CodingAgentError(t *testing.T) {
-	// This test uses a dedicated server with a specifically misconfigured agent.
-	// We need to create a config without valid model profiles to trigger an error.
+	// This test verifies error propagation when claude CLI fails.
+	// We use a valid server setup but give the adapter a bogus GatewayURL
+	// pointing to a non-existent server, so the CLI cannot reach the LLM API.
 
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Fatalf("E2E test requires claude CLI on PATH: %v", err)
 	}
 
-	tmpDir := t.TempDir()
+	modelProfilesSrc, _ := filepath.Abs("../examples/standalone/model_profiles.yaml")
 
-	// Create a minimal config with ephemeral ports but no valid model profiles.
-	// The gateway will start but won't have valid API keys for this model.
+	gwPort := freePort(t)
+	wsPort := freePort(t)
+	asPort := freePort(t)
+
+	tmpDir := t.TempDir()
 	tmpConfig := filepath.Join(tmpDir, "config.yaml")
-	// Use a config that starts the gateway but uses empty model profiles.
-	emptyProfiles := filepath.Join(tmpDir, "empty_profiles.yaml")
-	os.WriteFile(emptyProfiles, []byte("providers: {}\n"), 0644)
 
 	configContent := fmt.Sprintf(`llm_gateway:
-  port: 0
+  port: %d
   model_profiles_path: "%s"
 log:
   level: "info"
 vault:
-  backend: "env"
+  backend: "keyring"
 websocket:
-  port: 0
+  port: %d
 agent_service:
-  port: 0
-`, filepath.ToSlash(emptyProfiles))
+  port: %d
+`, gwPort, filepath.ToSlash(modelProfilesSrc), wsPort, asPort)
 
 	os.WriteFile(tmpConfig, []byte(configContent), 0644)
 
-	cfg, err := config.Load(tmpConfig)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
-	srv, err := hag.New(hag.WithConfig(cfg))
+	srv, err := hag.New(hag.WithConfigPath(tmpConfig))
 	if err != nil {
 		t.Fatalf("hag.New: %v", err)
 	}
@@ -386,11 +396,11 @@ agent_service:
 		srv.Shutdown(shutCtx)
 	}()
 
-	// Register claudecode with gateway URL but no valid API key.
-	// ProxyURL must be called after Launch for ephemeral port resolution.
-	gwURL := srv.Gateway().ProxyURL()
+	// Register claudecode with a BOGUS gateway URL (port that nothing listens on).
+	// This will cause the CLI to fail when trying to reach the LLM API.
+	bogusPort := freePort(t)
 	adapter := claudecode.New(&codingagent.AdapterConfig{
-		GatewayURL: gwURL,
+		GatewayURL: fmt.Sprintf("http://localhost:%d", bogusPort),
 	})
 	srv.AgentService().RegisterAgent(adapter)
 
@@ -398,7 +408,7 @@ agent_service:
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
 	workDir := t.TempDir()
 
-	// Create session and send message - should get error because no valid API key.
+	// Create session and send message - should get error because gateway is unreachable.
 	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
 	resp := sendE2EMessage(t, baseURL, sessionID, "say hello")
 	defer resp.Body.Close()
@@ -419,10 +429,10 @@ agent_service:
 	}
 
 	// The test passes if we got an error event, or if there are no text events
-	// (indicating the CLI failed silently). Either way, it should NOT have
-	// produced valid text output without a valid API key.
+	// (indicating the CLI failed). Either way, it should NOT have
+	// produced valid text output with an unreachable gateway.
 	if !hasError && hasContent {
-		t.Error("expected error event or no text content when API key is invalid")
+		t.Error("expected error event or no text content when gateway is unreachable")
 	}
 	if hasError {
 		t.Log("Error propagation verified: error event received in SSE stream")
@@ -430,3 +440,4 @@ agent_service:
 		t.Log("Error propagation verified: no text content received (CLI failed)")
 	}
 }
+

@@ -26,7 +26,6 @@ type ProcessManager struct {
 func BuildArgs(cfg *codingagent.SessionConfig) []string {
 	args := []string{
 		"--output-format", "stream-json",
-		"--input-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "bypassPermissions",
 	}
