@@ -715,12 +715,12 @@ func TestAgentServiceCreateSession_InvalidModel(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
 		t.Fatalf("json decode error: %v", err)
 	}
-	if errResp.Error != "unsupported model for agent claudecode: nonexistent-model" {
-		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model for agent claudecode: nonexistent-model")
+	if errResp.Error != "unsupported model: nonexistent-model" {
+		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model: nonexistent-model")
 	}
-	// Only anthropic models should be listed for claudecode agent.
-	if len(errResp.AvailableModels) != 1 {
-		t.Errorf("available_models count = %d, want 1 (only anthropic)", len(errResp.AvailableModels))
+	// All gateway models should be listed (no provider filtering).
+	if len(errResp.AvailableModels) != 3 {
+		t.Errorf("available_models count = %d, want 3 (all models)", len(errResp.AvailableModels))
 	}
 }
 
