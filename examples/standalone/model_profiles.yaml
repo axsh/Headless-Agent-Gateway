@@ -13,3 +13,9 @@ providers:
         value: vault://providers/anthropic/default
         models:
           - name: claude-sonnet-4-20250514
+  google:
+    keys:
+      - name: default
+        value: vault://providers/google/default
+        models:
+          - name: gemini-2.5-flash
