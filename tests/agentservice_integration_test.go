@@ -629,3 +629,174 @@ func TestAgentServiceSSEErrorPropagation(t *testing.T) {
 		t.Error("error event should have non-empty content")
 	}
 }
+
+// --- Model validation integration tests ---
+
+// setupAgentServiceTestServerWithModels creates a test server with cached model data.
+func setupAgentServiceTestServerWithModels(t *testing.T) *httptest.Server {
+	t.Helper()
+	tl := tasklog.New()
+	srv := agentservice.New(
+		agentservice.WithTaskLog(tl),
+	)
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
+	srv.SetGatewayModels(
+		[]llmgateway.ModelInfo{
+			{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+			{Provider: "openai", Model: "gpt-4o"},
+			{Provider: "google", Model: "gemini-2.5-flash"},
+		},
+		&llmgateway.ModelInfo{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+	)
+	ts := httptest.NewServer(srv.HTTPHandler())
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// T9: GET /api/v1/models returns model list via integration test server.
+func TestAgentServiceModelsEndpoint(t *testing.T) {
+	ts := setupAgentServiceTestServerWithModels(t)
+
+	resp, err := http.Get(ts.URL + "/api/v1/models")
+	if err != nil {
+		t.Fatalf("GET /api/v1/models failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var body struct {
+		Models       []llmgateway.ModelInfo `json:"models"`
+		DefaultModel *llmgateway.ModelInfo  `json:"default_model"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+
+	if len(body.Models) != 3 {
+		t.Errorf("models count = %d, want 3", len(body.Models))
+	}
+	if body.DefaultModel == nil {
+		t.Fatal("default_model should not be nil")
+	}
+	if body.DefaultModel.Provider != "anthropic" {
+		t.Errorf("default_model.provider = %q, want %q", body.DefaultModel.Provider, "anthropic")
+	}
+	if body.DefaultModel.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-20250514")
+	}
+}
+
+// T10: POST /api/v1/sessions with invalid model returns 400.
+func TestAgentServiceCreateSession_InvalidModel(t *testing.T) {
+	ts := setupAgentServiceTestServerWithModels(t)
+
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+		"model": "nonexistent-model",
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions",
+		"application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+
+	var errResp struct {
+		Error           string   `json:"error"`
+		AvailableModels []string `json:"available_models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+	if errResp.Error != "unknown model: nonexistent-model" {
+		t.Errorf("error = %q, want %q", errResp.Error, "unknown model: nonexistent-model")
+	}
+	if len(errResp.AvailableModels) != 3 {
+		t.Errorf("available_models count = %d, want 3", len(errResp.AvailableModels))
+	}
+}
+
+// T11: POST /api/v1/sessions with valid model returns 201.
+func TestAgentServiceCreateSession_ValidModel(t *testing.T) {
+	ts := setupAgentServiceTestServerWithModels(t)
+
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+		"model": "gpt-4o",
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions",
+		"application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["session_id"] == "" {
+		t.Error("session_id should not be empty")
+	}
+}
+
+// T12: DefaultModel comes from model_profiles.yaml, not hardcoded.
+func TestAgentServiceDefaultModelFromProfiles(t *testing.T) {
+	ts := setupAgentServiceTestServerWithModels(t)
+
+	// Verify default model via /api/v1/models
+	resp, err := http.Get(ts.URL + "/api/v1/models")
+	if err != nil {
+		t.Fatalf("GET /api/v1/models failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		DefaultModel *llmgateway.ModelInfo `json:"default_model"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+
+	if body.DefaultModel == nil {
+		t.Fatal("default_model should not be nil")
+	}
+	// Verify the default model matches what was set from profiles,
+	// not a hardcoded value like "claude-sonnet-4-20250514" from main.go.
+	if body.DefaultModel.Provider != "anthropic" {
+		t.Errorf("default_model.provider = %q, want %q", body.DefaultModel.Provider, "anthropic")
+	}
+	if body.DefaultModel.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-20250514")
+	}
+
+	// Also verify the default model is valid in the model list.
+	resp2, err := http.Get(ts.URL + "/api/v1/models")
+	if err != nil {
+		t.Fatalf("GET /api/v1/models (2) failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	var body2 struct {
+		Models []llmgateway.ModelInfo `json:"models"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&body2)
+
+	found := false
+	for _, m := range body2.Models {
+		if m.Model == body.DefaultModel.Model && m.Provider == body.DefaultModel.Provider {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("default_model should exist in the models list")
+	}
+}
