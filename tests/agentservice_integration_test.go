@@ -28,14 +28,12 @@ import (
 
 // integrationMockAgent implements codingagent.CodingAgent for integration tests.
 type integrationMockAgent struct {
-	name      string
-	providers []string
-	sessions  []*integrationMockSession
+	name     string
+	sessions []*integrationMockSession
 }
 
-func (a *integrationMockAgent) Name() string                { return a.name }
-func (a *integrationMockAgent) SupportedProviders() []string { return a.providers }
-func (a *integrationMockAgent) Close() error                { return nil }
+func (a *integrationMockAgent) Name() string { return a.name }
+func (a *integrationMockAgent) Close() error { return nil }
 func (a *integrationMockAgent) CreateSession(
 	_ context.Context, _ ...codingagent.SessionOption,
 ) (codingagent.Session, error) {
@@ -78,7 +76,7 @@ func setupAgentServiceTestServer(t *testing.T) (*httptest.Server, *tasklog.TaskL
 	srv := agentservice.New(
 		agentservice.WithTaskLog(tl),
 	)
-	srv.RegisterAgent(&integrationMockAgent{name: "claudecode", providers: []string{"anthropic"}})
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
 	ts := httptest.NewServer(srv.HTTPHandler())
 	t.Cleanup(ts.Close)
 	return ts, tl
@@ -555,9 +553,8 @@ type errorMockAgent struct {
 	name string
 }
 
-func (a *errorMockAgent) Name() string                { return a.name }
-func (a *errorMockAgent) SupportedProviders() []string { return nil }
-func (a *errorMockAgent) Close() error                { return nil }
+func (a *errorMockAgent) Name() string { return a.name }
+func (a *errorMockAgent) Close() error { return nil }
 func (a *errorMockAgent) CreateSession(
 	_ context.Context, _ ...codingagent.SessionOption,
 ) (codingagent.Session, error) {
