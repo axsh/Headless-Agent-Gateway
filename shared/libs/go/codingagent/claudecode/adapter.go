@@ -26,9 +26,6 @@ func New(config *codingagent.AdapterConfig) *ClaudeCodeAdapter {
 // Name returns "claudecode".
 func (a *ClaudeCodeAdapter) Name() string { return "claudecode" }
 
-// SupportedProviders returns ["anthropic"] since Claude Code CLI only supports Anthropic models.
-func (a *ClaudeCodeAdapter) SupportedProviders() []string { return []string{"anthropic"} }
-
 // CreateSession starts a new Claude Code session by launching the CLI subprocess.
 func (a *ClaudeCodeAdapter) CreateSession(
 	ctx context.Context, opts ...codingagent.SessionOption,

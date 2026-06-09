@@ -14,7 +14,6 @@ func (m *mockAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOpt
 	return nil, nil
 }
 func (m *mockAgent) Name() string                { return "mock" }
-func (m *mockAgent) SupportedProviders() []string { return nil }
 func (m *mockAgent) Close() error                { return nil }
 
 // mockSession implements Session for compile-time check.

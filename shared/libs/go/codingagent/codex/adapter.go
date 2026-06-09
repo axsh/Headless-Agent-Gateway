@@ -26,9 +26,6 @@ func New(config *codingagent.AdapterConfig) *CodexAdapter {
 // Name returns "codex".
 func (a *CodexAdapter) Name() string { return "codex" }
 
-// SupportedProviders returns ["openai"] since Codex CLI primarily supports OpenAI models.
-func (a *CodexAdapter) SupportedProviders() []string { return []string{"openai"} }
-
 // CreateSession starts a new Codex session by launching the CLI subprocess.
 func (a *CodexAdapter) CreateSession(
 	ctx context.Context, opts ...codingagent.SessionOption,

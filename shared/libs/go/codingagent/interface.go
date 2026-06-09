@@ -13,10 +13,6 @@ type CodingAgent interface {
 	// Name returns the agent backend name ("claudecode", "codex").
 	Name() string
 
-	// SupportedProviders returns the list of LLM provider names this agent supports.
-	// Returns nil or empty to indicate no provider restriction (all providers accepted).
-	SupportedProviders() []string
-
 	// Close releases agent resources.
 	Close() error
 }
