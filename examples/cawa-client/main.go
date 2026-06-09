@@ -175,9 +175,16 @@ func cmdRun(args []string) {
 		fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
 		os.Exit(1)
 	}
+	defer resp.Body.Close()
+	respBytes, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusCreated {
+		fmt.Fprintf(os.Stderr, "Error creating session (HTTP %d):\n%s\n", resp.StatusCode, string(respBytes))
+		os.Exit(1)
+	}
+
 	var created map[string]string
-	json.NewDecoder(resp.Body).Decode(&created)
-	resp.Body.Close()
+	json.Unmarshal(respBytes, &created)
 	sessionID := created["session_id"]
 	fmt.Printf("Session created: %s\n\n", sessionID)
 
