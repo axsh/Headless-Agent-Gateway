@@ -29,6 +29,8 @@ func main() {
 		cmdHealth()
 	case "agents":
 		cmdAgents()
+	case "models":
+		cmdModels()
 	case "run":
 		cmdRun(args[1:])
 	case "session":
@@ -50,6 +52,7 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  health                        Check server health")
 	fmt.Println("  agents                        List available agents")
+	fmt.Println("  models                        List available models")
 	fmt.Println("  run --agent NAME --prompt MSG  Create session and run")
 	fmt.Println("  session --id ID               Get session status")
 	fmt.Println("  logs --id ID                  Stream session logs")
@@ -91,6 +94,59 @@ func cmdAgents() {
 	}
 	for _, a := range agents {
 		fmt.Println(a.Name)
+	}
+}
+
+// cmdModels calls GET /api/v1/models and displays available models.
+func cmdModels() {
+	resp, err := http.Get(serverURL + "/api/v1/models")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Models []struct {
+			Provider string `json:"provider"`
+			Model    string `json:"model"`
+		} `json:"models"`
+		DefaultModel *struct {
+			Provider string `json:"provider"`
+			Model    string `json:"model"`
+		} `json:"default_model"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		fmt.Fprintf(os.Stderr, "Error decoding models: %v\n", err)
+		os.Exit(1)
+	}
+
+	defaultModelName := ""
+	if body.DefaultModel != nil {
+		defaultModelName = body.DefaultModel.Model
+	}
+
+	// Group by provider.
+	byProvider := make(map[string][]string)
+	var providerOrder []string
+	for _, m := range body.Models {
+		if _, exists := byProvider[m.Provider]; !exists {
+			providerOrder = append(providerOrder, m.Provider)
+		}
+		byProvider[m.Provider] = append(byProvider[m.Provider], m.Model)
+	}
+
+	fmt.Println("Available models:")
+	for _, provider := range providerOrder {
+		models := byProvider[provider]
+		fmt.Printf("  %s:\n", provider)
+		for _, model := range models {
+			if model == defaultModelName {
+				fmt.Printf("    * %s (default)\n", model)
+			} else {
+				fmt.Printf("    - %s\n", model)
+			}
+		}
 	}
 }
 
