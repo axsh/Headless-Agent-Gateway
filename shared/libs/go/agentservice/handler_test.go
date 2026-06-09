@@ -259,46 +259,30 @@ func TestHandleCreateSession_InvalidModel(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
 		t.Fatalf("json decode error: %v", err)
 	}
-	if errResp.Error != "unsupported model for agent claudecode: gpt-5-turbo" {
-		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model for agent claudecode: gpt-5-turbo")
+	if errResp.Error != "unsupported model: gpt-5-turbo" {
+		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model: gpt-5-turbo")
 	}
-	// Only anthropic models should be listed for claudecode agent.
-	if len(errResp.AvailableModels) != 1 {
-		t.Errorf("available_models count = %d, want 1 (only anthropic)", len(errResp.AvailableModels))
+	// All gateway models should be listed (no provider filtering).
+	if len(errResp.AvailableModels) != 2 {
+		t.Errorf("available_models count = %d, want 2 (all models)", len(errResp.AvailableModels))
 	}
 }
 
-// T5b: POST /api/v1/sessions with model from wrong provider returns 400.
-func TestHandleCreateSession_ProviderMismatch(t *testing.T) {
+// T5b: POST /api/v1/sessions with model from different provider returns 201 (cross-provider).
+func TestHandleCreateSession_CrossProvider(t *testing.T) {
 	_, handler := newTestServerWithModels()
 
 	body, _ := json.Marshal(map[string]string{
 		"agent": "claudecode",
-		"model": "gpt-4o", // exists in profiles but is openai, not anthropic
+		"model": "gpt-4o", // exists in profiles, different provider but allowed
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
-
-	var errResp struct {
-		Error           string   `json:"error"`
-		AvailableModels []string `json:"available_models"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
-		t.Fatalf("json decode error: %v", err)
-	}
-	if errResp.Error != "unsupported model for agent claudecode: gpt-4o" {
-		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model for agent claudecode: gpt-4o")
-	}
-	// Should only list anthropic models as available.
-	for _, m := range errResp.AvailableModels {
-		if m == "gpt-4o" {
-			t.Error("available_models should not contain gpt-4o for claudecode agent")
-		}
+	// Cross-provider models should be accepted.
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201 (cross-provider model accepted)", w.Code)
 	}
 }
 
