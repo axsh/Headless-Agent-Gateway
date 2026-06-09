@@ -10,6 +10,7 @@ import (
 
 	"github.com/axsh/hag/agentservice"
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/llmgateway"
 )
 
 // mockCodingAgent implements CodingAgent for testing.
@@ -20,8 +21,8 @@ type mockCodingAgent struct {
 func (m *mockCodingAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
 	return &mockCodingSession{}, nil
 }
-func (m *mockCodingAgent) Name() string  { return m.name }
-func (m *mockCodingAgent) Close() error  { return nil }
+func (m *mockCodingAgent) Name() string { return m.name }
+func (m *mockCodingAgent) Close() error { return nil }
 
 type mockCodingSession struct{}
 
@@ -38,6 +39,20 @@ func (s *mockCodingSession) Close() error { return nil }
 func newTestServer() (*agentservice.Server, http.Handler) {
 	srv := agentservice.New()
 	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
+	return srv, srv.HTTPHandler()
+}
+
+// newTestServerWithModels creates a test server with cached gateway models.
+func newTestServerWithModels() (*agentservice.Server, http.Handler) {
+	srv := agentservice.New()
+	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
+	srv.SetGatewayModels(
+		[]llmgateway.ModelInfo{
+			{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+			{Provider: "openai", Model: "gpt-4o"},
+		},
+		&llmgateway.ModelInfo{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+	)
 	return srv, srv.HTTPHandler()
 }
 
@@ -187,5 +202,117 @@ func TestHandleTerminateAgent(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&record)
 	if record.Status != codingagent.StatusClosed {
 		t.Errorf("status = %v, want closed", record.Status)
+	}
+}
+
+// T4: GET /api/v1/models returns models and default_model.
+func TestHandleListModels(t *testing.T) {
+	_, handler := newTestServerWithModels()
+
+	req := httptest.NewRequest("GET", "/api/v1/models", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+
+	var body struct {
+		Models       []llmgateway.ModelInfo `json:"models"`
+		DefaultModel *llmgateway.ModelInfo  `json:"default_model"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+	if len(body.Models) != 2 {
+		t.Errorf("models count = %d, want 2", len(body.Models))
+	}
+	if body.DefaultModel == nil {
+		t.Fatal("default_model should not be nil")
+	}
+	if body.DefaultModel.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-20250514")
+	}
+}
+
+// T5: POST /api/v1/sessions with invalid model returns 400.
+func TestHandleCreateSession_InvalidModel(t *testing.T) {
+	_, handler := newTestServerWithModels()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+		"model": "gpt-5-turbo",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+
+	var errResp struct {
+		Error           string   `json:"error"`
+		AvailableModels []string `json:"available_models"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+	if errResp.Error != "unknown model: gpt-5-turbo" {
+		t.Errorf("error = %q, want %q", errResp.Error, "unknown model: gpt-5-turbo")
+	}
+	if len(errResp.AvailableModels) != 2 {
+		t.Errorf("available_models count = %d, want 2", len(errResp.AvailableModels))
+	}
+}
+
+// T6: POST /api/v1/sessions with valid model returns 201.
+func TestHandleCreateSession_ValidModel(t *testing.T) {
+	_, handler := newTestServerWithModels()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+		"model": "claude-sonnet-4-20250514",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", w.Code)
+	}
+}
+
+// T7: POST /api/v1/sessions with empty model returns 201 (skip validation).
+func TestHandleCreateSession_EmptyModel(t *testing.T) {
+	_, handler := newTestServerWithModels()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201", w.Code)
+	}
+}
+
+// T8: POST /api/v1/sessions when gateway models are empty (fail-open).
+func TestHandleCreateSession_NoGatewayModels(t *testing.T) {
+	_, handler := newTestServer() // no models cached
+
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+		"model": "any-model-name",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// Should succeed (fail-open) since no gateway models are cached.
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201 (fail-open when no gateway models)", w.Code)
 	}
 }

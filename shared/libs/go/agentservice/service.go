@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/logger"
 	"github.com/axsh/hag/tasklog"
 )
@@ -23,15 +25,17 @@ type AgentService interface {
 
 // Server is the Coding Agent API service layer.
 type Server struct {
-	agents      map[string]codingagent.CodingAgent
-	sessions    codingagent.SessionStore
-	logger      logger.Logger
-	taskLog     *tasklog.TaskLog
-	gatewayURL  string
-	cliVersions map[string]string // cached at init
-	httpServer  *http.Server
-	ln          net.Listener
-	port        int // actual listen port (set after Launch)
+	agents         map[string]codingagent.CodingAgent
+	sessions       codingagent.SessionStore
+	logger         logger.Logger
+	taskLog        *tasklog.TaskLog
+	gatewayURL     string
+	cliVersions    map[string]string        // cached at init
+	gatewayModels  []llmgateway.ModelInfo   // cached model list from LLMGP
+	gatewayDefault *llmgateway.ModelInfo    // cached default model from LLMGP
+	httpServer     *http.Server
+	ln             net.Listener
+	port           int // actual listen port (set after Launch)
 }
 
 // ServerOption configures a Server.
@@ -137,6 +141,7 @@ func (s *Server) HTTPHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/agents", s.routeAgents)
+	mux.HandleFunc("/api/v1/models", s.routeModels)
 	mux.HandleFunc("/api/v1/sessions", s.routeSessions)
 	mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
 	return mux
@@ -146,6 +151,15 @@ func (s *Server) routeAgents(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.handleListAgents(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) routeModels(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleListModels(w, r)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -218,4 +232,59 @@ func detectCLIVersions(agents map[string]codingagent.CodingAgent, log logger.Log
 		}
 	}
 	return versions
+}
+
+// FetchModelsFromGateway calls LLMGP /v1/models and caches the result.
+func (s *Server) FetchModelsFromGateway() error {
+	if s.gatewayURL == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", s.gatewayURL+"/v1/models", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Models       []llmgateway.ModelInfo `json:"models"`
+		DefaultModel *llmgateway.ModelInfo  `json:"default_model"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return err
+	}
+	s.gatewayModels = body.Models
+	s.gatewayDefault = body.DefaultModel
+	return nil
+}
+
+// SetGatewayModels sets the cached model list directly (for testing).
+func (s *Server) SetGatewayModels(models []llmgateway.ModelInfo, defaultModel *llmgateway.ModelInfo) {
+	s.gatewayModels = models
+	s.gatewayDefault = defaultModel
+}
+
+// IsValidModel checks if a model name exists in the cached model list.
+func (s *Server) IsValidModel(model string) bool {
+	for _, m := range s.gatewayModels {
+		if m.Model == model {
+			return true
+		}
+	}
+	return false
+}
+
+// AvailableModelNames returns a list of model name strings.
+func (s *Server) AvailableModelNames() []string {
+	names := make([]string, len(s.gatewayModels))
+	for i, m := range s.gatewayModels {
+		names[i] = m.Model
+	}
+	return names
 }

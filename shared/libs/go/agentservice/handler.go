@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/tasklog"
 )
 
@@ -23,6 +24,23 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(agents)
+}
+
+// handleListModels handles GET /api/v1/models.
+// Returns the cached model list and default model from LLMGP.
+func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
+	models := s.gatewayModels
+	if models == nil {
+		models = []llmgateway.ModelInfo{}
+	}
+	resp := map[string]any{
+		"models": models,
+	}
+	if s.gatewayDefault != nil {
+		resp["default_model"] = s.gatewayDefault
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleCreateSession handles POST /api/v1/sessions.
@@ -41,6 +59,19 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.agents[req.Agent]; !ok {
 		http.Error(w, "unknown agent: "+req.Agent, http.StatusBadRequest)
 		return
+	}
+
+	// Validate model against cached model list from LLMGP.
+	if req.Model != "" && len(s.gatewayModels) > 0 {
+		if !s.IsValidModel(req.Model) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error":            "unknown model: " + req.Model,
+				"available_models": s.AvailableModelNames(),
+			})
+			return
+		}
 	}
 
 	sessionID := s.generateID()
