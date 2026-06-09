@@ -161,6 +161,27 @@ func TestModelProfilesConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "default profile provider",
 		},
+		{
+			name: "duplicate logical_name",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["anthropic"] = ProviderConfig{
+					Keys: []KeyConfig{
+						{Name: "primary", Value: "vault://x", Models: []ModelConfig{
+							{Name: "claude-sonnet-4-20250514", LogicalName: "fast-coder"},
+						}},
+					},
+				}
+				c.Providers["openai"] = ProviderConfig{
+					Keys: []KeyConfig{
+						{Name: "primary", Value: "vault://y", Models: []ModelConfig{
+							{Name: "gpt-4o", LogicalName: "fast-coder"},
+						}},
+					},
+				}
+			},
+			wantErr: true,
+			errMsg:  "duplicate logical_name",
+		},
 	}
 
 	for _, tt := range tests {
@@ -170,6 +191,36 @@ func TestModelProfilesConfig_Validate(t *testing.T) {
 			err := cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestModelConfigLogicalName(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		wantLN string
+	}{
+		{
+			name:   "logical_name set",
+			input:  "name: gpt-4o\nlogical_name: fast-coder",
+			wantLN: "fast-coder",
+		},
+		{
+			name:   "logical_name omitted",
+			input:  "name: gpt-4o",
+			wantLN: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mc ModelConfig
+			if err := yaml.Unmarshal([]byte(tt.input), &mc); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if mc.LogicalName != tt.wantLN {
+				t.Errorf("LogicalName = %q, want %q", mc.LogicalName, tt.wantLN)
 			}
 		})
 	}

@@ -36,8 +36,9 @@ type KeyConfig struct {
 
 // ModelConfig holds per-model configuration.
 type ModelConfig struct {
-	Name     string         `yaml:"name"`
-	Behavior *ModelBehavior `yaml:"behavior,omitempty"`
+	Name         string         `yaml:"name"`
+	LogicalName  string         `yaml:"logical_name,omitempty"`
+	Behavior     *ModelBehavior `yaml:"behavior,omitempty"`
 }
 
 // ModelBehavior holds model-specific behavior settings.
@@ -81,6 +82,22 @@ func (c *ModelProfilesConfig) Validate() error {
 	if c.DefaultProfile.Provider != "" {
 		if _, ok := c.Providers[c.DefaultProfile.Provider]; !ok {
 			return fmt.Errorf("default profile provider %q not found in providers", c.DefaultProfile.Provider)
+		}
+	}
+
+	// Validate logical_name uniqueness across all providers.
+	logicalNames := make(map[string]string) // logical_name -> "provider/model"
+	for provName, prov := range c.Providers {
+		for _, key := range prov.Keys {
+			for _, model := range key.Models {
+				if model.LogicalName != "" {
+					ref := provName + "/" + model.Name
+					if existing, ok := logicalNames[model.LogicalName]; ok {
+						return fmt.Errorf("duplicate logical_name %q: %s and %s", model.LogicalName, existing, ref)
+					}
+					logicalNames[model.LogicalName] = ref
+				}
+			}
 		}
 	}
 
