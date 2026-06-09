@@ -60,9 +60,12 @@ func main() {
 // Agents are only registered if their CLI tool is available on PATH.
 func registerCodingAgents(srv *hag.Server) {
 	if _, err := exec.LookPath("claude"); err == nil {
-		adapter := claudecode.New(&codingagent.AdapterConfig{})
+		gwURL := srv.Gateway().ProxyURL()
+		adapter := claudecode.New(&codingagent.AdapterConfig{
+			GatewayURL: gwURL,
+		})
 		srv.AgentService().RegisterAgent(adapter)
-		fmt.Println("Registered coding agent: claudecode")
+		fmt.Printf("Registered coding agent: claudecode (gateway=%s)\n", gwURL)
 	} else {
 		fmt.Println("Warning: claude CLI not found, claudecode agent not registered")
 	}
