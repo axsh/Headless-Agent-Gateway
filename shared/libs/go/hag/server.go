@@ -6,6 +6,7 @@ package hag
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/axsh/hag/agentservice"
 	"github.com/axsh/hag/config"
@@ -44,7 +45,7 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	// Step 2: Resolve Config.
-	cfg, err := resolveConfig(o)
+	cfg, configDir, err := resolveConfig(o)
 	if err != nil {
 		return nil, fmt.Errorf("hag: %w", err)
 	}
@@ -56,7 +57,7 @@ func New(opts ...Option) (*Server, error) {
 	vs := resolveVault(o)
 
 	// Step 5: Resolve Gateway.
-	gw, err := resolveGateway(o, cfg, vs, log)
+	gw, err := resolveGateway(o, cfg, vs, log, configDir)
 	if err != nil {
 		return nil, fmt.Errorf("hag: %w", err)
 	}
@@ -170,18 +171,21 @@ func (s *Server) ReloadModelProfiles(path string) error {
 
 // resolveConfig resolves the AppConfig from options.
 // Priority: WithConfigPath > WithConfig > default.
-func resolveConfig(o *options) (*config.AppConfig, error) {
+// Returns the config and the directory containing the config file
+// (used to resolve relative paths like model_profiles_path).
+func resolveConfig(o *options) (*config.AppConfig, string, error) {
 	if o.configPath != "" {
 		cfg, err := config.Load(o.configPath)
 		if err != nil {
-			return nil, fmt.Errorf("load config from %s: %w", o.configPath, err)
+			return nil, "", fmt.Errorf("load config from %s: %w", o.configPath, err)
 		}
-		return cfg, nil
+		absPath, _ := filepath.Abs(o.configPath)
+		return cfg, filepath.Dir(absPath), nil
 	}
 	if o.cfg != nil {
-		return o.cfg, nil
+		return o.cfg, "", nil
 	}
-	return &config.AppConfig{}, nil
+	return &config.AppConfig{}, "", nil
 }
 
 // resolveLogger resolves the Logger from options.
@@ -207,14 +211,22 @@ func resolveVault(o *options) vault.VaultStore {
 // If WithGateway is set, use it. Otherwise:
 //   - If model profiles are configured, create a BifrostDriver.
 //   - Otherwise create a standalone ProxyServer.
-func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log logger.Logger) (llmgateway.LLMGatewayBackend, error) {
+//
+// configDir is the directory containing config.yaml; relative
+// model_profiles_path values are resolved against it.
+func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log logger.Logger, configDir string) (llmgateway.LLMGatewayBackend, error) {
 	if o.gateway != nil {
 		return o.gateway, nil
 	}
 
 	// If model profiles path is configured, try to load and use BifrostDriver.
 	if cfg.LLMGateway.ModelProfilesPath != "" {
-		profiles, err := config.LoadModelProfiles(cfg.LLMGateway.ModelProfilesPath)
+		profilesPath := cfg.LLMGateway.ModelProfilesPath
+		// Resolve relative path against config directory.
+		if !filepath.IsAbs(profilesPath) && configDir != "" {
+			profilesPath = filepath.Join(configDir, profilesPath)
+		}
+		profiles, err := config.LoadModelProfiles(profilesPath)
 		if err != nil {
 			return nil, fmt.Errorf("load model profiles: %w", err)
 		}
