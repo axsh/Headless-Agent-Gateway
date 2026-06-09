@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// openAIMaxCompletionTokens is the safe default max completion tokens for OpenAI models.
+// Most OpenAI models support at least 16384 completion tokens.
+// Claude CLI typically sends max_tokens=32000 which exceeds this limit.
+const openAIMaxCompletionTokens = 16384
+
 // --- Anthropic Types ---
 
 // AnthropicFullRequest represents the full Anthropic Messages API request body.
@@ -142,8 +147,14 @@ func ConvertAnthropicRequestToOpenAI(body []byte) ([]byte, error) {
 		Stream:      req.Stream,
 	}
 
+	// Clamp max_tokens for OpenAI compatibility.
+	// Claude CLI often sends max_tokens=32000 which exceeds limits for many OpenAI models
+	// (e.g., gpt-4o supports max 16384). We clamp to a safe default.
 	if req.MaxTokens > 0 {
 		mt := req.MaxTokens
+		if mt > openAIMaxCompletionTokens {
+			mt = openAIMaxCompletionTokens
+		}
 		oaiReq.MaxTokens = &mt
 	}
 

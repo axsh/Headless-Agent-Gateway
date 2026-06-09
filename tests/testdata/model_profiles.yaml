@@ -11,16 +11,25 @@ providers:
         value: "vault://providers/anthropic/default"
         models:
           - name: claude-sonnet-4-20250514
+          - name: claude-opus-4-20250514
+          - name: claude-sonnet-4-6
+          - name: claude-opus-4-8
+          - name: claude-haiku-4-5
   openai:
     keys:
       - name: default
         value: "vault://providers/openai/default"
         models:
+          - name: gpt-4o
+          - name: gpt-4o-mini
           - name: gpt-4.1-mini
-          - name: codex-mini-latest
+          - name: gpt-5.4-mini
+          - name: gpt-5.5
   google:
     keys:
       - name: default
         value: "vault://providers/google/default"
         models:
           - name: gemini-2.5-flash
+          - name: gemini-2.5-pro
+          - name: gemini-3.5-flash
