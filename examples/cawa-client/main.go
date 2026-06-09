@@ -177,6 +177,8 @@ func streamSSE(body io.Reader) {
 			fmt.Printf("[Tool Result] %s\n", ev.Content)
 		case "system":
 			fmt.Printf("[System] %s\n", ev.Content)
+		case "error":
+			fmt.Fprintf(os.Stderr, "\n[Error] %s\n", ev.Content)
 		default:
 			fmt.Printf("[%s] %s\n", ev.Type, ev.Content)
 		}
