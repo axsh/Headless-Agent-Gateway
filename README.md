@@ -131,6 +131,9 @@ cd ../..
 # 利用可能なエージェント一覧
 ./bin/cawa-client agents
 
+# 利用可能なモデル一覧 (プロバイダごとにグループ化、デフォルトモデルを表示)
+./bin/cawa-client models
+
 # セッション作成 + メッセージ送信 (SSE ストリーミング, デフォルトモデル)
 ./bin/cawa-client run --agent claudecode --prompt "Hello, what can you do?"
 
@@ -148,6 +151,10 @@ cd ../..
 ```
 
 `--server` オプションでサーバ URL を指定できます (デフォルト: `http://localhost:3100`)。
+
+> **Note**: `--model` で指定するモデル名は `model_profiles.yaml` に登録されている名称でなければなりません。
+> 未登録のモデル名を指定した場合、セッション作成が 400 エラーで拒否され、
+> 利用可能なモデル名の一覧がレスポンスに含まれます。
 
 #### デモ実行フロー
 
@@ -281,6 +288,10 @@ agent_service:
 #### model_profiles.yaml の書式
 
 ```yaml
+default_profile:
+  provider: anthropic                              # デフォルトモデルのプロバイダ
+  model: claude-sonnet-4-20250514                   # デフォルトモデル名
+
 providers:
   openai:
     keys:
@@ -304,16 +315,28 @@ providers:
           - name: gemini-2.5-flash
 ```
 
+`default_profile` セクションはセッション作成時にモデルが指定されなかった場合のフォールバック先を定義します。
+
 #### モデルの指定方法
 
 セッション作成時にモデルを指定することで、使用する LLM を切り替えることができます。
 
-**デフォルトモデル**: モデルを指定しない場合は、サーバ設定の `DefaultModel` (`claude-sonnet-4-20250514`) が使用されます。
+**デフォルトモデル**: モデルを指定しない場合は、`model_profiles.yaml` の `default_profile` セクションで定義されたモデルが使用されます。
+
+**利用可能なモデルの確認**:
+
+```bash
+# cawa-client で確認
+./bin/cawa-client models
+
+# API で確認 (GET /api/v1/models)
+curl http://localhost:3100/api/v1/models
+```
 
 **cawa-client での指定**:
 
 ```bash
-# デフォルトモデル (claude-sonnet-4-20250514) を使用
+# デフォルトモデルを使用
 ./bin/cawa-client run --agent claudecode --prompt "Hello"
 
 # Anthropic モデルを明示指定
@@ -332,6 +355,15 @@ curl -X POST http://localhost:3100/api/v1/sessions \
 curl -X POST http://localhost:3100/api/v1/sessions \
   -H "Content-Type: application/json" \
   -d '{"agent": "claudecode", "work_dir": "/tmp/work"}'
+```
+
+**モデルバリデーション**: `model_profiles.yaml` に登録されていないモデル名を指定した場合、400 エラーが返されます。
+
+```json
+{
+  "error": "unknown model: nonexistent-model",
+  "available_models": ["claude-sonnet-4-20250514", "gpt-4o", "gemini-2.5-flash"]
+}
 ```
 
 > **Important**: Coding Agent (claudecode) は Claude CLI を使用するため、指定可能なモデルは Anthropic プロバイダーのモデルに限定されます。
