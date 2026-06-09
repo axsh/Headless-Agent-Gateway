@@ -148,3 +148,62 @@ func TestParseJSONLinesEvent_Invalid(t *testing.T) {
 		})
 	}
 }
+
+// R3: v2.1 text block in assistant message.
+func TestParseJSONLinesEvent_V21_TextBlock(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello! I'm here."}]}}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventText {
+		t.Errorf("Type = %v, want EventText", ev.Type)
+	}
+	if ev.Content != "Hello! I'm here." {
+		t.Errorf("Content = %q, want %q", ev.Content, "Hello! I'm here.")
+	}
+}
+
+// R2: system/thinking_tokens should be silently ignored.
+func TestParseJSONLinesEvent_V21_ThinkingTokens(t *testing.T) {
+	input := `{"type":"system","subtype":"thinking_tokens","estimated_tokens":200,"estimated_tokens_delta":24}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	if ev != nil {
+		t.Errorf("expected nil for thinking_tokens, got %+v", ev)
+	}
+}
+
+// R2: assistant/thinking block should not cause errors.
+func TestParseJSONLinesEvent_V21_ThinkingBlock(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"reasoning...","signature":"sig123"}]}}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	// thinking-only message returns nil (no text or tool_use).
+	if ev != nil {
+		t.Errorf("expected nil for thinking-only message, got %+v", ev)
+	}
+}
+
+// R2: v2.1 result with extended fields.
+func TestParseJSONLinesEvent_V21_Result(t *testing.T) {
+	input := `{"type":"result","subtype":"success","is_error":false,"duration_ms":6354,"num_turns":1,"result":"Hello!","stop_reason":"end_turn","total_cost_usd":0.01,"terminal_reason":"completed"}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventResult {
+		t.Errorf("Type = %v, want EventResult", ev.Type)
+	}
+}
+
+// R3: mixed text and tool_use in assistant message (tool_use takes priority).
+func TestParseJSONLinesEvent_V21_TextAndToolUse(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"path":"a.go"}},{"type":"text","text":"ok"}]}}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolUse {
+		t.Errorf("Type = %v, want EventToolUse", ev.Type)
+	}
+}
+

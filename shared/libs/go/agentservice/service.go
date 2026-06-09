@@ -132,7 +132,7 @@ func (s *Server) Port() int {
 // CLI versions are detected lazily here, after all agents are registered.
 func (s *Server) HTTPHandler() http.Handler {
 	if s.cliVersions == nil {
-		s.cliVersions = detectCLIVersions(s.agents)
+		s.cliVersions = detectCLIVersions(s.agents, s.logger)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
@@ -189,7 +189,8 @@ func (s *Server) generateID() string {
 
 // detectCLIVersions runs "claude --version" / "codex --version" once at init.
 // Returns a map of agent name -> version string (or "unavailable").
-func detectCLIVersions(agents map[string]codingagent.CodingAgent) map[string]string {
+// Logs an error if a detected version does not meet the minimum requirement.
+func detectCLIVersions(agents map[string]codingagent.CodingAgent, log logger.Logger) map[string]string {
 	versions := make(map[string]string)
 	cliNames := map[string]string{
 		"claudecode": "claude",
@@ -206,7 +207,15 @@ func detectCLIVersions(agents map[string]codingagent.CodingAgent) map[string]str
 			versions[agentName] = "unavailable"
 			continue
 		}
-		versions[agentName] = strings.TrimSpace(string(out))
+		versionStr := strings.TrimSpace(string(out))
+		versions[agentName] = versionStr
+
+		// R8: Validate CLI version meets minimum requirement.
+		if verErr := checkCLIVersion(versionStr, minClaudeCLIVersion); verErr != nil {
+			if log != nil {
+				log.Error(verErr.Error(), "agent", agentName)
+			}
+		}
 	}
 	return versions
 }

@@ -10,9 +10,10 @@ import (
 
 func TestBuildArgs(t *testing.T) {
 	tests := []struct {
-		name     string
-		cfg      *codingagent.SessionConfig
-		contains []string
+		name       string
+		cfg        *codingagent.SessionConfig
+		contains   []string
+		notContain string
 	}{
 		{
 			name: "basic with prompt and model",
@@ -43,6 +44,26 @@ func TestBuildArgs(t *testing.T) {
 			},
 			contains: []string{"--session-id", "sdk-abc-123"},
 		},
+		{
+			name:     "includes --bare flag",
+			cfg:      &codingagent.SessionConfig{Prompt: "test"},
+			contains: []string{"--bare"},
+		},
+		{
+			name:     "includes --verbose flag",
+			cfg:      &codingagent.SessionConfig{Prompt: "test"},
+			contains: []string{"--verbose"},
+		},
+		{
+			name:     "with max turns",
+			cfg:      &codingagent.SessionConfig{Prompt: "test", MaxTurns: 200},
+			contains: []string{"--max-turns", "200"},
+		},
+		{
+			name:       "zero max turns omits flag",
+			cfg:        &codingagent.SessionConfig{Prompt: "test"},
+			notContain: "--max-turns",
+		},
 	}
 
 	for _, tt := range tests {
@@ -52,6 +73,11 @@ func TestBuildArgs(t *testing.T) {
 			for _, want := range tt.contains {
 				if !strings.Contains(argsStr, want) {
 					t.Errorf("args %q should contain %q", argsStr, want)
+				}
+			}
+			if tt.notContain != "" {
+				if strings.Contains(argsStr, tt.notContain) {
+					t.Errorf("args %q should NOT contain %q", argsStr, tt.notContain)
 				}
 			}
 		})

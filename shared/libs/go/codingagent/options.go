@@ -19,6 +19,9 @@ type SessionConfig struct {
 
 	// VFS mounts (container execution)
 	VFSMounts []VFSMount // Host->container file mappings
+
+	// MaxTurns limits the number of agent turns. 0 means CLI default.
+	MaxTurns int
 }
 
 // WithModel sets the model name.
@@ -54,6 +57,11 @@ func WithSDKSessionID(id string) SessionOption {
 // WithVFSMounts sets the VFS mount mappings.
 func WithVFSMounts(mounts []VFSMount) SessionOption {
 	return func(c *SessionConfig) { c.VFSMounts = mounts }
+}
+
+// WithMaxTurns sets the maximum number of agent turns.
+func WithMaxTurns(n int) SessionOption {
+	return func(c *SessionConfig) { c.MaxTurns = n }
 }
 
 // NewSessionConfig applies the given SessionOptions and returns a SessionConfig.

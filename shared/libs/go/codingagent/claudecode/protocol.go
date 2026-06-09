@@ -32,6 +32,7 @@ type messagePayload struct {
 
 type contentBlock struct {
 	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
 	Name      string         `json:"name,omitempty"`
 	Input     map[string]any `json:"input,omitempty"`
 	ToolUseID string         `json:"tool_use_id,omitempty"`
@@ -79,12 +80,21 @@ func ParseJSONLinesEvent(line string) *codingagent.StreamEvent {
 			return nil
 		}
 		for _, block := range msg.Content {
-			if block.Type == "tool_use" {
+			switch block.Type {
+			case "tool_use":
 				return &codingagent.StreamEvent{
 					Type:      codingagent.EventToolUse,
 					ToolName:  block.Name,
 					ToolInput: block.Input,
 				}
+			case "text":
+				if block.Text != "" {
+					return &codingagent.StreamEvent{
+						Type:    codingagent.EventText,
+						Content: block.Text,
+					}
+				}
+			// case "thinking": silently ignored
 			}
 		}
 		return nil

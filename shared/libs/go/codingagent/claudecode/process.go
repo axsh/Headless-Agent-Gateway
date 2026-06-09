@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -25,6 +26,7 @@ type ProcessManager struct {
 // BuildArgs constructs claude CLI arguments from SessionConfig.
 func BuildArgs(cfg *codingagent.SessionConfig) []string {
 	args := []string{
+		"--bare",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "bypassPermissions",
@@ -40,6 +42,9 @@ func BuildArgs(cfg *codingagent.SessionConfig) []string {
 	}
 	if cfg.SDKSessionID != "" {
 		args = append(args, "--session-id", cfg.SDKSessionID)
+	}
+	if cfg.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(cfg.MaxTurns))
 	}
 	return args
 }
@@ -92,6 +97,9 @@ func StartProcess(
 	// R3: Capture stderr for diagnostics.
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
+
+	// R7: Suppress stdin warning by providing an empty reader that returns EOF immediately.
+	cmd.Stdin = bytes.NewReader(nil)
 
 	if err := cmd.Start(); err != nil {
 		cancel()
