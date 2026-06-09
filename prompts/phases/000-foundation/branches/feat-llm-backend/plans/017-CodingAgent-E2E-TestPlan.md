@@ -253,7 +253,7 @@ TC-001 と TC-002 で暗黙的にカバー。Gateway が動作していなけれ
 
 ### Step 1: E2E テストヘルパーの作成
 
-* [ ] Create `tests/agentservice_e2e_test.go`
+* [x] Create `tests/agentservice_e2e_test.go`
 * テスト内サーバ起動ヘルパー `startStandaloneServer(t) (baseURL string, cleanup func())`:
     * `hag.New` + `hag.WithConfigPath` でサーバ構築
     * `agent_service.port: 0` (エフェメラルポート) の config を一時ファイルに書き出す
@@ -265,13 +265,13 @@ TC-001 と TC-002 で暗黙的にカバー。Gateway が動作していなけれ
 
 ### Step 2: TC-001 Health E2E テスト
 
-* [ ] `TestE2E_StandaloneHealth` を実装
+* [x] `TestE2E_StandaloneHealth` を実装
 * standalone サーバをテスト内で起動
 * GET /health を呼び、status=ok, agents=["claudecode"], gateway.status=ok を検証
 
 ### Step 3: TC-002 ストリーミング + ファイル生成 E2E テスト
 
-* [ ] `TestE2E_CodingAgentStreaming` を実装
+* [x] `TestE2E_CodingAgentStreaming` を実装
 * standalone サーバ起動、一時ディレクトリ作成
 * セッション作成 -> メッセージ送信 (SSE)
 * SSE イベント検証: text 1 件以上, [DONE] 受信
@@ -281,15 +281,15 @@ TC-001 と TC-002 で暗黙的にカバー。Gateway が動作していなけれ
 
 ### Step 4: TC-005 エラー E2E テスト
 
-* [ ] `TestE2E_CodingAgentError` を実装
+* [x] `TestE2E_CodingAgentError` を実装
 * 無効モデル名でセッション作成、メッセージ送信
 * error イベント受信、または text イベントなしで [DONE]
 * タイムアウト: 30 秒
 
 ### Step 5: ビルドと実行
 
-* [ ] `./scripts/process/build.sh`
-* [ ] `./scripts/process/integration_test.sh --specify "E2E"`
+* [x] `./scripts/process/build.sh`
+* [x] `./scripts/process/integration_test.sh --specify "E2E"`
 
 ---
 
