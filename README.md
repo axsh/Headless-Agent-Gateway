@@ -10,9 +10,14 @@ HAG は、LLM プロバイダ (OpenAI, Anthropic 等) への API リクエスト
 | Go | 1.24.0 以上 | `go.mod` では `go 1.26.3` を指定 |
 | Git | 2.x 以上 | サブモジュール取得に使用 |
 | Docker / Docker Compose | Docker 20.10+ / Compose v2+ | Docker デモ実行時のみ必要 |
+| Claude Code CLI | 2.1.x 以上 | `claude update` でアップデート。v2.0.x は非対応 |
 | OS | Windows / macOS / Linux | クロスプラットフォーム対応 |
 
 > **Note**: Windows 環境では Git Bash の利用を推奨します。ビルドスクリプトは bash で記述されています。
+
+> **Important**: Claude Code CLI v2.0.x は `ANTHROPIC_BASE_URL` 環境変数を無視するため、
+> Gateway 経由のリクエストが機能しません。必ず v2.1.x 以上にアップデートしてください。
+> アップデート方法: `claude update` を実行してください。
 
 ## プロジェクト構成
 
@@ -312,7 +317,7 @@ Status: 200
     "claudecode"
   ],
   "cli_versions": {
-    "claudecode": "2.0.14 (Claude Code)"
+    "claudecode": "2.1.x (Claude Code)"
   },
   "gateway": {
     "status": "ok",
