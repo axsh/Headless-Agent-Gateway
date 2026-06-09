@@ -131,8 +131,11 @@ cd ../..
 # 利用可能なエージェント一覧
 ./bin/cawa-client agents
 
-# セッション作成 + メッセージ送信 (SSE ストリーミング)
+# セッション作成 + メッセージ送信 (SSE ストリーミング, デフォルトモデル)
 ./bin/cawa-client run --agent claudecode --prompt "Hello, what can you do?"
+
+# モデルを明示指定してセッション作成
+./bin/cawa-client run --agent claudecode --model claude-sonnet-4-20250514 --prompt "Hello"
 
 # セッション状態の確認
 ./bin/cawa-client session --id <SESSION_ID>
@@ -286,14 +289,53 @@ providers:
         models:
           - name: gpt-4o
           - name: gpt-4o-mini
+          - name: gpt-4.1-mini
   anthropic:
     keys:
-      - name: primary
-        value: vault://providers/anthropic/primary
+      - name: default
+        value: vault://providers/anthropic/default
         models:
-          - name: claude-3-5-sonnet-latest
           - name: claude-sonnet-4-20250514
+  google:
+    keys:
+      - name: default
+        value: vault://providers/google/default
+        models:
+          - name: gemini-2.5-flash
 ```
+
+#### モデルの指定方法
+
+セッション作成時にモデルを指定することで、使用する LLM を切り替えることができます。
+
+**デフォルトモデル**: モデルを指定しない場合は、サーバ設定の `DefaultModel` (`claude-sonnet-4-20250514`) が使用されます。
+
+**cawa-client での指定**:
+
+```bash
+# デフォルトモデル (claude-sonnet-4-20250514) を使用
+./bin/cawa-client run --agent claudecode --prompt "Hello"
+
+# Anthropic モデルを明示指定
+./bin/cawa-client run --agent claudecode --model claude-sonnet-4-20250514 --prompt "Hello"
+```
+
+**API での指定** (POST `/api/v1/sessions`):
+
+```bash
+# モデル指定あり
+curl -X POST http://localhost:3100/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "claudecode", "model": "claude-sonnet-4-20250514", "work_dir": "/tmp/work"}'
+
+# モデル指定なし (DefaultModel にフォールバック)
+curl -X POST http://localhost:3100/api/v1/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "claudecode", "work_dir": "/tmp/work"}'
+```
+
+> **Important**: Coding Agent (claudecode) は Claude CLI を使用するため、指定可能なモデルは Anthropic プロバイダーのモデルに限定されます。
+> OpenAI や Google のモデルは、LLM Gateway の直接 API (`/v1/chat/completions` 等) 経由で利用できます。
 
 ### 3. Coding Agent デモ (cawa-client)
 
