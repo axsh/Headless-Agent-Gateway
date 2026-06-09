@@ -7,10 +7,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/axsh/hag/codingagent"
 )
+
+const gracefulShutdownTimeout = 5 * time.Second
 
 // ProcessManager manages a Codex CLI subprocess.
 type ProcessManager struct {
@@ -127,10 +132,32 @@ func StartProcess(
 	return ch, pm, nil
 }
 
-// Stop terminates the subprocess and cleans up the config file.
+// Stop gracefully terminates the subprocess and cleans up the config file.
+// 1. Send SIGTERM (Unix) or Kill (Windows)
+// 2. Wait up to 5 seconds for exit
+// 3. Force kill if timeout
+// 4. Clean up temporary config.toml
 func (pm *ProcessManager) Stop() error {
-	pm.cancel()
-	err := pm.cmd.Wait()
+	if pm.cmd.Process == nil {
+		return nil
+	}
+
+	var err error
+	if runtime.GOOS == "windows" {
+		pm.cancel()
+		err = pm.cmd.Wait()
+	} else {
+		pm.cmd.Process.Signal(syscall.SIGTERM)
+		done := make(chan error, 1)
+		go func() { done <- pm.cmd.Wait() }()
+		select {
+		case err = <-done:
+		case <-time.After(gracefulShutdownTimeout):
+			pm.cancel()
+			err = <-done
+		}
+	}
+
 	// Clean up temporary config.toml
 	if pm.configPath != "" {
 		os.RemoveAll(strings.TrimSuffix(pm.configPath, "/config.toml"))

@@ -5,10 +5,15 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/axsh/hag/codingagent"
 )
+
+const gracefulShutdownTimeout = 5 * time.Second
 
 // ProcessManager manages a Claude CLI subprocess.
 type ProcessManager struct {
@@ -112,8 +117,34 @@ func StartProcess(
 	return ch, pm, nil
 }
 
-// Stop terminates the subprocess.
+// Stop gracefully terminates the subprocess.
+// 1. Send SIGTERM (Unix) or Kill (Windows)
+// 2. Wait up to 5 seconds for exit
+// 3. Force kill if timeout
 func (pm *ProcessManager) Stop() error {
-	pm.cancel()
-	return pm.cmd.Wait()
+	if pm.cmd.Process == nil {
+		return nil
+	}
+
+	// Windows: no SIGTERM, just kill
+	if runtime.GOOS == "windows" {
+		pm.cancel()
+		return pm.cmd.Wait()
+	}
+
+	// Unix: send SIGTERM first
+	pm.cmd.Process.Signal(syscall.SIGTERM)
+
+	done := make(chan error, 1)
+	go func() { done <- pm.cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(gracefulShutdownTimeout):
+		// Force kill
+		pm.cancel()
+		return <-done
+	}
 }
+
