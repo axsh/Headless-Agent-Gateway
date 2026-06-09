@@ -28,12 +28,14 @@ import (
 
 // integrationMockAgent implements codingagent.CodingAgent for integration tests.
 type integrationMockAgent struct {
-	name     string
-	sessions []*integrationMockSession
+	name      string
+	providers []string
+	sessions  []*integrationMockSession
 }
 
-func (a *integrationMockAgent) Name() string { return a.name }
-func (a *integrationMockAgent) Close() error  { return nil }
+func (a *integrationMockAgent) Name() string                { return a.name }
+func (a *integrationMockAgent) SupportedProviders() []string { return a.providers }
+func (a *integrationMockAgent) Close() error                { return nil }
 func (a *integrationMockAgent) CreateSession(
 	_ context.Context, _ ...codingagent.SessionOption,
 ) (codingagent.Session, error) {
@@ -76,7 +78,7 @@ func setupAgentServiceTestServer(t *testing.T) (*httptest.Server, *tasklog.TaskL
 	srv := agentservice.New(
 		agentservice.WithTaskLog(tl),
 	)
-	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode", providers: []string{"anthropic"}})
 	ts := httptest.NewServer(srv.HTTPHandler())
 	t.Cleanup(ts.Close)
 	return ts, tl
@@ -380,7 +382,7 @@ func TestAgentServiceLaunchShutdown(t *testing.T) {
 	srv := agentservice.New(
 		agentservice.WithLogger(logger.NewDefault(logger.LevelDebug)),
 	)
-	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode", providers: []string{"anthropic"}})
 
 	ctx := context.Background()
 
@@ -553,8 +555,9 @@ type errorMockAgent struct {
 	name string
 }
 
-func (a *errorMockAgent) Name() string { return a.name }
-func (a *errorMockAgent) Close() error { return nil }
+func (a *errorMockAgent) Name() string                { return a.name }
+func (a *errorMockAgent) SupportedProviders() []string { return nil }
+func (a *errorMockAgent) Close() error                { return nil }
 func (a *errorMockAgent) CreateSession(
 	_ context.Context, _ ...codingagent.SessionOption,
 ) (codingagent.Session, error) {
@@ -639,7 +642,7 @@ func setupAgentServiceTestServerWithModels(t *testing.T) *httptest.Server {
 	srv := agentservice.New(
 		agentservice.WithTaskLog(tl),
 	)
-	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode", providers: []string{"anthropic"}})
 	srv.SetGatewayModels(
 		[]llmgateway.ModelInfo{
 			{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
@@ -715,21 +718,22 @@ func TestAgentServiceCreateSession_InvalidModel(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
 		t.Fatalf("json decode error: %v", err)
 	}
-	if errResp.Error != "unknown model: nonexistent-model" {
-		t.Errorf("error = %q, want %q", errResp.Error, "unknown model: nonexistent-model")
+	if errResp.Error != "unsupported model for agent claudecode: nonexistent-model" {
+		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model for agent claudecode: nonexistent-model")
 	}
-	if len(errResp.AvailableModels) != 3 {
-		t.Errorf("available_models count = %d, want 3", len(errResp.AvailableModels))
+	// Only anthropic models should be listed for claudecode agent.
+	if len(errResp.AvailableModels) != 1 {
+		t.Errorf("available_models count = %d, want 1 (only anthropic)", len(errResp.AvailableModels))
 	}
 }
 
-// T11: POST /api/v1/sessions with valid model returns 201.
+// T11: POST /api/v1/sessions with valid model for the agent returns 201.
 func TestAgentServiceCreateSession_ValidModel(t *testing.T) {
 	ts := setupAgentServiceTestServerWithModels(t)
 
 	body, _ := json.Marshal(map[string]string{
 		"agent": "claudecode",
-		"model": "gpt-4o",
+		"model": "claude-sonnet-4-20250514", // anthropic model matches claudecode
 	})
 	resp, err := http.Post(ts.URL+"/api/v1/sessions",
 		"application/json", bytes.NewReader(body))

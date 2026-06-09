@@ -15,14 +15,16 @@ import (
 
 // mockCodingAgent implements CodingAgent for testing.
 type mockCodingAgent struct {
-	name string
+	name      string
+	providers []string
 }
 
 func (m *mockCodingAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
 	return &mockCodingSession{}, nil
 }
-func (m *mockCodingAgent) Name() string { return m.name }
-func (m *mockCodingAgent) Close() error { return nil }
+func (m *mockCodingAgent) Name() string                { return m.name }
+func (m *mockCodingAgent) SupportedProviders() []string { return m.providers }
+func (m *mockCodingAgent) Close() error                { return nil }
 
 type mockCodingSession struct{}
 
@@ -38,14 +40,14 @@ func (s *mockCodingSession) Close() error { return nil }
 
 func newTestServer() (*agentservice.Server, http.Handler) {
 	srv := agentservice.New()
-	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
+	srv.RegisterAgent(&mockCodingAgent{name: "claudecode", providers: []string{"anthropic"}})
 	return srv, srv.HTTPHandler()
 }
 
 // newTestServerWithModels creates a test server with cached gateway models.
 func newTestServerWithModels() (*agentservice.Server, http.Handler) {
 	srv := agentservice.New()
-	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
+	srv.RegisterAgent(&mockCodingAgent{name: "claudecode", providers: []string{"anthropic"}})
 	srv.SetGatewayModels(
 		[]llmgateway.ModelInfo{
 			{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
@@ -258,11 +260,46 @@ func TestHandleCreateSession_InvalidModel(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
 		t.Fatalf("json decode error: %v", err)
 	}
-	if errResp.Error != "unknown model: gpt-5-turbo" {
-		t.Errorf("error = %q, want %q", errResp.Error, "unknown model: gpt-5-turbo")
+	if errResp.Error != "unsupported model for agent claudecode: gpt-5-turbo" {
+		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model for agent claudecode: gpt-5-turbo")
 	}
-	if len(errResp.AvailableModels) != 2 {
-		t.Errorf("available_models count = %d, want 2", len(errResp.AvailableModels))
+	// Only anthropic models should be listed for claudecode agent.
+	if len(errResp.AvailableModels) != 1 {
+		t.Errorf("available_models count = %d, want 1 (only anthropic)", len(errResp.AvailableModels))
+	}
+}
+
+// T5b: POST /api/v1/sessions with model from wrong provider returns 400.
+func TestHandleCreateSession_ProviderMismatch(t *testing.T) {
+	_, handler := newTestServerWithModels()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+		"model": "gpt-4o", // exists in profiles but is openai, not anthropic
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+
+	var errResp struct {
+		Error           string   `json:"error"`
+		AvailableModels []string `json:"available_models"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+	if errResp.Error != "unsupported model for agent claudecode: gpt-4o" {
+		t.Errorf("error = %q, want %q", errResp.Error, "unsupported model for agent claudecode: gpt-4o")
+	}
+	// Should only list anthropic models as available.
+	for _, m := range errResp.AvailableModels {
+		if m == "gpt-4o" {
+			t.Error("available_models should not contain gpt-4o for claudecode agent")
+		}
 	}
 }
 

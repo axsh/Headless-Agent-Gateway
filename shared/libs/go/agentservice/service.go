@@ -280,11 +280,60 @@ func (s *Server) IsValidModel(model string) bool {
 	return false
 }
 
+// IsValidModelForAgent checks if a model is valid for a specific agent,
+// considering the agent's supported providers.
+func (s *Server) IsValidModelForAgent(model, agentName string) bool {
+	agent, ok := s.agents[agentName]
+	if !ok {
+		return false
+	}
+	providers := agent.SupportedProviders()
+	for _, m := range s.gatewayModels {
+		if m.Model == model {
+			// If agent has no provider restriction, any model is valid.
+			if len(providers) == 0 {
+				return true
+			}
+			// Check if the model's provider matches the agent's supported providers.
+			for _, p := range providers {
+				if m.Provider == p {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
 // AvailableModelNames returns a list of model name strings.
 func (s *Server) AvailableModelNames() []string {
 	names := make([]string, len(s.gatewayModels))
 	for i, m := range s.gatewayModels {
 		names[i] = m.Model
+	}
+	return names
+}
+
+// AvailableModelNamesForAgent returns model names filtered by agent's supported providers.
+func (s *Server) AvailableModelNamesForAgent(agentName string) []string {
+	agent, ok := s.agents[agentName]
+	if !ok {
+		return s.AvailableModelNames()
+	}
+	providers := agent.SupportedProviders()
+	if len(providers) == 0 {
+		return s.AvailableModelNames()
+	}
+	providerSet := make(map[string]bool, len(providers))
+	for _, p := range providers {
+		providerSet[p] = true
+	}
+	var names []string
+	for _, m := range s.gatewayModels {
+		if providerSet[m.Provider] {
+			names = append(names, m.Model)
+		}
 	}
 	return names
 }
