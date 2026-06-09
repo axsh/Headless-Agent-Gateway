@@ -13,6 +13,9 @@ type AppConfig struct {
 
 	// WebSocket holds WebSocket server settings.
 	WebSocket WebSocketConfig `yaml:"websocket"`
+
+	// AgentService holds AgentService HTTP settings.
+	AgentService AgentServiceConfig `yaml:"agent_service"`
 }
 
 // LLMGatewayConfig holds LLM Gateway Proxy settings.
@@ -48,6 +51,13 @@ type LogConfig struct {
 // WebSocketConfig holds WebSocket server settings.
 type WebSocketConfig struct {
 	// Port is the WebSocket server listen port.
+	// When 0, the OS assigns an ephemeral port.
+	Port int `yaml:"port"`
+}
+
+// AgentServiceConfig holds AgentService HTTP settings.
+type AgentServiceConfig struct {
+	// Port is the AgentService HTTP listen port.
 	// When 0, the OS assigns an ephemeral port.
 	Port int `yaml:"port"`
 }
