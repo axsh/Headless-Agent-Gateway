@@ -10,21 +10,20 @@ import (
 
 	"github.com/axsh/hag/agentservice"
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/llmgateway"
 )
 
 // mockCodingAgent implements CodingAgent for testing.
 type mockCodingAgent struct {
-	name      string
-	providers []string
+	name string
 }
 
 func (m *mockCodingAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
 	return &mockCodingSession{}, nil
 }
-func (m *mockCodingAgent) Name() string                { return m.name }
-func (m *mockCodingAgent) SupportedProviders() []string { return m.providers }
-func (m *mockCodingAgent) Close() error                { return nil }
+func (m *mockCodingAgent) Name() string { return m.name }
+func (m *mockCodingAgent) Close() error { return nil }
 
 type mockCodingSession struct{}
 
@@ -40,14 +39,14 @@ func (s *mockCodingSession) Close() error { return nil }
 
 func newTestServer() (*agentservice.Server, http.Handler) {
 	srv := agentservice.New()
-	srv.RegisterAgent(&mockCodingAgent{name: "claudecode", providers: []string{"anthropic"}})
+	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
 	return srv, srv.HTTPHandler()
 }
 
 // newTestServerWithModels creates a test server with cached gateway models.
 func newTestServerWithModels() (*agentservice.Server, http.Handler) {
 	srv := agentservice.New()
-	srv.RegisterAgent(&mockCodingAgent{name: "claudecode", providers: []string{"anthropic"}})
+	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
 	srv.SetGatewayModels(
 		[]llmgateway.ModelInfo{
 			{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
@@ -351,5 +350,67 @@ func TestHandleCreateSession_NoGatewayModels(t *testing.T) {
 	// Should succeed (fail-open) since no gateway models are cached.
 	if w.Code != http.StatusCreated {
 		t.Errorf("status = %d, want 201 (fail-open when no gateway models)", w.Code)
+	}
+}
+
+func TestResolveModel(t *testing.T) {
+	srv := agentservice.New()
+	srv.SetModelProfiles(&config.ModelProfilesConfig{
+		Providers: map[string]config.ProviderConfig{
+			"openai": {Keys: []config.KeyConfig{{
+				Name: "default", Value: "vault://test",
+				Models: []config.ModelConfig{
+					{Name: "gpt-4o", LogicalName: "fast-coder"},
+					{Name: "gpt-4o-mini"},
+				},
+			}}},
+			"anthropic": {Keys: []config.KeyConfig{{
+				Name: "default", Value: "vault://test",
+				Models: []config.ModelConfig{
+					{Name: "claude-sonnet-4-20250514", LogicalName: "balanced-coder"},
+				},
+			}}},
+		},
+	})
+
+	tests := []struct {
+		input     string
+		wantModel string
+		wantOK    bool
+	}{
+		{"fast-coder", "gpt-4o", true},
+		{"balanced-coder", "claude-sonnet-4-20250514", true},
+		{"gpt-4o", "gpt-4o", true},
+		{"gpt-4o-mini", "gpt-4o-mini", true},
+		{"claude-sonnet-4-20250514", "claude-sonnet-4-20250514", true},
+		{"unknown-model", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			model, ok := srv.ResolveModel(tt.input)
+			if ok != tt.wantOK {
+				t.Errorf("ResolveModel(%q) ok = %v, want %v", tt.input, ok, tt.wantOK)
+			}
+			if model != tt.wantModel {
+				t.Errorf("ResolveModel(%q) = %q, want %q", tt.input, model, tt.wantModel)
+			}
+		})
+	}
+}
+
+func TestIsValidModelCrossProvider(t *testing.T) {
+	_, handler := newTestServerWithModels()
+
+	// gpt-4o (OpenAI model) should be valid for claudecode agent (no provider filter).
+	body, _ := json.Marshal(map[string]string{
+		"agent": "claudecode",
+		"model": "gpt-4o",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want 201 (cross-provider model should be accepted)", w.Code)
 	}
 }

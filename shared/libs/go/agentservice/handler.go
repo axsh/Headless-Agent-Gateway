@@ -61,15 +61,17 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate model against cached model list from LLMGP.
-	// Also checks provider compatibility with the target agent.
+	// Validate and resolve model (supports logical names).
 	if req.Model != "" && len(s.gatewayModels) > 0 {
-		if !s.IsValidModelForAgent(req.Model, req.Agent) {
+		resolved, ok := s.ResolveModel(req.Model)
+		if ok {
+			req.Model = resolved
+		} else if !s.IsValidModel(req.Model) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]any{
-				"error":            "unsupported model for agent " + req.Agent + ": " + req.Model,
-				"available_models": s.AvailableModelNamesForAgent(req.Agent),
+				"error":            "unsupported model: " + req.Model,
+				"available_models": s.AvailableModelNames(),
 			})
 			return
 		}

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/logger"
 	"github.com/axsh/hag/tasklog"
@@ -33,6 +34,7 @@ type Server struct {
 	cliVersions    map[string]string        // cached at init
 	gatewayModels  []llmgateway.ModelInfo   // cached model list from LLMGP
 	gatewayDefault *llmgateway.ModelInfo    // cached default model from LLMGP
+	profiles       *config.ModelProfilesConfig // for logical name resolution
 	httpServer     *http.Server
 	ln             net.Listener
 	port           int // actual listen port (set after Launch)
@@ -280,32 +282,6 @@ func (s *Server) IsValidModel(model string) bool {
 	return false
 }
 
-// IsValidModelForAgent checks if a model is valid for a specific agent,
-// considering the agent's supported providers.
-func (s *Server) IsValidModelForAgent(model, agentName string) bool {
-	agent, ok := s.agents[agentName]
-	if !ok {
-		return false
-	}
-	providers := agent.SupportedProviders()
-	for _, m := range s.gatewayModels {
-		if m.Model == model {
-			// If agent has no provider restriction, any model is valid.
-			if len(providers) == 0 {
-				return true
-			}
-			// Check if the model's provider matches the agent's supported providers.
-			for _, p := range providers {
-				if m.Provider == p {
-					return true
-				}
-			}
-			return false
-		}
-	}
-	return false
-}
-
 // AvailableModelNames returns a list of model name strings.
 func (s *Server) AvailableModelNames() []string {
 	names := make([]string, len(s.gatewayModels))
@@ -315,25 +291,30 @@ func (s *Server) AvailableModelNames() []string {
 	return names
 }
 
-// AvailableModelNamesForAgent returns model names filtered by agent's supported providers.
-func (s *Server) AvailableModelNamesForAgent(agentName string) []string {
-	agent, ok := s.agents[agentName]
-	if !ok {
-		return s.AvailableModelNames()
+// SetModelProfiles sets the model profiles configuration for logical name resolution.
+func (s *Server) SetModelProfiles(profiles *config.ModelProfilesConfig) {
+	s.profiles = profiles
+}
+
+// ResolveModel resolves a logical name or model_id to a model_id.
+// Returns (model_id, true) if found, ("", false) otherwise.
+func (s *Server) ResolveModel(input string) (string, bool) {
+	if s.profiles == nil {
+		return "", false
 	}
-	providers := agent.SupportedProviders()
-	if len(providers) == 0 {
-		return s.AvailableModelNames()
-	}
-	providerSet := make(map[string]bool, len(providers))
-	for _, p := range providers {
-		providerSet[p] = true
-	}
-	var names []string
-	for _, m := range s.gatewayModels {
-		if providerSet[m.Provider] {
-			names = append(names, m.Model)
+	for _, prov := range s.profiles.Providers {
+		for _, key := range prov.Keys {
+			for _, model := range key.Models {
+				// Match by logical_name first.
+				if model.LogicalName != "" && model.LogicalName == input {
+					return model.Name, true
+				}
+				// Match by model_id (name).
+				if model.Name == input {
+					return model.Name, true
+				}
+			}
 		}
 	}
-	return names
+	return "", false
 }
