@@ -30,7 +30,7 @@ func TestLogStreamSSE_SessionNotFound(t *testing.T) {
 func TestLogStreamSSE_CompletedSession(t *testing.T) {
 	tl := tasklog.New()
 	srv := agentservice.New(agentservice.WithTaskLog(tl))
-	srv.RegisterAgent(&mockCodingAgent{name: "claudecode", providers: []string{"anthropic"}})
+	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
 	handler := srv.HTTPHandler()
 
 	// Create and complete a session
