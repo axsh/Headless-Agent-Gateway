@@ -1,7 +1,11 @@
 llm_gateway:
   port: 14000
-  model_profiles_path: "/etc/hag/model_profiles.yaml"
+  model_profiles_path: "model_profiles.yaml"
 log:
   level: "info"
 vault:
-  backend: "env"
+  backend: "keyring"
+websocket:
+  port: 18080
+agent_service:
+  port: 3100
