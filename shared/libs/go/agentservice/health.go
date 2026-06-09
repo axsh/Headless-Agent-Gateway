@@ -11,9 +11,10 @@ const healthCheckTimeout = 2 * time.Second
 
 // HealthResponse is the health check response structure.
 type HealthResponse struct {
-	Status  string        `json:"status"`
-	Agents  []string      `json:"agents"`
-	Gateway GatewayHealth `json:"gateway"`
+	Status      string            `json:"status"`
+	Agents      []string          `json:"agents"`
+	CLIVersions map[string]string `json:"cli_versions"`
+	Gateway     GatewayHealth     `json:"gateway"`
 }
 
 // GatewayHealth is the health status of the LLM Gateway Proxy.
@@ -37,9 +38,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	gwHealth := s.checkGatewayHealth()
 
 	resp := HealthResponse{
-		Status:  "ok",
-		Agents:  agentNames,
-		Gateway: gwHealth,
+		Status:      "ok",
+		Agents:      agentNames,
+		CLIVersions: s.cliVersions,
+		Gateway:     gwHealth,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

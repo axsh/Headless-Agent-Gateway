@@ -1,12 +1,15 @@
 package agentservice
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/tasklog"
 )
 
 // handleListAgents handles GET /api/v1/agents.
@@ -134,6 +137,20 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// toAgentLogEntry converts a StreamEvent to an AgentLogEntry for TaskLog.
+func toAgentLogEntry(ev codingagent.StreamEvent, sessionID string) *tasklog.AgentLogEntry {
+	body, _ := json.Marshal(ev)
+	logID := generateLogID()
+	return tasklog.NewAgentLogSendEntry(logID, sessionID, string(body))
+}
+
+// generateLogID creates a random hex ID for log entries.
+func generateLogID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // streamSSE sends streaming events in SSE format.
 func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEvent, sessionID string) {
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -150,6 +167,19 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 		data, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
+
+		// Record event to TaskLog (C1-1)
+		if s.taskLog != nil {
+			s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+		}
+
+		// Extract SDKSessionID from EventSystem (C2-1)
+		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+			if record, err := s.sessions.Get(sessionID); err == nil {
+				record.SDKSessionID = ev.SessionID
+				s.sessions.Update(record)
+			}
+		}
 	}
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
@@ -165,6 +195,19 @@ func (s *Server) respondJSON(w http.ResponseWriter, ch <-chan codingagent.Stream
 	var events []codingagent.StreamEvent
 	for ev := range ch {
 		events = append(events, ev)
+
+		// Record event to TaskLog (C1-4)
+		if s.taskLog != nil {
+			s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+		}
+
+		// Extract SDKSessionID from EventSystem (C2-1)
+		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+			if record, err := s.sessions.Get(sessionID); err == nil {
+				record.SDKSessionID = ev.SessionID
+				s.sessions.Update(record)
+			}
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(events)

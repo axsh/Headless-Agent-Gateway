@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"os/exec"
 	"strings"
 
 	"github.com/axsh/hag/codingagent"
@@ -18,11 +19,12 @@ type AgentService interface {
 
 // Server is the Coding Agent API service layer.
 type Server struct {
-	agents     map[string]codingagent.CodingAgent
-	sessions   codingagent.SessionStore
-	logger     logger.Logger
-	taskLog    *tasklog.TaskLog
-	gatewayURL string
+	agents      map[string]codingagent.CodingAgent
+	sessions    codingagent.SessionStore
+	logger      logger.Logger
+	taskLog     *tasklog.TaskLog
+	gatewayURL  string
+	cliVersions map[string]string // cached at init
 }
 
 // ServerOption configures a Server.
@@ -52,6 +54,7 @@ func New(opts ...ServerOption) *Server {
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.cliVersions = detectCLIVersions(s.agents)
 	return s
 }
 
@@ -64,6 +67,7 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.cliVersions = detectCLIVersions(s.agents)
 	return s
 }
 
@@ -125,4 +129,28 @@ func (s *Server) generateID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// detectCLIVersions runs "claude --version" / "codex --version" once at init.
+// Returns a map of agent name -> version string (or "unavailable").
+func detectCLIVersions(agents map[string]codingagent.CodingAgent) map[string]string {
+	versions := make(map[string]string)
+	cliNames := map[string]string{
+		"claudecode": "claude",
+		"codex":      "codex",
+	}
+	for agentName := range agents {
+		cliName, ok := cliNames[agentName]
+		if !ok {
+			versions[agentName] = "unavailable"
+			continue
+		}
+		out, err := exec.Command(cliName, "--version").Output()
+		if err != nil {
+			versions[agentName] = "unavailable"
+			continue
+		}
+		versions[agentName] = strings.TrimSpace(string(out))
+	}
+	return versions
 }
