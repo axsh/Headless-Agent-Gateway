@@ -170,7 +170,7 @@ func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 }
 
 // sendE2EMessage sends a message and returns SSE response (caller must close body).
-func sendE2EMessage(t *testing.T, baseURL, sessionID, message string) *http.Response {
+func sendE2EMessage(t *testing.T, baseURL, sessionID, message string, timeout time.Duration) *http.Response {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"message": message})
 	req, _ := http.NewRequest("POST",
@@ -179,7 +179,7 @@ func sendE2EMessage(t *testing.T, baseURL, sessionID, message string) *http.Resp
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("send message: %v", err)
@@ -266,7 +266,7 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 
 	// 2. Send message requesting file creation
 	prompt := "Create a file named hello.txt in the current directory containing exactly the text 'Hello World'. Do nothing else."
-	resp := sendE2EMessage(t, baseURL, sessionID, prompt)
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
 	defer resp.Body.Close()
 
 	// Verify SSE content type
@@ -410,7 +410,7 @@ agent_service:
 
 	// Create session and send message - should get error because gateway is unreachable.
 	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
-	resp := sendE2EMessage(t, baseURL, sessionID, "say hello")
+	resp := sendE2EMessage(t, baseURL, sessionID, "say hello", 15*time.Second)
 	defer resp.Body.Close()
 
 	events, _ := parseE2ESSEEvents(t, resp)
