@@ -13,14 +13,14 @@ type SessionStore interface {
 
 // SessionRecord is a persisted session record.
 type SessionRecord struct {
-	ID           string    // HAG-managed session ID (UUID)
-	AgentName    string    // "claudecode", "codex"
-	Model        string
-	Status       string    // "active", "completed", "error", "closed"
-	WorkDir      string
-	SDKSessionID string    // CLI/SDK-managed session ID (for context resume)
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           string    `json:"id"`
+	AgentName    string    `json:"agent_name"`
+	Model        string    `json:"model"`
+	Status       string    `json:"status"`
+	WorkDir      string    `json:"work_dir"`
+	SDKSessionID string    `json:"sdk_session_id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Session status constants.
