@@ -175,6 +175,57 @@ func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 	return sid
 }
 
+// createE2ESessionNoModel creates a session without specifying a model.
+// This tests the DefaultModel fallback path (cawa-client equivalent).
+func createE2ESessionNoModel(t *testing.T, baseURL, agent, workDir string) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{
+		"agent":    agent,
+		"work_dir": workDir,
+	})
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create session: expected 201, got %d", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	sid := result["session_id"]
+	if sid == "" {
+		t.Fatal("create session: empty session_id")
+	}
+	return sid
+}
+
+// createE2ESessionWithModel creates a session with an explicit model.
+// Used by TC-006 (OpenAI) and TC-007 (Google) to test cross-provider routing.
+func createE2ESessionWithModel(t *testing.T, baseURL, agent, model, workDir string) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{
+		"agent":    agent,
+		"model":    model,
+		"work_dir": workDir,
+	})
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create session: expected 201, got %d", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	sid := result["session_id"]
+	if sid == "" {
+		t.Fatal("create session: empty session_id")
+	}
+	return sid
+}
+
 // sendE2EMessage sends a message and returns SSE response (caller must close body).
 func sendE2EMessage(t *testing.T, baseURL, sessionID, message string, timeout time.Duration) *http.Response {
 	t.Helper()
@@ -447,3 +498,136 @@ agent_service:
 	}
 }
 
+// --- TC-005b: DefaultModel E2E (cawa-client equivalent, no model specified) ---
+
+// TestE2E_CodingAgentDefaultModel verifies that when no model is specified
+// in the session creation request, the AdapterConfig.DefaultModel is used
+// and the CLI responds successfully. This is the cawa-client equivalent test.
+func TestE2E_CodingAgentDefaultModel(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+
+	// Create session WITHOUT specifying model (cawa-client equivalent).
+	sessionID := createE2ESessionNoModel(t, baseURL, "claudecode", workDir)
+	t.Logf("Session created (no model): %s", sessionID)
+
+	prompt := "Create a file named test.txt in the current directory containing exactly the text 'hello world'. Do nothing else."
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
+	defer resp.Body.Close()
+
+	events, gotDone := parseE2ESSEEvents(t, resp)
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+	for i, ev := range events {
+		t.Logf("event[%d]: type=%s content_len=%d", i, ev.Type, len(ev.Content))
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("received error event: %s", ev.Content)
+		}
+	}
+	hasContent := false
+	for _, ev := range events {
+		if ev.Type == codingagent.EventText || ev.Type == codingagent.EventToolUse {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
+		t.Error("expected at least one text or tool_use event")
+	}
+	filePath := filepath.Join(workDir, "test.txt")
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		entries, _ := os.ReadDir(workDir)
+		for _, e := range entries {
+			t.Logf("  workdir entry: %s", e.Name())
+		}
+		t.Fatalf("expected test.txt to be created: %v", err)
+	}
+	t.Logf("File created: %s (%d bytes)", filePath, len(content))
+}
+
+// --- TC-006: OpenAI model E2E ---
+
+// TestE2E_CodingAgentOpenAIModel verifies that specifying an OpenAI model
+// (gpt-4.1-mini) routes the request through the Gateway to OpenAI and
+// the CLI responds successfully.
+func TestE2E_CodingAgentOpenAIModel(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+
+	sessionID := createE2ESessionWithModel(t, baseURL, "claudecode", "gpt-4.1-mini", workDir)
+	t.Logf("Session created (model=gpt-4.1-mini): %s", sessionID)
+
+	prompt := "respond with just the word hello"
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
+	defer resp.Body.Close()
+
+	events, gotDone := parseE2ESSEEvents(t, resp)
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+	for i, ev := range events {
+		t.Logf("event[%d]: type=%s content_len=%d", i, ev.Type, len(ev.Content))
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("received error event: %s", ev.Content)
+		}
+	}
+	hasText := false
+	for _, ev := range events {
+		if ev.Type == codingagent.EventText {
+			hasText = true
+			break
+		}
+	}
+	if !hasText {
+		t.Error("expected at least one text event from OpenAI model")
+	}
+}
+
+// --- TC-007: Google model E2E ---
+
+// TestE2E_CodingAgentGoogleModel verifies that specifying a Google model
+// (gemini-2.5-flash) routes the request through the Gateway to Google and
+// the CLI responds successfully.
+func TestE2E_CodingAgentGoogleModel(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+
+	sessionID := createE2ESessionWithModel(t, baseURL, "claudecode", "gemini-2.5-flash", workDir)
+	t.Logf("Session created (model=gemini-2.5-flash): %s", sessionID)
+
+	prompt := "respond with just the word hello"
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
+	defer resp.Body.Close()
+
+	events, gotDone := parseE2ESSEEvents(t, resp)
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+	for i, ev := range events {
+		t.Logf("event[%d]: type=%s content_len=%d", i, ev.Type, len(ev.Content))
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("received error event: %s", ev.Content)
+		}
+	}
+	hasText := false
+	for _, ev := range events {
+		if ev.Type == codingagent.EventText {
+			hasText = true
+			break
+		}
+	}
+	if !hasText {
+		t.Error("expected at least one text event from Google model")
+	}
+}
