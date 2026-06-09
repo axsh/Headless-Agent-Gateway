@@ -62,7 +62,8 @@ func registerCodingAgents(srv *hag.Server) {
 	if _, err := exec.LookPath("claude"); err == nil {
 		gwURL := srv.Gateway().ProxyURL()
 		adapter := claudecode.New(&codingagent.AdapterConfig{
-			GatewayURL: gwURL,
+			GatewayURL:   gwURL,
+			DefaultModel: "claude-sonnet-4-20250514",
 		})
 		srv.AgentService().RegisterAgent(adapter)
 		fmt.Printf("Registered coding agent: claudecode (gateway=%s)\n", gwURL)

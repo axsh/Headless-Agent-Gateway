@@ -95,7 +95,8 @@ agent_service:
 	// ProxyURL must be called after Launch to get the actual port.
 	gwURL := srv.Gateway().ProxyURL()
 	adapter := claudecode.New(&codingagent.AdapterConfig{
-		GatewayURL: gwURL,
+		GatewayURL:   gwURL,
+		DefaultModel: e2eDefaultModel,
 	})
 	srv.AgentService().RegisterAgent(adapter)
 
