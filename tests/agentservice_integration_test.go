@@ -380,7 +380,7 @@ func TestAgentServiceLaunchShutdown(t *testing.T) {
 	srv := agentservice.New(
 		agentservice.WithLogger(logger.NewDefault(logger.LevelDebug)),
 	)
-	srv.RegisterAgent(&integrationMockAgent{name: "claudecode", providers: []string{"anthropic"}})
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
 
 	ctx := context.Background()
 
@@ -639,7 +639,7 @@ func setupAgentServiceTestServerWithModels(t *testing.T) *httptest.Server {
 	srv := agentservice.New(
 		agentservice.WithTaskLog(tl),
 	)
-	srv.RegisterAgent(&integrationMockAgent{name: "claudecode", providers: []string{"anthropic"}})
+	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
 	srv.SetGatewayModels(
 		[]llmgateway.ModelInfo{
 			{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
