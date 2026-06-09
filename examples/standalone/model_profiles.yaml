@@ -8,8 +8,8 @@ providers:
           - name: gpt-4o-mini
   anthropic:
     keys:
-      - name: primary
-        value: vault://providers/anthropic/primary
+      - name: default
+        value: vault://providers/anthropic/default
         models:
           - name: claude-3-5-sonnet-latest
           - name: claude-sonnet-4-20250514

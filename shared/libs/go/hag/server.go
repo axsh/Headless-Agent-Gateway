@@ -54,7 +54,7 @@ func New(opts ...Option) (*Server, error) {
 	log := resolveLogger(o, cfg)
 
 	// Step 4: Resolve VaultStore.
-	vs := resolveVault(o)
+	vs := resolveVault(o, cfg)
 
 	// Step 5: Resolve Gateway.
 	gw, err := resolveGateway(o, cfg, vs, log, configDir)
@@ -199,12 +199,17 @@ func resolveLogger(o *options, cfg *config.AppConfig) logger.Logger {
 }
 
 // resolveVault resolves the VaultStore from options.
-// If WithVaultStore is set, use it. Otherwise create an EnvVaultBackend.
-func resolveVault(o *options) vault.VaultStore {
+// If WithVaultStore is set, use it. Otherwise select based on Config.Vault.Backend.
+func resolveVault(o *options, cfg *config.AppConfig) vault.VaultStore {
 	if o.vault != nil {
 		return o.vault
 	}
-	return vault.NewEnvVaultBackend()
+	switch cfg.Vault.Backend {
+	case "keyring":
+		return vault.NewKeyringVaultBackend()
+	default:
+		return vault.NewEnvVaultBackend()
+	}
 }
 
 // resolveGateway resolves the LLMGatewayBackend from options.
