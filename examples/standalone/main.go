@@ -26,14 +26,19 @@ func main() {
 		log.Fatalf("failed to initialize HAG server: %v", err)
 	}
 
-	// Register coding agents before Launch (so HTTPHandler has agents available)
+	// Register coding agents before Launch (so HTTPHandler has agents available).
 	registerCodingAgents(srv)
 
 	ctx := context.Background()
 
-	// Launch server
+	// Launch server (starts Gateway HTTP, AgentService, WebSocket).
 	if err := srv.Launch(ctx); err != nil {
 		log.Fatalf("failed to launch HAG server: %v", err)
+	}
+
+	// Fetch and cache model list AFTER Launch (Gateway must be serving).
+	if err := srv.AgentService().FetchModelsFromGateway(); err != nil {
+		fmt.Printf("Warning: failed to fetch models from gateway: %v\n", err)
 	}
 
 	fmt.Println("HAG server started and running...")
@@ -74,14 +79,10 @@ func registerCodingAgents(srv *hag.Server) {
 		})
 		srv.AgentService().RegisterAgent(adapter)
 
-		// Fetch and cache model list for AgentService validation.
-		if err := srv.AgentService().FetchModelsFromGateway(); err != nil {
-			fmt.Printf("Warning: failed to fetch models from gateway: %v\n", err)
-		}
-
 		fmt.Printf("Registered coding agent: claudecode (gateway=%s, default_model=%s)\n", gwURL, defaultModel)
 	} else {
 		fmt.Println("Warning: claude CLI not found, claudecode agent not registered")
 	}
 }
+
 
