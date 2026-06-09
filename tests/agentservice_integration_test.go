@@ -469,3 +469,163 @@ func TestAgentServiceConfigPort(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 }
+
+// TestAgentServiceSSEStreamingContent verifies that SSE events contain
+// concrete content (session_id, text content, tool_name), not just types.
+func TestAgentServiceSSEStreamingContent(t *testing.T) {
+	ts, _ := setupAgentServiceTestServer(t)
+	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
+
+	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	req, _ := http.NewRequest("POST",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
+		bytes.NewReader(msgBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var events []codingagent.StreamEvent
+	var gotDone bool
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			gotDone = true
+			break
+		}
+		var ev codingagent.StreamEvent
+		if json.Unmarshal([]byte(data), &ev) == nil {
+			events = append(events, ev)
+		}
+	}
+
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+
+	if len(events) < 4 {
+		t.Fatalf("expected at least 4 events, got %d", len(events))
+	}
+
+	// system event should have session_id
+	if events[0].Type != codingagent.EventSystem {
+		t.Errorf("event[0].Type = %q, want system", events[0].Type)
+	}
+	if events[0].SessionID == "" {
+		t.Error("system event should have non-empty session_id")
+	}
+
+	// text event should have content
+	if events[1].Type != codingagent.EventText {
+		t.Errorf("event[1].Type = %q, want text", events[1].Type)
+	}
+	if events[1].Content == "" {
+		t.Error("text event should have non-empty content")
+	}
+
+	// tool_use event should have tool_name
+	if events[2].Type != codingagent.EventToolUse {
+		t.Errorf("event[2].Type = %q, want tool_use", events[2].Type)
+	}
+	if events[2].ToolName == "" {
+		t.Error("tool_use event should have non-empty tool_name")
+	}
+
+	// result event
+	if events[3].Type != codingagent.EventResult {
+		t.Errorf("event[3].Type = %q, want result", events[3].Type)
+	}
+}
+
+// --- Error propagation test ---
+
+// errorMockAgent returns errorMockSession from CreateSession.
+type errorMockAgent struct {
+	name string
+}
+
+func (a *errorMockAgent) Name() string { return a.name }
+func (a *errorMockAgent) Close() error { return nil }
+func (a *errorMockAgent) CreateSession(
+	_ context.Context, _ ...codingagent.SessionOption,
+) (codingagent.Session, error) {
+	return &errorMockSession{}, nil
+}
+
+// errorMockSession sends a single error event.
+type errorMockSession struct{}
+
+func (s *errorMockSession) ID() string  { return "sdk-error-001" }
+func (s *errorMockSession) Close() error { return nil }
+func (s *errorMockSession) Send(
+	_ context.Context, _ string,
+) (<-chan codingagent.StreamEvent, error) {
+	ch := make(chan codingagent.StreamEvent, 2)
+	ch <- codingagent.StreamEvent{
+		Type:    codingagent.EventError,
+		Content: "claude exited with code 1: authentication failed",
+	}
+	close(ch)
+	return ch, nil
+}
+
+// TestAgentServiceSSEErrorPropagation verifies that EventError events
+// from the agent are forwarded to the SSE stream.
+func TestAgentServiceSSEErrorPropagation(t *testing.T) {
+	tl := tasklog.New()
+	srv := agentservice.New(agentservice.WithTaskLog(tl))
+	srv.RegisterAgent(&errorMockAgent{name: "erroragent"})
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	sessionID := createAgentServiceSession(t, ts.URL, "erroragent")
+	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	req, _ := http.NewRequest("POST",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
+		bytes.NewReader(msgBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var foundError bool
+	var errorContent string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+		var ev codingagent.StreamEvent
+		if json.Unmarshal([]byte(data), &ev) == nil {
+			if ev.Type == codingagent.EventError {
+				foundError = true
+				errorContent = ev.Content
+			}
+		}
+	}
+
+	if !foundError {
+		t.Fatal("expected at least one error event in SSE stream")
+	}
+	if errorContent == "" {
+		t.Error("error event should have non-empty content")
+	}
+}
