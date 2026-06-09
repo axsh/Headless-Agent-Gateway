@@ -89,15 +89,46 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		"key", MaskSecret(apiKey),
 	)
 
-	// Rewrite model field in body if it has changed due to routing/fallback
-	forwardBody := body
-	if routed.Model != req.Model {
-		forwardBody = rewriteModelField(body, req.Model, routed.Model)
+	// Determine forwarding path and body based on provider.
+	var (
+		forwardPath string
+		forwardBody []byte
+	)
+
+	switch routed.Provider {
+	case "anthropic":
+		forwardPath = "/v1/messages"
+		forwardBody = body
+		if routed.Model != req.Model {
+			forwardBody = rewriteModelField(body, req.Model, routed.Model)
+		}
+	case "openai":
+		forwardPath = "/v1/chat/completions"
+		converted, convErr := ConvertAnthropicRequestToOpenAI(body)
+		if convErr != nil {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "failed to convert request to OpenAI format: " + convErr.Error(),
+				Code:    "conversion_error",
+				Status:  http.StatusInternalServerError,
+			})
+			return
+		}
+		forwardBody = converted
+		p.logger.Info("cross-provider conversion", "direction", "anthropic->openai", "model", routed.Model)
+	default:
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "api_error",
+			Message: "cross-provider translation not supported for: " + routed.Provider,
+			Code:    "unsupported_translation",
+			Status:  http.StatusBadRequest,
+		})
+		return
 	}
 
-	// Forward to upstream Anthropic API
+	// Forward to upstream provider.
 	fwd := newProviderForwarder()
-	resp, err := fwd.forwardToProvider(routed.Provider, "/v1/messages", forwardBody, apiKey, r.Header)
+	resp, err := fwd.forwardToProvider(routed.Provider, forwardPath, forwardBody, apiKey, r.Header)
 	if err != nil {
 		if gwErr, ok := err.(*GatewayError); ok {
 			WriteErrorResponse(w, gwErr)
@@ -113,7 +144,35 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 	}
 	defer resp.Body.Close()
 
-	// Apply ToolCallFallback if enabled
+	// Cross-provider response conversion (OpenAI -> Anthropic).
+	if routed.Provider == "openai" && resp.StatusCode == http.StatusOK {
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "failed to read upstream response",
+				Code:    "upstream_read_error",
+				Status:  http.StatusBadGateway,
+			})
+			return
+		}
+		converted, convErr := ConvertOpenAIResponseToAnthropic(respBody, routed.Model)
+		if convErr != nil {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "failed to convert response from OpenAI format: " + convErr.Error(),
+				Code:    "conversion_error",
+				Status:  http.StatusInternalServerError,
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(converted)
+		return
+	}
+
+	// Apply ToolCallFallback if enabled (anthropic provider only).
 	if routed.ToolCallFallback && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		respBody, err := io.ReadAll(resp.Body)
 		if err == nil {
@@ -129,3 +188,4 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 
 	proxyResponse(w, resp)
 }
+

@@ -215,3 +215,127 @@ func TestHandleAnthropicMessages_ToolCallFallback(t *testing.T) {
 		t.Errorf("expected stop_reason 'tool_use', got %v", response["stop_reason"])
 	}
 }
+
+func TestHandleAnthropicMessages_CrossProviderOpenAI(t *testing.T) {
+	// Mock upstream OpenAI server that returns a Chat Completions response.
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the request was converted to OpenAI format
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("expected path /v1/chat/completions, got %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") == "" {
+			t.Error("expected Authorization header for OpenAI")
+		}
+
+		// Verify request body is in OpenAI format
+		var oaiReq OpenAIRequest
+		if err := json.NewDecoder(r.Body).Decode(&oaiReq); err != nil {
+			t.Fatalf("failed to decode OpenAI request: %v", err)
+		}
+		if oaiReq.Model != "gpt-4o" {
+			t.Errorf("model = %q, want gpt-4o", oaiReq.Model)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": "chatcmpl-test123",
+			"choices": []map[string]any{
+				{
+					"message":       map[string]string{"role": "assistant", "content": "Hello from GPT!"},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]int{"prompt_tokens": 10, "completion_tokens": 5},
+		})
+	}))
+	defer mockUpstream.Close()
+
+	// Override OpenAI base URL to point to mock
+	origURL := providerBaseURLs["openai"]
+	providerBaseURLs["openai"] = mockUpstream.URL
+	defer func() { providerBaseURLs["openai"] = origURL }()
+
+	proxy := newTestProxyWithDriver(t)
+
+	// Send Anthropic-format request with an OpenAI model
+	body := map[string]any{
+		"model":      "gpt-4o",
+		"max_tokens": 100,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Verify response is in Anthropic format
+	var resp AnthropicResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse Anthropic response: %v", err)
+	}
+	if resp.Type != "message" {
+		t.Errorf("type = %q, want message", resp.Type)
+	}
+	if resp.Role != "assistant" {
+		t.Errorf("role = %q, want assistant", resp.Role)
+	}
+	if len(resp.Content) != 1 || resp.Content[0].Text != "Hello from GPT!" {
+		t.Errorf("content unexpected: %+v", resp.Content)
+	}
+	if resp.StopReason != "end_turn" {
+		t.Errorf("stop_reason = %q, want end_turn", resp.StopReason)
+	}
+	if resp.Usage.InputTokens != 10 {
+		t.Errorf("input_tokens = %d, want 10", resp.Usage.InputTokens)
+	}
+}
+
+func TestHandleAnthropicMessages_UnsupportedProvider(t *testing.T) {
+	cfg := &config.AppConfig{}
+	profiles := &config.ModelProfilesConfig{
+		Providers: map[string]config.ProviderConfig{
+			"custom_provider": {
+				Keys: []config.KeyConfig{
+					{
+						Name:  "default",
+						Value: "key-123",
+						Models: []config.ModelConfig{
+							{Name: "custom-model"},
+						},
+					},
+				},
+			},
+		},
+	}
+	driver, _ := NewBifrostDriver(cfg, profiles, nil, nil)
+	proxy := driver.proxy
+
+	body := map[string]any{
+		"model":      "custom-model",
+		"max_tokens": 100,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d; body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
