@@ -1,0 +1,25 @@
+version: "3.8"
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: container/hybrid/gateway/Dockerfile
+    ports:
+      - "14000:14000"
+  agent:
+    build:
+      context: ../..
+      dockerfile: container/hybrid/agent/Dockerfile
+    ports:
+      - "3100:3100"
+    environment:
+      - LLM_GATEWAY_URL=http://gateway:14000
+      - AGENT_AUTH_TOKEN=${AGENT_AUTH_TOKEN:-}
+    volumes:
+      - workspace:/workspace
+    depends_on:
+      - gateway
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+volumes:
+  workspace:
