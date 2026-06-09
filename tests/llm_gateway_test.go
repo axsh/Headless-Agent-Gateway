@@ -222,6 +222,118 @@ func TestServerLifecycle(t *testing.T) {
 	}
 }
 
+func TestCrossProvider_OpenAI_via_AnthropicEndpoint_NonStream(t *testing.T) {
+	checkKeyringAvailable(t, "openai")
+
+	baseURL, cleanup := testServer(t)
+	defer cleanup()
+
+	// Send request to /v1/messages (Anthropic endpoint) with OpenAI model.
+	// The LLMGP should convert Anthropic -> OpenAI, forward to api.openai.com,
+	// and convert the response back to Anthropic format.
+	body := map[string]any{
+		"model":      "gpt-4.1-mini",
+		"max_tokens": 50,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Say exactly: cross-provider test ok"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("POST /v1/messages (cross-provider) failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Response should be in Anthropic format (converted from OpenAI)
+	var result map[string]any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		t.Fatalf("JSON decode failed: %v\nbody: %s", err, string(respBody))
+	}
+
+	// Must have Anthropic-style "content" array
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatalf("expected non-empty content array (Anthropic format), got: %s", string(respBody))
+	}
+
+	// Must have Anthropic-style "type": "message"
+	if result["type"] != "message" {
+		t.Errorf("expected type=message, got %v", result["type"])
+	}
+
+	// Must have stop_reason (Anthropic field, not finish_reason)
+	if _, ok := result["stop_reason"]; !ok {
+		t.Errorf("expected stop_reason field in response, got: %s", string(respBody))
+	}
+
+	t.Logf("Cross-provider (non-stream) response: %s", string(respBody))
+}
+
+func TestCrossProvider_OpenAI_via_AnthropicEndpoint_Stream(t *testing.T) {
+	checkKeyringAvailable(t, "openai")
+
+	baseURL, cleanup := testServer(t)
+	defer cleanup()
+
+	// Send streaming request to /v1/messages with OpenAI model.
+	// The LLMGP should convert the request, forward to OpenAI with stream:true,
+	// and convert the OpenAI SSE stream to Anthropic SSE stream format.
+	body := map[string]any{
+		"model":      "gpt-4.1-mini",
+		"max_tokens": 50,
+		"stream":     true,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Say exactly: cross-provider streaming test ok"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("POST /v1/messages (cross-provider stream) failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Read the full SSE stream
+	respBody, _ := io.ReadAll(resp.Body)
+	events := string(respBody)
+
+	// Verify Anthropic SSE event format
+	if !strings.Contains(events, "event: message_start") {
+		t.Error("missing message_start event")
+	}
+	if !strings.Contains(events, "event: content_block_start") {
+		t.Error("missing content_block_start event")
+	}
+	if !strings.Contains(events, "event: content_block_delta") {
+		t.Error("missing content_block_delta event")
+	}
+	if !strings.Contains(events, "event: message_stop") {
+		t.Error("missing message_stop event")
+	}
+	// Must contain text_delta (Anthropic format, not OpenAI delta.content)
+	if !strings.Contains(events, "text_delta") {
+		t.Error("missing text_delta in stream events")
+	}
+
+	t.Logf("Cross-provider (stream) response length: %d bytes", len(events))
+}
+
 func TestMain(m *testing.M) {
 	// Integration tests use the real OS Keyring.
 	// Tests will skip if the required API keys are not registered.
