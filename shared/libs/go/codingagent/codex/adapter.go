@@ -47,7 +47,7 @@ func (a *CodexAdapter) CreateSession(
 	// R2: Determine wire_api from AdapterConfig.ModelMode.
 	wireAPI := a.config.ModelMode
 	if wireAPI == "" {
-		wireAPI = "chat"
+		wireAPI = "responses"
 	}
 
 	// Build -c key=value config overrides for Codex CLI.

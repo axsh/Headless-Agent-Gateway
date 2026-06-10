@@ -23,7 +23,7 @@ func GenerateConfigTOML(model, gatewayURL, wireAPI string) string {
 		model = "gpt-4o"
 	}
 	if wireAPI == "" {
-		wireAPI = "chat"
+		wireAPI = "responses"
 	}
 	return fmt.Sprintf(configTemplate, model, gatewayURL, wireAPI)
 }

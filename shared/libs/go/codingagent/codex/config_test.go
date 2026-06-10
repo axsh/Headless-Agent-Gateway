@@ -18,14 +18,14 @@ func TestGenerateConfigTOML(t *testing.T) {
 		contains   []string
 	}{
 		{
-			name:       "with model and gateway (default chat)",
+			name:       "with model and gateway (default responses)",
 			model:      "gpt-4o",
 			gatewayURL: "http://localhost:14000",
 			wireAPI:    "",
 			contains: []string{
 				`model = "gpt-4o"`,
 				`base_url = "http://localhost:14000"`,
-				`wire_api = "chat"`,
+				`wire_api = "responses"`,
 				`model_provider = "gateway"`,
 			},
 		},
@@ -68,7 +68,7 @@ func TestGenerateConfigTOML(t *testing.T) {
 }
 
 func TestWriteConfigTOML(t *testing.T) {
-	dir, err := codex.WriteConfigTOML("gpt-4o", "http://localhost:14000", "chat")
+	dir, err := codex.WriteConfigTOML("gpt-4o", "http://localhost:14000", "responses")
 	if err != nil {
 		t.Fatalf("WriteConfigTOML error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestWriteConfigTOML(t *testing.T) {
 	if !strings.Contains(string(content), `model = "gpt-4o"`) {
 		t.Errorf("file content should contain model, got:\n%s", content)
 	}
-	if !strings.Contains(string(content), `wire_api = "chat"`) {
+	if !strings.Contains(string(content), `wire_api = "responses"`) {
 		t.Errorf("file content should contain wire_api, got:\n%s", content)
 	}
 }
