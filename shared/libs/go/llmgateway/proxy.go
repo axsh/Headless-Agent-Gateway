@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/logger"
@@ -205,4 +206,19 @@ func (p *ProxyServer) handleModels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-
+// buildRetryConfig builds a RetryConfig from the AppConfig settings.
+// Returns the default configuration if no retry settings are specified.
+func (p *ProxyServer) buildRetryConfig() *RetryConfig {
+	cfg := DefaultRetryConfig()
+	rs := p.cfg.LLMGateway.Retry
+	if rs.MaxRetries > 0 {
+		cfg.MaxRetries = rs.MaxRetries
+	}
+	if rs.InitialDelaySeconds > 0 {
+		cfg.InitialDelay = time.Duration(rs.InitialDelaySeconds) * time.Second
+	}
+	if rs.MaxDelaySeconds > 0 {
+		cfg.MaxDelay = time.Duration(rs.MaxDelaySeconds) * time.Second
+	}
+	return cfg
+}

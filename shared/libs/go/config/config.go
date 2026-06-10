@@ -28,6 +28,21 @@ type LLMGatewayConfig struct {
 
 	// MetricsEnabled controls Bifrost metrics collection.
 	MetricsEnabled bool `yaml:"metrics_enabled"`
+
+	// Retry holds retry configuration for upstream provider requests.
+	Retry RetrySettings `yaml:"retry"`
+}
+
+// RetrySettings holds retry configuration for upstream provider requests.
+type RetrySettings struct {
+	// MaxRetries is the maximum number of retry attempts (0 = no retry).
+	MaxRetries int `yaml:"max_retries"`
+
+	// InitialDelaySeconds is the base delay in seconds for exponential backoff.
+	InitialDelaySeconds int `yaml:"initial_delay_seconds"`
+
+	// MaxDelaySeconds is the maximum delay in seconds between retries.
+	MaxDelaySeconds int `yaml:"max_delay_seconds"`
 }
 
 // VaultConfig holds VaultStore settings.

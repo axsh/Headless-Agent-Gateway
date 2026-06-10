@@ -100,9 +100,10 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 		forwardBody = rewriteModelField(body, req.Model, routed.Model)
 	}
 
-	// Forward to upstream OpenAI API
+	// Forward to upstream OpenAI API with retry.
 	fwd := newProviderForwarder()
-	resp, err := fwd.forwardToProvider(routed.Provider, "/v1/chat/completions", forwardBody, apiKey, r.Header)
+	retryCfg := p.buildRetryConfig()
+	resp, err := fwd.forwardWithRetry(r.Context(), routed.Provider, "/v1/chat/completions", forwardBody, apiKey, r.Header, retryCfg, p.logger)
 	if err != nil {
 		if gwErr, ok := err.(*GatewayError); ok {
 			WriteErrorResponse(w, gwErr)

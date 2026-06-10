@@ -149,9 +149,10 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Forward to upstream provider.
+	// Forward to upstream provider with retry.
 	fwd := newProviderForwarder()
-	resp, err := fwd.forwardToProvider(routed.Provider, forwardPath, forwardBody, apiKey, r.Header)
+	retryCfg := p.buildRetryConfig()
+	resp, err := fwd.forwardWithRetry(r.Context(), routed.Provider, forwardPath, forwardBody, apiKey, r.Header, retryCfg, p.logger)
 	if err != nil {
 		if gwErr, ok := err.(*GatewayError); ok {
 			WriteErrorResponse(w, gwErr)
