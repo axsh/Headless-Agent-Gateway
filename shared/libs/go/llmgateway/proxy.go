@@ -185,6 +185,7 @@ func (p *ProxyServer) setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", p.handleModels)
 	mux.HandleFunc("POST /v1/messages", p.handleAnthropicMessages)
 	mux.HandleFunc("POST /v1/chat/completions", p.handleOpenAIChatCompletions)
+	mux.HandleFunc("POST /v1/responses", p.handleOpenAIResponses)
 }
 
 // handleIndex returns 200 OK with endpoint list (Claude Code reachability check).
@@ -197,6 +198,7 @@ func (p *ProxyServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 			"GET /v1/models",
 			"POST /v1/messages",
 			"POST /v1/chat/completions",
+			"POST /v1/responses",
 		},
 	})
 }

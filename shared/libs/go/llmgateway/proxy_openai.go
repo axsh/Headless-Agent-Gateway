@@ -148,3 +148,118 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 
 	proxyResponse(w, resp)
 }
+
+// handleOpenAIResponses handles POST /v1/responses for OpenAI Responses API.
+// This is a passthrough handler used by Codex CLI in "responses" wire_api mode.
+// It resolves the model via ModelRouter, retrieves the API key from vault,
+// and forwards the request to upstream OpenAI /v1/responses.
+func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
+	// Read and parse the request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "invalid_request_error",
+			Message: "failed to read request body",
+			Code:    "request_read_error",
+			Status:  http.StatusBadRequest,
+		})
+		return
+	}
+	defer r.Body.Close()
+
+	var req openaiRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "invalid_request_error",
+			Message: "invalid JSON in request body",
+			Code:    "invalid_json",
+			Status:  http.StatusBadRequest,
+		})
+		return
+	}
+
+	p.logger.Debug("openai responses request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
+
+	// Route the model
+	if p.driver == nil || p.driver.router == nil {
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "api_error",
+			Message: "LLM gateway backend not configured",
+			Code:    "not_configured",
+			Status:  http.StatusServiceUnavailable,
+		})
+		return
+	}
+
+	sessionID := ExtractSessionID(r.Header.Get("Authorization"))
+
+	routed, err := p.driver.router.ResolveModel(req.Model, sessionID)
+	if err != nil {
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "not_found_error",
+			Message: "model not found: " + req.Model,
+			Code:    "model_not_found",
+			Status:  http.StatusNotFound,
+		})
+		return
+	}
+
+	p.logger.Debug("responses request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode)
+
+	// Resolve vault reference if needed
+	apiKey := routed.KeyValue
+	if vault.IsVaultRef(apiKey) && p.vault != nil {
+		resolved, err := p.vault.Resolve(apiKey)
+		if err != nil {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "failed to resolve API key from vault",
+				Code:    "vault_error",
+				Status:  http.StatusInternalServerError,
+			})
+			return
+		}
+		apiKey = resolved
+	}
+
+	p.logger.Info("openai responses request routed",
+		"model", routed.Model,
+		"provider", routed.Provider,
+		"key", MaskSecret(apiKey),
+	)
+
+	// Rewrite model field in body if it has changed due to routing
+	forwardBody := body
+	if routed.Model != req.Model {
+		forwardBody = rewriteModelField(body, req.Model, routed.Model)
+	}
+
+	bodyStr := string(body)
+	if len(bodyStr) > 10240 {
+		bodyStr = bodyStr[:10240] + "..."
+	}
+	p.logger.Trace("openai responses request body", "body", bodyStr)
+
+	// Forward to upstream OpenAI Responses API with retry.
+	fwd := newProviderForwarder()
+	retryCfg := p.buildRetryConfig()
+	resp, err := fwd.forwardWithRetry(r.Context(), routed.Provider, "/v1/responses", forwardBody, apiKey, r.Header, retryCfg, p.logger)
+	if err != nil {
+		if gwErr, ok := err.(*GatewayError); ok {
+			WriteErrorResponse(w, gwErr)
+		} else {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "upstream request failed: " + err.Error(),
+				Code:    "upstream_error",
+				Status:  http.StatusBadGateway,
+			})
+		}
+		return
+	}
+	defer resp.Body.Close()
+
+	p.logger.Debug("upstream responses response received", "status", resp.StatusCode, "content_type", resp.Header.Get("Content-Type"))
+
+	proxyResponse(w, resp)
+}
