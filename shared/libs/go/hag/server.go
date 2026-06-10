@@ -195,6 +195,17 @@ func resolveLogger(o *options, cfg *config.AppConfig) logger.Logger {
 		return o.logger
 	}
 	level := logger.ParseLevel(cfg.Log.Level)
+	if len(cfg.Log.Outputs) > 0 {
+		log, err := logger.BuildFromConfig(level, cfg.Log.Outputs)
+		if err != nil {
+			// Fallback to default if config is invalid.
+			fallback := logger.NewDefault(level)
+			fallback.Warn("failed to build logger from config, using default",
+				"error", err.Error())
+			return fallback
+		}
+		return log
+	}
 	return logger.NewDefault(level)
 }
 

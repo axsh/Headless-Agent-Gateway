@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -104,9 +105,43 @@ websocket:
 			if err != nil {
 				return
 			}
-			if got != tt.want {
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("got %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLogConfig_Outputs(t *testing.T) {
+	input := `
+log:
+  level: "debug"
+  outputs:
+    - type: "stdout"
+    - type: "syslog"
+      network: "udp"
+      address: "localhost:514"
+      tag: "hag"
+`
+	var cfg AppConfig
+	err := yaml.Unmarshal([]byte(input), &cfg)
+	if err != nil {
+		t.Fatalf("unexpected error unmarshaling log config: %v", err)
+	}
+
+	if cfg.Log.Level != "debug" {
+		t.Errorf("expected level debug, got %q", cfg.Log.Level)
+	}
+	if len(cfg.Log.Outputs) != 2 {
+		t.Fatalf("expected 2 outputs, got %d", len(cfg.Log.Outputs))
+	}
+	if cfg.Log.Outputs[0].Type != "stdout" {
+		t.Errorf("expected output 0 to be stdout, got %q", cfg.Log.Outputs[0].Type)
+	}
+	if cfg.Log.Outputs[1].Type != "syslog" {
+		t.Errorf("expected output 1 to be syslog, got %q", cfg.Log.Outputs[1].Type)
+	}
+	if cfg.Log.Outputs[1].Network != "udp" || cfg.Log.Outputs[1].Address != "localhost:514" || cfg.Log.Outputs[1].Tag != "hag" {
+		t.Errorf("syslog output mismatch: %+v", cfg.Log.Outputs[1])
 	}
 }

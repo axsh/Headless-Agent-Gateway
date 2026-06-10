@@ -1,5 +1,7 @@
 package config
 
+import "github.com/axsh/hag/logger"
+
 // AppConfig is the root configuration for HAG.
 type AppConfig struct {
 	// LLMGateway holds LLM Gateway Proxy settings.
@@ -61,6 +63,10 @@ type VaultConfig struct {
 type LogConfig struct {
 	// Level is the minimum log level: "debug", "info", "warn", "error".
 	Level string `yaml:"level"`
+
+	// Outputs defines log output destinations.
+	// If empty, defaults to stdout.
+	Outputs []logger.LogOutputConfig `yaml:"outputs,omitempty"`
 }
 
 // WebSocketConfig holds WebSocket server settings.
