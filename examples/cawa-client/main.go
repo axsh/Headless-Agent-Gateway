@@ -54,6 +54,7 @@ func printUsage() {
 	fmt.Println("  agents                                List available agents")
 	fmt.Println("  models                                List available models")
 	fmt.Println("  run --agent NAME --prompt MSG          Create session and run")
+	fmt.Println("      [--session-dir DIR]                Session storage directory")
 	fmt.Println("  run --session-id ID --prompt MSG       Continue existing session")
 	fmt.Println("  session --id ID                        Get session status")
 	fmt.Println("  logs --id ID                           Stream session logs")
@@ -158,6 +159,7 @@ func cmdRun(args []string) {
 	model := fs.String("model", "", "Model name")
 	prompt := fs.String("prompt", "", "Prompt message (required)")
 	workDir := fs.String("work-dir", ".", "Working directory")
+	sessionDir := fs.String("session-dir", "", "Session data storage directory (default: work-dir)")
 	existingSessionID := fs.String("session-id", "", "Existing session ID (for continuation)")
 	fs.Parse(args)
 
@@ -180,7 +182,8 @@ func cmdRun(args []string) {
 			os.Exit(1)
 		}
 		sessionBody, _ := json.Marshal(map[string]string{
-			"agent": *agent, "model": *model, "work_dir": *workDir,
+			"agent": *agent, "model": *model,
+			"work_dir": *workDir, "session_dir": *sessionDir,
 		})
 		resp, err := http.Post(serverURL+"/api/v1/sessions",
 			"application/json", bytes.NewReader(sessionBody))
