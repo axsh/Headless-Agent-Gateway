@@ -550,3 +550,115 @@ func TestE2E_CodingAgentDefaultModel(t *testing.T) {
 	t.Logf("File created: %s (%d bytes)", filePath, len(content))
 }
 
+// --- Helper: createE2ESessionWithSessionDir ---
+
+// createE2ESessionWithSessionDir creates a session with session_dir specified.
+func createE2ESessionWithSessionDir(t *testing.T, baseURL, agent, workDir, sessionDir string) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{
+		"agent":       agent,
+		"model":       e2eDefaultModel,
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
+	})
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create session: expected 201, got %d", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	sid := result["session_id"]
+	if sid == "" {
+		t.Fatal("create session: empty session_id")
+	}
+	return sid
+}
+
+// --- TC: Session continuation E2E ---
+
+// TestE2E_SessionContinuation verifies that a second message to the same
+// session reuses the agent_session_id (Claude Code SDK session),
+// proving conversation context is maintained.
+func TestE2E_SessionContinuation(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+
+	// 1. Create session
+	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
+	t.Logf("Session created: %s", sessionID)
+
+	// 2. First message
+	prompt1 := "Create a file named msg1.txt in the current directory containing exactly 'first message'. Do nothing else."
+	resp1 := sendE2EMessage(t, baseURL, sessionID, prompt1, 120*time.Second)
+	events1, gotDone1 := parseE2ESSEEvents(t, resp1)
+	resp1.Body.Close()
+	if !gotDone1 {
+		t.Fatal("expected [DONE] for first message")
+	}
+	for _, ev := range events1 {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("first message error: %s", ev.Content)
+		}
+	}
+
+	// 3. Verify agent_session_id was captured
+	session1 := getE2ESession(t, baseURL, sessionID)
+	agentSID1, _ := session1["agent_session_id"].(string)
+	if agentSID1 == "" {
+		t.Fatal("agent_session_id should be non-empty after first message")
+	}
+	t.Logf("Agent Session ID after msg1: %s", agentSID1)
+
+	// 4. Second message (continuation)
+	prompt2 := "List all files in the current directory. Do nothing else."
+	resp2 := sendE2EMessage(t, baseURL, sessionID, prompt2, 120*time.Second)
+	events2, gotDone2 := parseE2ESSEEvents(t, resp2)
+	resp2.Body.Close()
+	if !gotDone2 {
+		t.Fatal("expected [DONE] for second message")
+	}
+	for _, ev := range events2 {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("second message error: %s", ev.Content)
+		}
+	}
+
+	// 5. Verify agent_session_id is preserved (same SDK session)
+	session2 := getE2ESession(t, baseURL, sessionID)
+	agentSID2, _ := session2["agent_session_id"].(string)
+	if agentSID2 == "" {
+		t.Fatal("agent_session_id should be non-empty after second message")
+	}
+	if agentSID1 != agentSID2 {
+		t.Errorf("agent_session_id changed: %s -> %s (expected same session)", agentSID1, agentSID2)
+	}
+	t.Logf("Agent Session ID after msg2: %s (preserved=%v)", agentSID2, agentSID1 == agentSID2)
+}
+
+// --- TC: SessionDir fallback E2E ---
+
+// TestE2E_SessionDirFallback verifies that when session_dir is not specified,
+// it falls back to work_dir in the session record.
+func TestE2E_SessionDirFallback(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+
+	// Create session WITHOUT session_dir
+	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
+
+	// Get session and verify session_dir == work_dir
+	session := getE2ESession(t, baseURL, sessionID)
+	sessionDir, _ := session["session_dir"].(string)
+	sessionWorkDir, _ := session["work_dir"].(string)
+
+	if sessionDir != sessionWorkDir {
+		t.Errorf("session_dir = %q, want %q (same as work_dir)", sessionDir, sessionWorkDir)
+	}
+	t.Logf("session_dir fallback verified: %s", sessionDir)
+}
