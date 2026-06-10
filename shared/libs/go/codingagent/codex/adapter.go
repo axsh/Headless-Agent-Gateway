@@ -50,14 +50,17 @@ func (a *CodexAdapter) CreateSession(
 		wireAPI = "chat"
 	}
 
-	// Generate CODEX_HOME directory with config.toml for Codex.
+	// Build -c key=value config overrides for Codex CLI.
+	configOverrides := BuildConfigOverrides(cfg.Model, a.config.GatewayURL, wireAPI)
+
+	// Create CODEX_HOME for session/auth data storage.
 	codexHome, err := WriteConfigTOML(cfg.Model, a.config.GatewayURL, wireAPI)
 	if err != nil {
-		a.logger.Error("failed to write config.toml", "error", err.Error())
-		return nil, fmt.Errorf("codex: write config: %w", err)
+		a.logger.Warn("failed to create codex home dir, continuing without it", "error", err.Error())
+		codexHome = ""
 	}
 
-	ch, pm, err := StartProcess(ctx, a.config, cfg, codexHome)
+	ch, pm, err := StartProcess(ctx, a.config, cfg, configOverrides, codexHome)
 	if err != nil {
 		a.logger.Error("failed to start codex process", "error", err.Error())
 		return nil, fmt.Errorf("codex: create session: %w", err)

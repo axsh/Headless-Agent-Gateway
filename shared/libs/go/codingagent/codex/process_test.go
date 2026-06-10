@@ -9,7 +9,8 @@ import (
 )
 
 func TestCodexBuildArgs(t *testing.T) {
-	args := codex.BuildArgs("create hello.txt")
+	overrides := []string{"-c", `model="gpt-4o"`}
+	args := codex.BuildArgs("create hello.txt", overrides)
 
 	argsStr := strings.Join(args, " ")
 	if !strings.Contains(argsStr, "exec") {
@@ -18,8 +19,15 @@ func TestCodexBuildArgs(t *testing.T) {
 	if !strings.Contains(argsStr, "--json") {
 		t.Errorf("args should contain '--json', got %q", argsStr)
 	}
-	if !strings.Contains(argsStr, "create hello.txt") {
-		t.Errorf("args should contain prompt, got %q", argsStr)
+	if !strings.Contains(argsStr, "--ignore-user-config") {
+		t.Errorf("args should contain '--ignore-user-config', got %q", argsStr)
+	}
+	if !strings.Contains(argsStr, `model="gpt-4o"`) {
+		t.Errorf("args should contain config override, got %q", argsStr)
+	}
+	// Prompt should be the last argument
+	if args[len(args)-1] != "create hello.txt" {
+		t.Errorf("last arg should be prompt, got %q", args[len(args)-1])
 	}
 }
 

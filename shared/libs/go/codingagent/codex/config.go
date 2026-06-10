@@ -53,3 +53,24 @@ func WriteConfigTOML(model, gatewayURL, wireAPI string) (string, error) {
 	}
 	return dir, nil
 }
+
+// BuildConfigOverrides constructs "-c key=value" CLI arguments
+// to override Codex configuration inline.
+// This is the most reliable way to configure Codex, avoiding
+// any config.toml file discovery issues.
+func BuildConfigOverrides(model, gatewayURL, wireAPI string) []string {
+	if model == "" {
+		model = "gpt-4o"
+	}
+	if wireAPI == "" {
+		wireAPI = "chat"
+	}
+	return []string{
+		"-c", fmt.Sprintf(`model="%s"`, model),
+		"-c", `model_provider="gateway"`,
+		"-c", `model_providers.gateway.name="HAG LLM Gateway"`,
+		"-c", fmt.Sprintf(`model_providers.gateway.base_url="%s"`, gatewayURL),
+		"-c", `model_providers.gateway.env_key="OPENAI_API_KEY"`,
+		"-c", fmt.Sprintf(`model_providers.gateway.wire_api="%s"`, wireAPI),
+	}
+}

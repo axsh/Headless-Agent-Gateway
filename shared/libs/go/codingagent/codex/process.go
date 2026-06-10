@@ -27,14 +27,16 @@ type ProcessManager struct {
 }
 
 // BuildArgs constructs codex CLI arguments for non-interactive execution.
-// Uses "codex exec --json" with prompt passed via stdin.
-func BuildArgs(prompt string) []string {
+// Uses "codex exec --json" with config overrides via -c flags.
+func BuildArgs(prompt string, configOverrides []string) []string {
 	args := []string{
 		"exec",
 		"--json",
 		"--dangerously-bypass-approvals-and-sandbox",
-		prompt,
+		"--ignore-user-config",
 	}
+	args = append(args, configOverrides...)
+	args = append(args, prompt)
 	return args
 }
 
@@ -76,6 +78,7 @@ func StartProcess(
 	ctx context.Context,
 	ac *codingagent.AdapterConfig,
 	cfg *codingagent.SessionConfig,
+	configOverrides []string,
 	codexHome string,
 ) (<-chan codingagent.StreamEvent, *ProcessManager, error) {
 	procCtx, cancel := context.WithCancel(ctx)
@@ -87,13 +90,12 @@ func StartProcess(
 	}
 	log = log.WithComponent("codex")
 
-	args := BuildArgs(cfg.Prompt)
+	args := BuildArgs(cfg.Prompt, configOverrides)
 	log.Debug("building CLI arguments", "args", args)
 
 	env := BuildEnv(ac, cfg)
 
-	// Set CODEX_HOME to the temp directory containing our config.toml
-	// (only if not already set by SessionDir)
+	// Set CODEX_HOME for session/auth data (not config - config is via -c flags).
 	codexHomeSet := false
 	for _, e := range env {
 		if strings.HasPrefix(e, "CODEX_HOME=") {
@@ -101,7 +103,7 @@ func StartProcess(
 			break
 		}
 	}
-	if !codexHomeSet {
+	if !codexHomeSet && codexHome != "" {
 		env = append(env, "CODEX_HOME="+codexHome)
 	}
 
