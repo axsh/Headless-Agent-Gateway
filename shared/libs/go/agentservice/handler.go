@@ -87,6 +87,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		WorkDir:    req.WorkDir,
 		SessionDir: req.SessionDir,
 	}
+	// SessionDir fallback: use WorkDir if not explicitly set.
+	if record.SessionDir == "" && record.WorkDir != "" {
+		record.SessionDir = record.WorkDir
+	}
 	s.sessions.Create(record)
 
 	w.Header().Set("Content-Type", "application/json")
