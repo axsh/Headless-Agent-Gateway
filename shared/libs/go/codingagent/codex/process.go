@@ -39,6 +39,11 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 	// Codex CLI requires OPENAI_API_KEY; gateway handles auth, so set placeholder.
 	env["OPENAI_API_KEY"] = "not-needed"
 
+	// Session data storage directory override.
+	if cfg.SessionDir != "" {
+		env["CODEX_HOME"] = cfg.SessionDir
+	}
+
 	for k, v := range cfg.EnvVars {
 		env[k] = v
 	}

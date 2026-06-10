@@ -44,6 +44,13 @@ func TestCodexBuildEnv(t *testing.T) {
 			wantKey: "CUSTOM_VAR",
 			wantVal: "custom_value",
 		},
+		{
+			name:    "session dir sets CODEX_HOME",
+			ac:      &codingagent.AdapterConfig{},
+			cfg:     &codingagent.SessionConfig{SessionDir: "/data/sessions"},
+			wantKey: "CODEX_HOME",
+			wantVal: "/data/sessions",
+		},
 	}
 
 	for _, tt := range tests {
