@@ -46,10 +46,11 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 // handleCreateSession handles POST /api/v1/sessions.
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Agent   string `json:"agent"`
-		Model   string `json:"model"`
-		WorkDir string `json:"work_dir"`
-		Prompt  string `json:"prompt"`
+		Agent      string `json:"agent"`
+		Model      string `json:"model"`
+		WorkDir    string `json:"work_dir"`
+		Prompt     string `json:"prompt"`
+		SessionDir string `json:"session_dir"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -79,11 +80,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := s.generateID()
 	record := &codingagent.SessionRecord{
-		ID:        sessionID,
-		AgentName: req.Agent,
-		Model:     req.Model,
-		Status:    codingagent.StatusActive,
-		WorkDir:   req.WorkDir,
+		ID:         sessionID,
+		AgentName:  req.Agent,
+		Model:      req.Model,
+		Status:     codingagent.StatusActive,
+		WorkDir:    req.WorkDir,
+		SessionDir: req.SessionDir,
 	}
 	s.sessions.Create(record)
 
@@ -155,6 +157,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	// Session continuation: pass agent session ID if available.
 	if record.AgentSessionID != "" {
 		opts = append(opts, codingagent.WithAgentSessionID(record.AgentSessionID))
+	}
+	if record.SessionDir != "" {
+		opts = append(opts, codingagent.WithSessionDir(record.SessionDir))
 	}
 	session, err := agent.CreateSession(r.Context(), opts...)
 	if err != nil {
