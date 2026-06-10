@@ -34,11 +34,13 @@ func New(port int, tl *tasklog.TaskLog, log logger.Logger) *Server {
 	if log == nil {
 		log = logger.NewDefault(logger.LevelInfo)
 	}
-	return &Server{
+	s := &Server{
 		port:    port,
 		taskLog: tl,
 		logger:  log.WithComponent("wsserver"),
 	}
+	s.logger.Debug("creating websocket server", "port", port)
+	return s
 }
 
 // Launch starts the WebSocket server. Non-blocking.
@@ -67,7 +69,7 @@ func (s *Server) Launch(ctx context.Context) error {
 		}
 	}()
 
-	s.logger.Info("websocket server started", "port", s.port)
+	s.logger.Info("websocket server listening", "addr", fmt.Sprintf("127.0.0.1:%d", s.port))
 	return nil
 }
 
@@ -104,6 +106,12 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("websocket upgrade error", "error", err)
 		return
 	}
+
+	remoteAddr := ""
+	if conn != nil && conn.RemoteAddr() != nil {
+		remoteAddr = conn.RemoteAddr().String()
+	}
+	s.logger.Debug("websocket client connected", "remote_addr", remoteAddr)
 
 	client := &Client{
 		hub:  s.hub,

@@ -1,6 +1,8 @@
 package wsserver
 
 import (
+	"encoding/json"
+
 	"github.com/axsh/hag/logger"
 	"github.com/axsh/hag/tasklog"
 )
@@ -35,6 +37,11 @@ func (h *Hub) run() {
 		case client := <-h.register:
 			h.clients[client] = true
 			if h.logger != nil {
+				remoteAddr := ""
+				if client.conn != nil {
+					remoteAddr = client.conn.RemoteAddr().String()
+				}
+				h.logger.Debug("websocket client connected", "remote_addr", remoteAddr)
 				h.logger.Info("client connected", "total", len(h.clients))
 			}
 			// Send snapshot of existing log entries.
@@ -45,11 +52,27 @@ func (h *Hub) run() {
 				delete(h.clients, client)
 				close(client.send)
 				if h.logger != nil {
+					remoteAddr := ""
+					if client.conn != nil {
+						remoteAddr = client.conn.RemoteAddr().String()
+					}
+					h.logger.Debug("websocket client disconnected", "remote_addr", remoteAddr)
 					h.logger.Info("client disconnected", "total", len(h.clients))
 				}
 			}
 
 		case msg := <-h.broadcast:
+			if h.logger != nil {
+				entryType := ""
+				var parsed struct {
+					Type string `json:"type"`
+				}
+				if json.Unmarshal(msg, &parsed) == nil {
+					entryType = parsed.Type
+				}
+				h.logger.Debug("broadcasting to clients", "client_count", len(h.clients), "entry_type", entryType)
+				h.logger.Trace("broadcast payload", "payload", string(msg))
+			}
 			for client := range h.clients {
 				select {
 				case client.send <- msg:
