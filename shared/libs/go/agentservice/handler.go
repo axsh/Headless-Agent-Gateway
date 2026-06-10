@@ -231,8 +231,14 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 	}
 
 	eventCount := 0
+	var hasError bool
+	var errorMsg string
 	for ev := range ch {
 		eventCount++
+		if ev.Type == codingagent.EventError {
+			hasError = true
+			errorMsg = ev.Content
+		}
 		if s.logger != nil {
 			contentPreview := ""
 			if ev.Content != "" {
@@ -273,7 +279,16 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 	}
 
 	if record, err := s.sessions.Get(sessionID); err == nil {
-		record.Status = codingagent.StatusCompleted
+		if hasError {
+			record.Status = codingagent.StatusError
+			if errorMsg != "" {
+				record.Error = errorMsg
+			} else {
+				record.Error = "unknown error occurred during execution"
+			}
+		} else {
+			record.Status = codingagent.StatusCompleted
+		}
 		s.sessions.Update(record)
 	}
 }
@@ -281,8 +296,14 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 // respondJSON sends all events as a JSON array.
 func (s *Server) respondJSON(w http.ResponseWriter, ch <-chan codingagent.StreamEvent, sessionID string) {
 	var events []codingagent.StreamEvent
+	var hasError bool
+	var errorMsg string
 	for ev := range ch {
 		events = append(events, ev)
+		if ev.Type == codingagent.EventError {
+			hasError = true
+			errorMsg = ev.Content
+		}
 
 		// Record event to TaskLog (C1-4)
 		if s.taskLog != nil {
@@ -304,7 +325,16 @@ func (s *Server) respondJSON(w http.ResponseWriter, ch <-chan codingagent.Stream
 	json.NewEncoder(w).Encode(events)
 
 	if record, err := s.sessions.Get(sessionID); err == nil {
-		record.Status = codingagent.StatusCompleted
+		if hasError {
+			record.Status = codingagent.StatusError
+			if errorMsg != "" {
+				record.Error = errorMsg
+			} else {
+				record.Error = "unknown error occurred during execution"
+			}
+		} else {
+			record.Status = codingagent.StatusCompleted
+		}
 		s.sessions.Update(record)
 	}
 }
