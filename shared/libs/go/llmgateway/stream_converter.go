@@ -53,6 +53,7 @@ func ConvertOpenAIStreamToAnthropic(
 ) error {
 	flusher, _ := w.(http.Flusher)
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max to handle large SSE events
 
 	var (
 		messageStarted   bool

@@ -303,6 +303,7 @@ func ConvertResponsesResponseToAnthropic(body []byte, model string) ([]byte, err
 // and writes Anthropic Messages API SSE events to writer.
 func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model string) error {
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max to handle large SSE events
 	flusher, hasFlusher := writer.(http.Flusher)
 
 	messageSent := false
