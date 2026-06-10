@@ -15,7 +15,7 @@ type SessionConfig struct {
 	EnvVars map[string]string // Additional environment variables
 
 	// Session resume
-	SDKSessionID string // CLI/SDK-managed session ID for context resume
+	AgentSessionID string // Agent-managed session ID for context resume
 
 	// VFS mounts (container execution)
 	VFSMounts []VFSMount // Host->container file mappings
@@ -49,9 +49,9 @@ func WithEnvVars(vars map[string]string) SessionOption {
 	return func(c *SessionConfig) { c.EnvVars = vars }
 }
 
-// WithSDKSessionID sets the SDK session ID for context resume.
-func WithSDKSessionID(id string) SessionOption {
-	return func(c *SessionConfig) { c.SDKSessionID = id }
+// WithAgentSessionID sets the agent session ID for context resume.
+func WithAgentSessionID(id string) SessionOption {
+	return func(c *SessionConfig) { c.AgentSessionID = id }
 }
 
 // WithVFSMounts sets the VFS mount mappings.

@@ -18,7 +18,7 @@ type SessionRecord struct {
 	Model        string    `json:"model"`
 	Status       string    `json:"status"`
 	WorkDir      string    `json:"work_dir"`
-	SDKSessionID string    `json:"sdk_session_id"`
+	AgentSessionID string    `json:"agent_session_id"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

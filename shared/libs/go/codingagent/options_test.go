@@ -58,11 +58,11 @@ func TestSessionOptionFunctions(t *testing.T) {
 			},
 		},
 		{
-			name: "WithSDKSessionID",
-			opt:  codingagent.WithSDKSessionID("sdk-123"),
+			name: "WithAgentSessionID",
+			opt:  codingagent.WithAgentSessionID("sdk-123"),
 			check: func(t *testing.T, cfg *codingagent.SessionConfig) {
-				if cfg.SDKSessionID != "sdk-123" {
-					t.Errorf("SDKSessionID = %v, want sdk-123", cfg.SDKSessionID)
+				if cfg.AgentSessionID != "sdk-123" {
+					t.Errorf("AgentSessionID = %v, want sdk-123", cfg.AgentSessionID)
 				}
 			},
 		},
