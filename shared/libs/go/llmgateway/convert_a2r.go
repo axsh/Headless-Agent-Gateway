@@ -173,6 +173,20 @@ func ConvertAnthropicRequestToResponses(body []byte, logs ...logger.Logger) ([]b
 			bodyStr = bodyStr[:10240] + "..."
 		}
 		log.Trace("converted responses request", "body", bodyStr)
+
+		if len(respReq.Tools) > 0 {
+			var toolNames []string
+			for _, t := range respReq.Tools {
+				toolNames = append(toolNames, t.Name)
+			}
+			log.Debug("converted responses request tools summary",
+				"tool_count", len(respReq.Tools),
+				"tool_names", strings.Join(toolNames, ", "))
+
+			for _, t := range respReq.Tools {
+				log.Trace("converted tool detail", "name", t.Name, "schema", string(t.Parameters))
+			}
+		}
 	}
 	return marshaled, nil
 }
