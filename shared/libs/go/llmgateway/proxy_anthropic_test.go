@@ -399,3 +399,198 @@ func TestHandleAnthropicMessages_CrossProviderOpenAI_Streaming(t *testing.T) {
 		t.Error("missing text content 'Hi'")
 	}
 }
+
+func TestHandleAnthropicMessages_ResponsesMode_NonStream(t *testing.T) {
+	// Mock upstream that simulates OpenAI Responses API.
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request goes to /v1/responses
+		if r.URL.Path != "/v1/responses" {
+			t.Errorf("expected path /v1/responses, got %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") == "" {
+			t.Error("expected Authorization header for OpenAI")
+		}
+
+		// Verify request body is in Responses API format
+		var respReq ResponsesRequest
+		if err := json.NewDecoder(r.Body).Decode(&respReq); err != nil {
+			t.Fatalf("failed to decode Responses request: %v", err)
+		}
+		if respReq.Model != "codex-mini-latest" {
+			t.Errorf("model = %q, want codex-mini-latest", respReq.Model)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":     "resp_test123",
+			"status": "completed",
+			"output": []map[string]any{
+				{
+					"type": "message",
+					"content": []map[string]string{
+						{"type": "output_text", "text": "Hello from Codex!"},
+					},
+				},
+			},
+			"usage": map[string]int{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+		})
+	}))
+	defer mockUpstream.Close()
+
+	origURL := providerBaseURLs["openai"]
+	providerBaseURLs["openai"] = mockUpstream.URL
+	defer func() { providerBaseURLs["openai"] = origURL }()
+
+	proxy := newTestProxyWithDriver(t)
+
+	body := map[string]any{
+		"model":      "codex-mini-latest",
+		"max_tokens": 1024,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Verify response is in Anthropic format
+	var resp AnthropicResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse Anthropic response: %v", err)
+	}
+	if resp.Type != "message" {
+		t.Errorf("type = %q, want message", resp.Type)
+	}
+	if resp.Role != "assistant" {
+		t.Errorf("role = %q, want assistant", resp.Role)
+	}
+	if len(resp.Content) != 1 || resp.Content[0].Text != "Hello from Codex!" {
+		t.Errorf("content unexpected: %+v", resp.Content)
+	}
+	if resp.StopReason != "end_turn" {
+		t.Errorf("stop_reason = %q, want end_turn", resp.StopReason)
+	}
+}
+
+func TestHandleAnthropicMessages_ResponsesMode_Stream(t *testing.T) {
+	sseResponse := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_s1","status":"in_progress"}}` + "\n\n" +
+		"event: response.output_item.added\n" +
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","content":[]}}` + "\n\n" +
+		"event: response.content_part.added\n" +
+		`data: {"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}` + "\n\n" +
+		"event: response.output_text.delta\n" +
+		`data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Hi from Codex"}` + "\n\n" +
+		"event: response.completed\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_s1","status":"completed"}}` + "\n\n"
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Errorf("expected path /v1/responses, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(sseResponse))
+	}))
+	defer mockUpstream.Close()
+
+	origURL := providerBaseURLs["openai"]
+	providerBaseURLs["openai"] = mockUpstream.URL
+	defer func() { providerBaseURLs["openai"] = origURL }()
+
+	proxy := newTestProxyWithDriver(t)
+
+	body := map[string]any{
+		"model":      "codex-mini-latest",
+		"max_tokens": 1024,
+		"stream":     true,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	output := rr.Body.String()
+	if !strings.Contains(output, "event: message_start") {
+		t.Error("missing message_start event")
+	}
+	if !strings.Contains(output, "event: content_block_delta") {
+		t.Error("missing content_block_delta event")
+	}
+	if !strings.Contains(output, "event: message_stop") {
+		t.Error("missing message_stop event")
+	}
+	if !strings.Contains(output, `"text":"Hi from Codex"`) {
+		t.Errorf("missing text content; got:\n%s", output)
+	}
+}
+
+func TestHandleAnthropicMessages_ChatMode_Unchanged(t *testing.T) {
+	// Verify that mode="" (default) still routes to /v1/chat/completions.
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("expected path /v1/chat/completions, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": "chatcmpl-unchanged",
+			"choices": []map[string]any{
+				{
+					"message":       map[string]string{"role": "assistant", "content": "Hi from GPT"},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]int{"prompt_tokens": 5, "completion_tokens": 3},
+		})
+	}))
+	defer mockUpstream.Close()
+
+	origURL := providerBaseURLs["openai"]
+	providerBaseURLs["openai"] = mockUpstream.URL
+	defer func() { providerBaseURLs["openai"] = origURL }()
+
+	proxy := newTestProxyWithDriver(t)
+
+	body := map[string]any{
+		"model":      "gpt-4o",
+		"max_tokens": 100,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+

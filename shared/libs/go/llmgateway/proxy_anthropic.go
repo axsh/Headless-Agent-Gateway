@@ -103,19 +103,37 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 			forwardBody = rewriteModelField(body, req.Model, routed.Model)
 		}
 	case "openai":
-		forwardPath = "/v1/chat/completions"
-		converted, convErr := ConvertAnthropicRequestToOpenAI(body)
-		if convErr != nil {
-			WriteErrorResponse(w, &GatewayError{
-				Type:    "api_error",
-				Message: "failed to convert request to OpenAI format: " + convErr.Error(),
-				Code:    "conversion_error",
-				Status:  http.StatusInternalServerError,
-			})
-			return
+		if routed.Mode == "responses" {
+			// Responses API route for Codex and similar models.
+			forwardPath = "/v1/responses"
+			converted, convErr := ConvertAnthropicRequestToResponses(body)
+			if convErr != nil {
+				WriteErrorResponse(w, &GatewayError{
+					Type:    "api_error",
+					Message: "failed to convert request to Responses API format: " + convErr.Error(),
+					Code:    "conversion_error",
+					Status:  http.StatusInternalServerError,
+				})
+				return
+			}
+			forwardBody = converted
+			p.logger.Info("cross-provider conversion", "direction", "anthropic->responses", "model", routed.Model)
+		} else {
+			// Chat Completions API route (default).
+			forwardPath = "/v1/chat/completions"
+			converted, convErr := ConvertAnthropicRequestToOpenAI(body)
+			if convErr != nil {
+				WriteErrorResponse(w, &GatewayError{
+					Type:    "api_error",
+					Message: "failed to convert request to OpenAI format: " + convErr.Error(),
+					Code:    "conversion_error",
+					Status:  http.StatusInternalServerError,
+				})
+				return
+			}
+			forwardBody = converted
+			p.logger.Info("cross-provider conversion", "direction", "anthropic->openai", "model", routed.Model)
 		}
-		forwardBody = converted
-		p.logger.Info("cross-provider conversion", "direction", "anthropic->openai", "model", routed.Model)
 	default:
 		WriteErrorResponse(w, &GatewayError{
 			Type:    "api_error",
@@ -146,6 +164,46 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 
 	// Cross-provider response conversion (OpenAI -> Anthropic).
 	if routed.Provider == "openai" && resp.StatusCode == http.StatusOK {
+		if routed.Mode == "responses" {
+			// Responses API response conversion.
+			if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("Connection", "keep-alive")
+				w.WriteHeader(http.StatusOK)
+				if streamErr := ConvertResponsesStreamToAnthropic(resp.Body, w, routed.Model); streamErr != nil {
+					p.logger.Error("responses stream conversion error", "error", streamErr)
+				}
+				return
+			}
+
+			respBody, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				WriteErrorResponse(w, &GatewayError{
+					Type:    "api_error",
+					Message: "failed to read upstream response",
+					Code:    "upstream_read_error",
+					Status:  http.StatusBadGateway,
+				})
+				return
+			}
+			converted, convErr := ConvertResponsesResponseToAnthropic(respBody, routed.Model)
+			if convErr != nil {
+				WriteErrorResponse(w, &GatewayError{
+					Type:    "api_error",
+					Message: "failed to convert response from Responses API format: " + convErr.Error(),
+					Code:    "conversion_error",
+					Status:  http.StatusInternalServerError,
+				})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write(converted)
+			return
+		}
+
+		// Chat Completions API response conversion (default).
 		// Streaming: convert OpenAI SSE -> Anthropic SSE
 		if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 			w.Header().Set("Content-Type", "text/event-stream")
