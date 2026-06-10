@@ -13,6 +13,7 @@ type RoutedModel struct {
 	KeyName          string // e.g. "primary"
 	KeyValue         string // actual API key value from profile
 	Model            string // e.g. "claude-sonnet-4-20250514"
+	Mode             string // "chat", "responses", or "" (treated as "chat")
 	ToolCallFallback bool   // enable text-to-tool-call conversion
 }
 
@@ -58,6 +59,7 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 						KeyName:          key.Name,
 						KeyValue:         key.Value,
 						Model:            modelName,
+						Mode:             model.Mode,
 						ToolCallFallback: fallback,
 					}
 					break

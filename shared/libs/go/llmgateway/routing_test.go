@@ -31,6 +31,7 @@ func testProfiles() *config.ModelProfilesConfig {
 						Models: []config.ModelConfig{
 							{Name: "gpt-4o"},
 							{Name: "gpt-4o-mini"},
+							{Name: "codex-mini-latest", Mode: "responses"},
 						},
 					},
 				},
@@ -153,5 +154,30 @@ func TestModelRouter_SessionFallback(t *testing.T) {
 	_, err = router.ResolveModel("unknown-model", "session-2")
 	if err == nil {
 		t.Fatalf("expected failure for unregistered session, got nil error")
+	}
+}
+
+func TestModelRouter_ResolveModel_WithMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		modelName string
+		wantMode  string
+	}{
+		{"empty mode for standard model", "gpt-4o", ""},
+		{"responses mode for codex", "codex-mini-latest", "responses"},
+		{"empty mode for anthropic", "claude-sonnet-4-20250514", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := NewModelRouter(testProfiles(), nil)
+			got, err := router.ResolveModel(tt.modelName, "")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Mode != tt.wantMode {
+				t.Errorf("Mode = %q, want %q", got.Mode, tt.wantMode)
+			}
+		})
 	}
 }
