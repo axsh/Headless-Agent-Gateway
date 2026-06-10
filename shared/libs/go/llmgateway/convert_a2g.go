@@ -29,6 +29,7 @@ type GeminiPart struct {
 	Text             string                  `json:"text,omitempty"`
 	FunctionCall     *GeminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *GeminiFunctionResponse `json:"functionResponse,omitempty"`
+	ThoughtSignature string                  `json:"thought_signature,omitempty"`
 }
 
 type GeminiFunctionCall struct {
@@ -267,7 +268,9 @@ func convertAnthropicMsgToGeminiContent(msg AnthropicMsg) (GeminiContent, error)
 	for _, block := range blocks {
 		switch block.Type {
 		case "text":
-			content.Parts = append(content.Parts, GeminiPart{Text: block.Text})
+			if block.Text != "" {
+				content.Parts = append(content.Parts, GeminiPart{Text: block.Text})
+			}
 		case "tool_use":
 			argsStr := "{}"
 			if len(block.Input) > 0 {
@@ -278,11 +281,14 @@ func convertAnthropicMsgToGeminiContent(msg AnthropicMsg) (GeminiContent, error)
 					Name: block.Name,
 					Args: json.RawMessage(argsStr),
 				},
+				ThoughtSignature: "skip_thought_signature_validator",
 			})
 		case "tool_result":
+			funcName := block.ToolUseID
+			funcName = strings.TrimPrefix(funcName, "call_gemini_")
 			content.Parts = append(content.Parts, GeminiPart{
 				FunctionResponse: &GeminiFunctionResponse{
-					Name:     block.ToolUseID,
+					Name:     funcName,
 					Response: json.RawMessage(fmt.Sprintf(`{"content": %q}`, block.Content)),
 				},
 			})
