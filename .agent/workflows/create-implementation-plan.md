@@ -108,6 +108,16 @@ description: 仕様書(Specification)から実装計画(Implementation Plan)を�
     ```
     *   **Log Verification**: [ログで何を確認すべきか具体的に記述]
 
+3.  **E2E Tests (新規/追加)**:
+    新機能の動作を検証するE2Eテストコードを `tests/` 配下に追加する。
+    手動コマンド実行による確認は、E2Eテストコード化の**代替にはならない**。
+    既存の E2E テストインフラ (`tests/agentservice_e2e_test.go` のヘルパー関数等) を積極的に活用すること。
+    E2E テストが不要な場合（純粋な内部リファクタリング等）は、その理由を明記すること。
+
+    #### [NEW/MODIFY] [テストファイル名](file://tests/xxx_test.go)
+    *   **テストケース**: [テスト関数名と検証内容]
+    *   **検証ポイント**: [何が動作していれば成功か]
+
 ## Documentation
 
 `prompts/specifications`フォルダ以下にある、既存の仕様書およびドキュメントの内容を解析し、本計画で影響を受けるものを最新の状態に更新します。
@@ -145,3 +155,8 @@ description: 仕様書(Specification)から実装計画(Implementation Plan)を�
     *   §11.4 のセルフレビュー（網羅性・証拠の十分性・迂回排除・依存関係）の結果が記載されているか。
 7.  **総合判定プロセスの計画**:
     *   `prompts/rules/testing-rules.md` の §12 に従い、全テスト完了後に総合判定を実施する手順が検証計画 (Verification Plan) に含まれているか。
+8.  **E2Eテストコード化チェック**:
+    *   新機能の動作確認が「手動コマンド実行」だけで終わっていないか。
+    *   `tests/` 配下にE2Eテストコードが計画されているか。
+    *   既存のE2Eヘルパー (`startE2EServer`, `createE2ESession` 等) を活用できないか確認したか。
+    *   E2Eテストが不要と判断した場合、その理由が Verification Plan に明記されているか。

@@ -32,6 +32,22 @@ description: 実装計画(Implementation Plan)に基づいてコードを実装�
     *   大きな変更を一度にまとめてコミットすることは避けてください。
     *   コミットメッセージは変更内容が分かる簡潔な英語で記述します（例: `feat: add auth middleware`, `test: add validation tests`）。
 
+## 2.5 E2Eテストの実装
+
+実装計画の Verification Plan に **E2E Tests** セクションがある場合、テスト実行の**前に**、E2Eテストコードを実装する。
+
+> [!CAUTION]
+> **「手動でコマンドを実行して動作確認する」ことは、E2Eテストコードの代替にはならない。**
+> 手動確認で得られた知見は、必ずテストコードとして残し、リグレッションテストとして機能するようにすること。
+
+1.  **既存インフラの確認**:
+    *   `tests/` 配下の既存E2Eテストファイルを確認し、ヘルパー関数（`startE2EServer`, `createE2ESession`, `sendE2EMessage` 等）を把握する。
+2.  **E2Eテストコードの実装**:
+    *   実装計画の Verification Plan に記載されたE2Eテストケースをコードとして実装する。
+    *   テストコードを `tests/` 配下に追加する。
+3.  **コミット**:
+    *   `git add && git commit` でE2Eテストコードをコミットする（例: `test: add E2E test for session continuation`）。
+
 ## 3. テストと検証
 
 ### 3.1 テスト実施の順序
