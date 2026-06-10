@@ -190,9 +190,8 @@ func TestCodexE2E_FileCreation(t *testing.T) {
 // --- TC-Codex-002: Codex + Gemini model file creation ---
 
 // TestCodexE2E_GeminiModel_FileCreation verifies Codex CLI + Gemini model
-// can create a file through LLMGP cross-provider routing.
+// can create a file through Bifrost SDK cross-provider routing.
 func TestCodexE2E_GeminiModel_FileCreation(t *testing.T) {
-	t.Skip("Skipping: Gemini cross-provider routing via Responses API requires additional gateway work")
 	baseURL, cleanup := startCodexE2EServer(t)
 	defer cleanup()
 	workDir := t.TempDir()
@@ -357,4 +356,138 @@ func TestCodexE2E_HealthWithCodexAgent(t *testing.T) {
 	if !found {
 		t.Errorf("health.agents does not contain 'codex': %v", agents)
 	}
+}
+
+// --- TC-Codex-005: Codex + Anthropic model file creation ---
+
+// TestCodexE2E_AnthropicModel_FileCreation verifies Codex CLI + Anthropic model
+// can create a file through Bifrost SDK cross-provider routing.
+func TestCodexE2E_AnthropicModel_FileCreation(t *testing.T) {
+	baseURL, cleanup := startCodexE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+
+	sessionID := createE2ESessionWithModel(
+		t, baseURL, "codex", "claude-sonnet-4-20250514", workDir)
+	t.Logf("Session created: %s", sessionID)
+
+	prompt := "Create a file named test_anthropic.txt in the current directory " +
+		"containing exactly the text 'Hello from Anthropic via Codex'. Do nothing else."
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
+	defer resp.Body.Close()
+
+	// Verify SSE content type
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "text/event-stream") {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+
+	events, gotDone := parseE2ESSEEvents(t, resp)
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+
+	for i, ev := range events {
+		t.Logf("event[%d]: type=%s content_len=%d", i, ev.Type, len(ev.Content))
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("received error event: %s", ev.Content)
+		}
+	}
+
+	hasResult := false
+	for _, ev := range events {
+		if ev.Type == codingagent.EventResult || ev.Type == codingagent.EventText || ev.Type == codingagent.EventToolUse {
+			hasResult = true
+			break
+		}
+	}
+	if !hasResult {
+		t.Error("expected at least one result, text, or tool_use event in SSE stream")
+	}
+
+	filePath := filepath.Join(workDir, "test_anthropic.txt")
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		entries, _ := os.ReadDir(workDir)
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("expected test_anthropic.txt in %s, got: %v, err: %v",
+			workDir, names, err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "Hello from Anthropic via Codex") {
+		t.Errorf("content = %q, want 'Hello from Anthropic via Codex'", contentStr)
+	}
+	t.Logf("File created successfully: %s (%d bytes)", filePath, len(content))
+}
+
+// --- TC-Codex-006: Codex + GPT-5.x-codex model file creation ---
+
+// TestCodexE2E_GPT5Codex_FileCreation verifies Codex CLI + GPT-5.x-codex (OpenAI)
+// continues to work through Bifrost SDK routing.
+func TestCodexE2E_GPT5Codex_FileCreation(t *testing.T) {
+	baseURL, cleanup := startCodexE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+
+	sessionID := createE2ESessionWithModel(
+		t, baseURL, "codex", "gpt-5.x-codex", workDir)
+	t.Logf("Session created: %s", sessionID)
+
+	prompt := "Create a file named test_gpt5.txt in the current directory " +
+		"containing exactly the text 'Hello from GPT5 Codex'. Do nothing else."
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
+	defer resp.Body.Close()
+
+	// Verify SSE content type
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "text/event-stream") {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+
+	events, gotDone := parseE2ESSEEvents(t, resp)
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+
+	for i, ev := range events {
+		t.Logf("event[%d]: type=%s content_len=%d", i, ev.Type, len(ev.Content))
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("received error event: %s", ev.Content)
+		}
+	}
+
+	hasResult := false
+	for _, ev := range events {
+		if ev.Type == codingagent.EventResult || ev.Type == codingagent.EventText || ev.Type == codingagent.EventToolUse {
+			hasResult = true
+			break
+		}
+	}
+	if !hasResult {
+		t.Error("expected at least one result, text, or tool_use event in SSE stream")
+	}
+
+	filePath := filepath.Join(workDir, "test_gpt5.txt")
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		entries, _ := os.ReadDir(workDir)
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("expected test_gpt5.txt in %s, got: %v, err: %v",
+			workDir, names, err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "Hello from GPT5 Codex") {
+		t.Errorf("content = %q, want 'Hello from GPT5 Codex'", contentStr)
+	}
+	t.Logf("File created successfully: %s (%d bytes)", filePath, len(content))
 }
