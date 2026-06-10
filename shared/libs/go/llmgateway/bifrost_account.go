@@ -19,6 +19,7 @@ var providerNameMap = map[string]bifrostSchemas.ModelProvider{
 	"azure":     bifrostSchemas.Azure,
 	"cohere":    bifrostSchemas.Cohere,
 	"gemini":    bifrostSchemas.Gemini,
+	"google":    bifrostSchemas.Gemini, // HAG uses "google" in model_profiles.yaml
 }
 
 // BifrostAccount implements bifrost schemas.Account interface

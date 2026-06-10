@@ -281,7 +281,8 @@ func TestToBifrostProvider(t *testing.T) {
 	}{
 		{"openai", "openai", "openai"},
 		{"anthropic", "anthropic", "anthropic"},
-		{"google", "google", "google"},
+		{"google maps to gemini", "google", "gemini"},
+		{"gemini direct", "gemini", "gemini"},
 		{"unknown passthrough", "some-custom-provider", "some-custom-provider"},
 	}
 
