@@ -24,7 +24,7 @@ func TestGenerateConfigTOML(t *testing.T) {
 			wireAPI:    "",
 			contains: []string{
 				`model = "gpt-4o"`,
-				`base_url = "http://localhost:14000"`,
+				`base_url = "http://localhost:14000/v1"`,
 				`wire_api = "responses"`,
 				`model_provider = "gateway"`,
 			},

@@ -11,7 +11,7 @@ model_provider = "gateway"
 
 [model_providers.gateway]
 name = "HAG LLM Gateway"
-base_url = "%s"
+base_url = "%s/v1"
 env_key = "OPENAI_API_KEY"
 wire_api = "%s"
 `
@@ -69,7 +69,7 @@ func BuildConfigOverrides(model, gatewayURL, wireAPI string) []string {
 		"-c", fmt.Sprintf(`model="%s"`, model),
 		"-c", `model_provider="gateway"`,
 		"-c", `model_providers.gateway.name="HAG LLM Gateway"`,
-		"-c", fmt.Sprintf(`model_providers.gateway.base_url="%s"`, gatewayURL),
+		"-c", fmt.Sprintf(`model_providers.gateway.base_url="%s/v1"`, gatewayURL),
 		"-c", `model_providers.gateway.env_key="OPENAI_API_KEY"`,
 		"-c", fmt.Sprintf(`model_providers.gateway.wire_api="%s"`, wireAPI),
 	}
