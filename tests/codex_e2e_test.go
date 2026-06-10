@@ -135,16 +135,18 @@ func TestCodexE2E_FileCreation(t *testing.T) {
 		}
 	}
 
-	// Must have at least one text or tool_use event
-	hasContent := false
+	// Must have at least one result event (turn.completed) or content event.
+	// Note: codex exec --json may only emit lifecycle events (turn.completed)
+	// without individual text/tool_use events.
+	hasResult := false
 	for _, ev := range events {
-		if ev.Type == codingagent.EventText || ev.Type == codingagent.EventToolUse {
-			hasContent = true
+		if ev.Type == codingagent.EventResult || ev.Type == codingagent.EventText || ev.Type == codingagent.EventToolUse {
+			hasResult = true
 			break
 		}
 	}
-	if !hasContent {
-		t.Error("expected at least one text or tool_use event in SSE stream")
+	if !hasResult {
+		t.Error("expected at least one result, text, or tool_use event in SSE stream")
 	}
 
 	// 5. Verify file was created
