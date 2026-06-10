@@ -12,6 +12,9 @@ func TestDefaultLogger_LevelFiltering(t *testing.T) {
 		callLvl   string
 		shouldLog bool
 	}{
+		{"trace_passes_trace", LevelTrace, "trace", true},
+		{"debug_blocks_trace", LevelDebug, "trace", false},
+		{"trace_passes_debug", LevelTrace, "debug", true},
 		{"info_blocks_debug", LevelInfo, "debug", false},
 		{"info_passes_info", LevelInfo, "info", true},
 		{"info_passes_warn", LevelInfo, "warn", true},
@@ -29,6 +32,8 @@ func TestDefaultLogger_LevelFiltering(t *testing.T) {
 
 			msg := "test message"
 			switch tt.callLvl {
+			case "trace":
+				l.Trace(msg)
 			case "debug":
 				l.Debug(msg)
 			case "info":

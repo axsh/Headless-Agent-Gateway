@@ -31,6 +31,11 @@ func NewDefaultWithOptions(level Level, formatter Formatter, writer LogWriter) *
 	}
 }
 
+// Trace logs a trace-level message.
+func (l *DefaultLogger) Trace(msg string, fields ...any) {
+	l.log(LevelTrace, msg, fields)
+}
+
 // Debug logs a debug-level message.
 func (l *DefaultLogger) Debug(msg string, fields ...any) {
 	l.log(LevelDebug, msg, fields)

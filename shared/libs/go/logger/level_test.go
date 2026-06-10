@@ -7,6 +7,7 @@ func TestLevel_String(t *testing.T) {
 		level Level
 		want  string
 	}{
+		{LevelTrace, "TRACE"},
 		{LevelDebug, "DEBUG"},
 		{LevelInfo, "INFO"},
 		{LevelWarn, "WARN"},
@@ -25,6 +26,9 @@ func TestParseLevel(t *testing.T) {
 		input string
 		want  Level
 	}{
+		{"trace", LevelTrace},
+		{"TRACE", LevelTrace},
+		{"Trace", LevelTrace},
 		{"debug", LevelDebug},
 		{"DEBUG", LevelDebug},
 		{"Debug", LevelDebug},
@@ -38,7 +42,6 @@ func TestParseLevel(t *testing.T) {
 		{"ERROR", LevelError},
 		{"unknown", LevelInfo},
 		{"", LevelInfo},
-		{"trace", LevelInfo},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -46,5 +49,20 @@ func TestParseLevel(t *testing.T) {
 				t.Errorf("ParseLevel(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLevel_Ordering(t *testing.T) {
+	if !(LevelTrace < LevelDebug) {
+		t.Errorf("expected LevelTrace (%d) < LevelDebug (%d)", LevelTrace, LevelDebug)
+	}
+	if !(LevelDebug < LevelInfo) {
+		t.Errorf("expected LevelDebug (%d) < LevelInfo (%d)", LevelDebug, LevelInfo)
+	}
+	if !(LevelInfo < LevelWarn) {
+		t.Errorf("expected LevelInfo (%d) < LevelWarn (%d)", LevelInfo, LevelWarn)
+	}
+	if !(LevelWarn < LevelError) {
+		t.Errorf("expected LevelWarn (%d) < LevelError (%d)", LevelWarn, LevelError)
 	}
 }

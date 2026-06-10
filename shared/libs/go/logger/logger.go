@@ -4,6 +4,9 @@ package logger
 // In-Process users can inject their own implementation (slog, zap, syslog, etc.)
 // via hag.WithLogger(). If not provided, DefaultLogger is used.
 type Logger interface {
+	// Trace logs trace-level data dumps (JSON bodies, headers, full payloads).
+	Trace(msg string, fields ...any)
+
 	// Debug logs a debug-level message with optional key-value fields.
 	// fields are alternating key (string) and value (any) pairs.
 	Debug(msg string, fields ...any)
