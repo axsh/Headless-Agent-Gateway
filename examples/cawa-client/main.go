@@ -50,13 +50,14 @@ func printUsage() {
 	fmt.Println("Usage: cawa-client [--server URL] <command> [args...]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  health                        Check server health")
-	fmt.Println("  agents                        List available agents")
-	fmt.Println("  models                        List available models")
-	fmt.Println("  run --agent NAME --prompt MSG  Create session and run")
-	fmt.Println("  session --id ID               Get session status")
-	fmt.Println("  logs --id ID                  Stream session logs")
-	fmt.Println("  terminate --id ID             Terminate session")
+	fmt.Println("  health                                Check server health")
+	fmt.Println("  agents                                List available agents")
+	fmt.Println("  models                                List available models")
+	fmt.Println("  run --agent NAME --prompt MSG          Create session and run")
+	fmt.Println("  run --session-id ID --prompt MSG       Continue existing session")
+	fmt.Println("  session --id ID                        Get session status")
+	fmt.Println("  logs --id ID                           Stream session logs")
+	fmt.Println("  terminate --id ID                      Terminate session")
 }
 
 // cmdHealth calls GET /health and displays the result.
@@ -150,64 +151,77 @@ func cmdModels() {
 	}
 }
 
-// cmdRun creates a session, sends a message via SSE, and shows the result.
+// cmdRun creates a session (or continues an existing one), sends a message via SSE, and shows the result.
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	agent := fs.String("agent", "", "Agent name (required)")
+	agent := fs.String("agent", "", "Agent name (required for new session)")
 	model := fs.String("model", "", "Model name")
 	prompt := fs.String("prompt", "", "Prompt message (required)")
 	workDir := fs.String("work-dir", ".", "Working directory")
+	existingSessionID := fs.String("session-id", "", "Existing session ID (for continuation)")
 	fs.Parse(args)
 
-	if *agent == "" || *prompt == "" {
-		fmt.Fprintf(os.Stderr, "Error: --agent and --prompt are required\n")
+	if *prompt == "" {
+		fmt.Fprintf(os.Stderr, "Error: --prompt is required\n")
 		fs.Usage()
 		os.Exit(1)
 	}
 
-	// 1. Create session
-	sessionBody, _ := json.Marshal(map[string]string{
-		"agent": *agent, "model": *model, "work_dir": *workDir,
-	})
-	resp, err := http.Post(serverURL+"/api/v1/sessions",
-		"application/json", bytes.NewReader(sessionBody))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
-		os.Exit(1)
+	var sid string
+	if *existingSessionID != "" {
+		// Continuation mode: use existing session.
+		sid = *existingSessionID
+		fmt.Printf("Continuing session: %s\n\n", sid)
+	} else {
+		// New session mode: --agent is required.
+		if *agent == "" {
+			fmt.Fprintf(os.Stderr, "Error: --agent is required for new sessions\n")
+			fs.Usage()
+			os.Exit(1)
+		}
+		sessionBody, _ := json.Marshal(map[string]string{
+			"agent": *agent, "model": *model, "work_dir": *workDir,
+		})
+		resp, err := http.Post(serverURL+"/api/v1/sessions",
+			"application/json", bytes.NewReader(sessionBody))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		respBytes, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode != http.StatusCreated {
+			fmt.Fprintf(os.Stderr, "Error creating session (HTTP %d):\n%s\n", resp.StatusCode, string(respBytes))
+			os.Exit(1)
+		}
+
+		var created map[string]string
+		json.Unmarshal(respBytes, &created)
+		sid = created["session_id"]
+		fmt.Printf("Session created: %s\n\n", sid)
 	}
-	defer resp.Body.Close()
-	respBytes, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode != http.StatusCreated {
-		fmt.Fprintf(os.Stderr, "Error creating session (HTTP %d):\n%s\n", resp.StatusCode, string(respBytes))
-		os.Exit(1)
-	}
-
-	var created map[string]string
-	json.Unmarshal(respBytes, &created)
-	sessionID := created["session_id"]
-	fmt.Printf("Session created: %s\n\n", sessionID)
-
-	// 2. Send message with SSE
+	// Send message with SSE.
 	msgBody, _ := json.Marshal(map[string]string{"message": *prompt})
 	req, _ := http.NewRequest("POST",
-		serverURL+"/api/v1/sessions/"+sessionID+"/messages",
+		serverURL+"/api/v1/sessions/"+sid+"/messages",
 		bytes.NewReader(msgBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	resp, err = http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error sending message: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
-	// 3. Stream SSE events
+	// Stream SSE events.
 	streamSSE(resp.Body)
 
-	// 4. Show final session status
+	// Show final session status.
 	fmt.Println()
-	cmdSessionByID(sessionID)
+	cmdSessionByID(sid)
 }
 
 // streamSSE reads SSE data lines and prints events to stdout.
