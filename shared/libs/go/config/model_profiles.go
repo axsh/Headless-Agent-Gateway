@@ -38,6 +38,7 @@ type KeyConfig struct {
 type ModelConfig struct {
 	Name         string         `yaml:"name"`
 	LogicalName  string         `yaml:"logical_name,omitempty"`
+	Mode         string         `yaml:"mode,omitempty"` // "chat" (default) or "responses"
 	Behavior     *ModelBehavior `yaml:"behavior,omitempty"`
 }
 
