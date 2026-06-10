@@ -20,7 +20,7 @@ func TestBifrostAccount_GetConfiguredProviders(t *testing.T) {
 			name:      "three providers",
 			profiles:  testProfiles(),
 			wantCount: 3,
-			wantNames: []bifrostSchemas.ModelProvider{bifrostSchemas.Anthropic, bifrostSchemas.OpenAI, bifrostSchemas.ModelProvider("google")},
+			wantNames: []bifrostSchemas.ModelProvider{bifrostSchemas.Anthropic, bifrostSchemas.OpenAI, bifrostSchemas.Gemini},
 		},
 		{
 			name:      "nil profiles",
