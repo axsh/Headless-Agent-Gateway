@@ -31,7 +31,7 @@ func testProfiles() *config.ModelProfilesConfig {
 						Models: []config.ModelConfig{
 							{Name: "gpt-4o"},
 							{Name: "gpt-4o-mini"},
-							{Name: "gpt-5.5", Mode: "responses"},
+							{Name: "gpt-5.3-codex", Mode: "responses"},
 						},
 					},
 				},
@@ -164,7 +164,7 @@ func TestModelRouter_ResolveModel_WithMode(t *testing.T) {
 		wantMode  string
 	}{
 		{"empty mode for standard model", "gpt-4o", ""},
-		{"responses mode for codex", "gpt-5.5", "responses"},
+		{"responses mode for codex", "gpt-5.3-codex", "responses"},
 		{"empty mode for anthropic", "claude-sonnet-4-20250514", ""},
 	}
 

@@ -344,7 +344,7 @@ func TestResponsesAPI_Codex_via_AnthropicEndpoint_NonStream(t *testing.T) {
 	// The LLMGP should convert Anthropic -> Responses API, forward to api.openai.com/v1/responses,
 	// and convert the response back to Anthropic format.
 	body := map[string]any{
-		"model":      "gpt-5.5",
+		"model":      "gpt-5.3-codex",
 		"max_tokens": 128,
 		"messages": []map[string]string{
 			{"role": "user", "content": "Say exactly: responses api e2e test ok"},
@@ -427,7 +427,7 @@ func TestResponsesAPI_Codex_via_AnthropicEndpoint_Stream(t *testing.T) {
 	// The LLMGP should convert the request, forward to OpenAI /v1/responses with stream:true,
 	// and convert the Responses API SSE stream to Anthropic SSE stream format.
 	body := map[string]any{
-		"model":      "gpt-5.5",
+		"model":      "gpt-5.3-codex",
 		"max_tokens": 128,
 		"stream":     true,
 		"messages": []map[string]string{

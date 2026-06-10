@@ -25,6 +25,8 @@ providers:
           - name: gpt-4.1-mini
           - name: gpt-5.4-mini
           - name: gpt-5.5
+          - name: gpt-5.5-pro
+          - name: gpt-5.3-codex
             mode: responses
   google:
     keys:
