@@ -91,7 +91,7 @@ func (s *Server) RegisterAgent(agent codingagent.CodingAgent) {
 // port=0 uses OS-assigned ephemeral port. Non-blocking.
 func (s *Server) Launch(ctx context.Context, port int) error {
 	handler := s.HTTPHandler()
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return fmt.Errorf("agentservice listen: %w", err)
 	}

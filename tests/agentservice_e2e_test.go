@@ -34,7 +34,7 @@ const e2eDefaultModel = "claude-sonnet-4-20250514"
 // freePort returns a free TCP port by briefly listening on :0.
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", ":0")
+	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("find free port: %v", err)
 	}

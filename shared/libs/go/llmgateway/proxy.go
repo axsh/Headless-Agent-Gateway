@@ -60,7 +60,7 @@ func (p *ProxyServer) Launch(_ context.Context) error {
 	mux := http.NewServeMux()
 	p.setupRoutes(mux)
 
-	addr := fmt.Sprintf(":%d", p.port)
+	addr := fmt.Sprintf("127.0.0.1:%d", p.port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("llmgateway: listen %s: %w", addr, err)
