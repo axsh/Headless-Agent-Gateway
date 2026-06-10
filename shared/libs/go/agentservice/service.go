@@ -45,7 +45,7 @@ type ServerOption func(*Server)
 
 // WithLogger sets the logger for the server.
 func WithLogger(log logger.Logger) ServerOption {
-	return func(s *Server) { s.logger = log }
+	return func(s *Server) { s.logger = log.WithComponent("agentservice") }
 }
 
 // WithTaskLog sets the TaskLog for the server.
@@ -67,6 +67,9 @@ func New(opts ...ServerOption) *Server {
 	for _, opt := range opts {
 		opt(s)
 	}
+	if s.logger != nil {
+		s.logger.Debug("creating agent service", "agent_count", len(s.agents))
+	}
 	return s
 }
 
@@ -79,12 +82,18 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 	for _, opt := range opts {
 		opt(s)
 	}
+	if s.logger != nil {
+		s.logger.Debug("creating agent service", "agent_count", len(s.agents))
+	}
 	return s
 }
 
 // RegisterAgent registers a CodingAgent with the server.
 func (s *Server) RegisterAgent(agent codingagent.CodingAgent) {
 	s.agents[agent.Name()] = agent
+	if s.logger != nil {
+		s.logger.Debug("agent registered", "agent_name", agent.Name())
+	}
 }
 
 // Launch starts the AgentService HTTP server on the given port.
@@ -106,7 +115,11 @@ func (s *Server) Launch(ctx context.Context, port int) error {
 		}
 	}()
 	if s.logger != nil {
-		s.logger.Info("agentservice started", "port", s.port)
+		addr := ""
+		if s.ln != nil {
+			addr = s.ln.Addr().String()
+		}
+		s.logger.Info("agent service listening", "port", s.port, "addr", addr)
 	}
 	return nil
 }
@@ -117,7 +130,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	if s.logger != nil {
-		s.logger.Info("shutting down agentservice")
+		s.logger.Info("agent service shutting down")
 	}
 	// Close all active coding agent processes.
 	for _, agent := range s.agents {

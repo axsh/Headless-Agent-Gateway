@@ -57,6 +57,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.logger != nil {
+		s.logger.Debug("creating session", "agent", req.Agent, "model", req.Model, "work_dir", req.WorkDir)
+	}
+
 	if _, ok := s.agents[req.Agent]; !ok {
 		http.Error(w, "unknown agent: "+req.Agent, http.StatusBadRequest)
 		return
@@ -104,6 +108,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 // handleGetSession handles GET /api/v1/sessions/:id.
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := extractPathParam(r.URL.Path, "/api/v1/sessions/")
+	if s.logger != nil {
+		s.logger.Debug("getting session", "session_id", id)
+	}
 	record, err := s.sessions.Get(id)
 	if err != nil {
 		http.Error(w, "session not found", http.StatusNotFound)
@@ -116,6 +123,9 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 // handleDeleteSession handles DELETE /api/v1/sessions/:id.
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	id := extractPathParam(r.URL.Path, "/api/v1/sessions/")
+	if s.logger != nil {
+		s.logger.Debug("deleting session", "session_id", id)
+	}
 	if err := s.sessions.Delete(id); err != nil {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
@@ -145,6 +155,11 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	if s.logger != nil {
+		s.logger.Debug("sending message to agent", "session_id", sessionID, "agent", record.AgentName, "model", record.Model)
+		s.logger.Trace("message content", "message", req.Message)
 	}
 
 	agent, ok := s.agents[record.AgentName]
@@ -201,6 +216,10 @@ func generateLogID() string {
 
 // streamSSE sends streaming events in SSE format.
 func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEvent, sessionID string) {
+	if s.logger != nil {
+		s.logger.Debug("starting SSE stream", "session_id", sessionID)
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -211,7 +230,21 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 		return
 	}
 
+	eventCount := 0
 	for ev := range ch {
+		eventCount++
+		if s.logger != nil {
+			contentPreview := ""
+			if ev.Content != "" {
+				if len(ev.Content) > 100 {
+					contentPreview = ev.Content[:100] + "..."
+				} else {
+					contentPreview = ev.Content
+				}
+			}
+			s.logger.Trace("SSE stream event", "type", ev.Type, "content_preview", contentPreview)
+		}
+
 		data, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
@@ -223,6 +256,9 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 
 		// Extract AgentSessionID from EventSystem (C2-1)
 		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+			if s.logger != nil {
+				s.logger.Debug("agent session ID extracted", "session_id", sessionID, "agent_session_id", ev.SessionID)
+			}
 			if record, err := s.sessions.Get(sessionID); err == nil {
 				record.AgentSessionID = ev.SessionID
 				s.sessions.Update(record)
@@ -231,6 +267,10 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 	}
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+
+	if s.logger != nil {
+		s.logger.Debug("SSE stream completed", "session_id", sessionID, "event_count", eventCount)
+	}
 
 	if record, err := s.sessions.Get(sessionID); err == nil {
 		record.Status = codingagent.StatusCompleted
@@ -251,6 +291,9 @@ func (s *Server) respondJSON(w http.ResponseWriter, ch <-chan codingagent.Stream
 
 		// Extract AgentSessionID from EventSystem (C2-1)
 		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+			if s.logger != nil {
+				s.logger.Debug("agent session ID extracted", "session_id", sessionID, "agent_session_id", ev.SessionID)
+			}
 			if record, err := s.sessions.Get(sessionID); err == nil {
 				record.AgentSessionID = ev.SessionID
 				s.sessions.Update(record)
@@ -280,6 +323,9 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
+	}
+	if s.logger != nil {
+		s.logger.Debug("terminating session", "session_id", sessionID)
 	}
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)
