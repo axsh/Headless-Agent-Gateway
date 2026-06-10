@@ -1,7 +1,13 @@
-# HAG (Headless Agent Gateway)
+<p align="center">
+  <img src="docs/resources/images/hag_witch_circle_transparent_2.png" alt="HAG Logo" width="200">
+</p>
 
-HAG は、LLM プロバイダ (OpenAI, Anthropic 等) への API リクエストを透過的にプロキシし、
+<h1 align="center">HAG (Headless Agent Gateway)</h1>
+
+<p align="center">
+LLM プロバイダ (OpenAI, Anthropic, Google 等) への API リクエストを透過的にプロキシし、<br>
 コーディングエージェントの WebSocket ログストリーミングやシークレット管理を統合的に提供するゲートウェイサーバです。
+</p>
 
 ## 前提条件
 
