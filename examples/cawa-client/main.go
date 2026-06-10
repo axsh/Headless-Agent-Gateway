@@ -10,13 +10,22 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/axsh/hag/logger"
 )
 
-var serverURL string
+var (
+	serverURL string
+	log       logger.Logger
+)
 
 func main() {
+	logLevel := flag.String("log-level", "info", "cawa-client log level (trace, debug, info, warn, error)")
 	flag.StringVar(&serverURL, "server", "http://localhost:3100", "CAWA server URL")
 	flag.Parse()
+
+	lvl := logger.ParseLevel(*logLevel)
+	log = logger.NewDefault(lvl).WithComponent("cawa-client")
 
 	args := flag.Args()
 	if len(args) == 0 {
@@ -47,7 +56,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Usage: cawa-client [--server URL] <command> [args...]")
+	fmt.Println("Usage: cawa-client [--server URL] [--log-level LEVEL] <command> [args...]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  health                                Check server health")
@@ -63,34 +72,56 @@ func printUsage() {
 
 // cmdHealth calls GET /health and displays the result.
 func cmdHealth() {
+	log.Debug("sending health check request", "url", serverURL+"/health")
 	resp, err := http.Get(serverURL + "/health")
 	if err != nil {
+		log.Error("health check request failed", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	fmt.Printf("Status: %d\n", resp.StatusCode)
+	log.Debug("health check response received", "status", resp.StatusCode)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error("failed to read health response body", "error", err.Error())
+		os.Exit(1)
+	}
+	log.Trace("health check response body", "body", string(bodyBytes))
 
 	var health map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&health); err == nil {
+	if err := json.Unmarshal(bodyBytes, &health); err == nil {
 		out, _ := json.MarshalIndent(health, "", "  ")
 		fmt.Println(string(out))
+	} else {
+		log.Error("failed to decode health response", "error", err.Error())
 	}
 }
 
 // cmdAgents calls GET /api/v1/agents and displays the result.
 func cmdAgents() {
+	log.Debug("fetching agents list", "url", serverURL+"/api/v1/agents")
 	resp, err := http.Get(serverURL + "/api/v1/agents")
 	if err != nil {
+		log.Error("failed to fetch agents list", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
+	log.Debug("agents list response received", "status", resp.StatusCode)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error("failed to read agents response body", "error", err.Error())
+		os.Exit(1)
+	}
+	log.Trace("agents list response body", "body", string(bodyBytes))
 
 	var agents []struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+	if err := json.Unmarshal(bodyBytes, &agents); err != nil {
+		log.Error("failed to decode agents response", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error decoding agents: %v\n", err)
 		os.Exit(1)
 	}
@@ -101,12 +132,22 @@ func cmdAgents() {
 
 // cmdModels calls GET /api/v1/models and displays available models.
 func cmdModels() {
+	log.Debug("fetching models list", "url", serverURL+"/api/v1/models")
 	resp, err := http.Get(serverURL + "/api/v1/models")
 	if err != nil {
+		log.Error("failed to fetch models list", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
+	log.Debug("models list response received", "status", resp.StatusCode)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error("failed to read models response body", "error", err.Error())
+		os.Exit(1)
+	}
+	log.Trace("models list response body", "body", string(bodyBytes))
 
 	var body struct {
 		Models []struct {
@@ -118,7 +159,8 @@ func cmdModels() {
 			Model    string `json:"model"`
 		} `json:"default_model"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		log.Error("failed to decode models response", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error decoding models: %v\n", err)
 		os.Exit(1)
 	}
@@ -173,6 +215,7 @@ func cmdRun(args []string) {
 	if *resumeSessionID != "" {
 		// Continuation mode: use existing session.
 		sid = *resumeSessionID
+		log.Debug("continuing session", "session_id", sid)
 		fmt.Printf("Continuing session: %s\n\n", sid)
 	} else {
 		// New session mode: --agent is required.
@@ -185,14 +228,21 @@ func cmdRun(args []string) {
 			"agent": *agent, "model": *model,
 			"work_dir": *workDir, "session_dir": *sessionDir,
 		})
+		log.Debug("creating new session", "agent", *agent, "model", *model, "work_dir", *workDir)
+		log.Trace("session request body", "body", string(sessionBody))
+
 		resp, err := http.Post(serverURL+"/api/v1/sessions",
 			"application/json", bytes.NewReader(sessionBody))
 		if err != nil {
+			log.Error("error creating session", "error", err.Error())
 			fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
 			os.Exit(1)
 		}
 		defer resp.Body.Close()
 		respBytes, _ := io.ReadAll(resp.Body)
+
+		log.Debug("session response received", "status", resp.StatusCode)
+		log.Trace("session response body", "body", string(respBytes))
 
 		if resp.StatusCode != http.StatusCreated {
 			fmt.Fprintf(os.Stderr, "Error creating session (HTTP %d):\n%s\n", resp.StatusCode, string(respBytes))
@@ -212,12 +262,18 @@ func cmdRun(args []string) {
 		bytes.NewReader(msgBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+
+	log.Debug("sending message to session", "session_id", sid)
+	log.Trace("message payload", "body", string(msgBody))
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Error("error sending message", "error", err.Error(), "session_id", sid)
 		fmt.Fprintf(os.Stderr, "Error sending message: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
+	log.Debug("message response received", "status", resp.StatusCode)
 
 	// Stream SSE events.
 	streamSSE(resp.Body)
@@ -232,11 +288,13 @@ func streamSSE(body io.Reader) {
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
 		line := scanner.Text()
+		log.Trace("SSE raw line received", "line", line)
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
+			log.Debug("SSE stream completed with DONE signal")
 			fmt.Println("\n--- Stream completed ---")
 			return
 		}
@@ -246,6 +304,7 @@ func streamSSE(body io.Reader) {
 			ToolName string `json:"tool_name,omitempty"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			log.Warn("failed to unmarshal SSE event", "error", err.Error(), "data", data)
 			continue
 		}
 		switch ev.Type {
@@ -258,6 +317,7 @@ func streamSSE(body io.Reader) {
 		case "system":
 			fmt.Printf("[System] %s\n", ev.Content)
 		case "error":
+			log.Error("SSE error event received", "error", ev.Content)
 			fmt.Fprintf(os.Stderr, "\n[Error] %s\n", ev.Content)
 		default:
 			fmt.Printf("[%s] %s\n", ev.Type, ev.Content)
@@ -279,17 +339,29 @@ func cmdSession(args []string) {
 
 // cmdSessionByID fetches and displays a session by ID.
 func cmdSessionByID(id string) {
+	log.Debug("fetching session details", "session_id", id, "url", serverURL+"/api/v1/sessions/"+id)
 	resp, err := http.Get(serverURL + "/api/v1/sessions/" + id)
 	if err != nil {
+		log.Error("failed to fetch session details", "session_id", id, "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
+	log.Debug("session details response received", "session_id", id, "status", resp.StatusCode)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error("failed to read session details response body", "session_id", id, "error", err.Error())
+		os.Exit(1)
+	}
+	log.Trace("session details response body", "session_id", id, "body", string(bodyBytes))
 
 	var session map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&session); err == nil {
+	if err := json.Unmarshal(bodyBytes, &session); err == nil {
 		out, _ := json.MarshalIndent(session, "", "  ")
 		fmt.Println(string(out))
+	} else {
+		log.Error("failed to decode session details response", "session_id", id, "error", err.Error())
 	}
 }
 
@@ -303,15 +375,18 @@ func cmdLogs(args []string) {
 		os.Exit(1)
 	}
 
+	log.Debug("requesting session logs stream", "session_id", *id, "url", serverURL+"/api/v1/sessions/"+*id+"/logs")
 	req, _ := http.NewRequest("GET",
 		serverURL+"/api/v1/sessions/"+*id+"/logs", nil)
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Error("failed to open session logs stream", "session_id", *id, "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
+	log.Debug("session logs stream connection established", "session_id", *id, "status", resp.StatusCode)
 	streamSSE(resp.Body)
 }
 
@@ -325,14 +400,24 @@ func cmdTerminate(args []string) {
 		os.Exit(1)
 	}
 
+	log.Debug("requesting session termination", "session_id", *id, "url", serverURL+"/api/v1/sessions/"+*id+"/terminate")
 	resp, err := http.Post(
 		serverURL+"/api/v1/sessions/"+*id+"/terminate",
 		"application/json", nil)
 	if err != nil {
+		log.Error("failed to request session termination", "session_id", *id, "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
-	io.Copy(os.Stdout, resp.Body)
+	log.Debug("session termination response received", "session_id", *id, "status", resp.StatusCode)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error("failed to read session termination response body", "session_id", *id, "error", err.Error())
+		os.Exit(1)
+	}
+	log.Trace("session termination response body", "session_id", *id, "body", string(bodyBytes))
+	fmt.Print(string(bodyBytes))
 	fmt.Println()
 }
