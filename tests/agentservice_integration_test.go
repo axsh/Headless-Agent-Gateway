@@ -356,18 +356,18 @@ func TestAgentServiceSDKSessionID(t *testing.T) {
 	io.ReadAll(resp.Body)
 	resp.Body.Close()
 
-	// Verify SDKSessionID was saved
+	// Verify AgentSessionID was saved
 	resp, _ = http.Get(ts.URL + "/api/v1/sessions/" + sessionID)
 	var record struct {
-		SDKSessionID string `json:"sdk_session_id"`
-		Status       string `json:"status"`
+		AgentSessionID string `json:"agent_session_id"`
+		Status         string `json:"status"`
 	}
 	json.NewDecoder(resp.Body).Decode(&record)
 	resp.Body.Close()
 
-	if record.SDKSessionID != "sdk-integration-001" {
-		t.Errorf("sdk_session_id = %q, want sdk-integration-001",
-			record.SDKSessionID)
+	if record.AgentSessionID != "sdk-integration-001" {
+		t.Errorf("agent_session_id = %q, want sdk-integration-001",
+			record.AgentSessionID)
 	}
 	if record.Status != codingagent.StatusCompleted {
 		t.Errorf("status = %q, want completed", record.Status)
