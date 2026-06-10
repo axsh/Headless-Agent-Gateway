@@ -8,11 +8,15 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/codingagent/claudecode"
 	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/hag"
 	"github.com/axsh/hag/llmgateway"
@@ -81,8 +85,62 @@ func setupMockGeminiServer(t *testing.T) (*httptest.Server, func()) {
 			return
 		}
 
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		var req llmgateway.GeminiRequest
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
+
+		flusher, _ := w.(http.Flusher)
+		writeEvent := func(data string) {
+			fmt.Fprintf(w, "%s\n\n", data)
+			if flusher != nil {
+				flusher.Flush()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		// Check if it's a tool-enabled request (like claude CLI agent request)
+		if len(req.Tools) > 0 {
+			hasResponse := false
+			for _, c := range req.Contents {
+				for _, p := range c.Parts {
+					if p.FunctionResponse != nil {
+						hasResponse = true
+						break
+					}
+				}
+			}
+
+			if !hasResponse {
+				// 1st turn: call Write tool
+				toolName := "Write"
+				for _, t := range req.Tools {
+					for _, fd := range t.FunctionDeclarations {
+						if strings.Contains(strings.ToLower(fd.Name), "write") {
+							toolName = fd.Name
+							break
+						}
+					}
+				}
+				writeEvent(fmt.Sprintf(`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":%q,"args":{"file_path":"test.txt","content":"Hello Gemini E2E"}}}]}}]}`, toolName))
+				writeEvent(`data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10,"totalTokenCount":110}}`)
+			} else {
+				// 2nd turn: success text response
+				writeEvent(`data: {"candidates":[{"content":{"parts":[{"text":"I have created the file test.txt successfully."}]}}]}`)
+				writeEvent(`data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":150,"candidatesTokenCount":20,"totalTokenCount":170}}`)
+			}
+			return
+		}
 
 		events := []string{
 			`data: {"candidates":[{"content":{"parts":[{"text":"Hi from"}]}}]}`,
@@ -90,13 +148,8 @@ func setupMockGeminiServer(t *testing.T) (*httptest.Server, func()) {
 			`data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}}`,
 		}
 
-		flusher, _ := w.(http.Flusher)
 		for _, ev := range events {
-			fmt.Fprintf(w, "%s\n\n", ev)
-			if flusher != nil {
-				flusher.Flush()
-			}
-			time.Sleep(10 * time.Millisecond)
+			writeEvent(ev)
 		}
 	})
 
@@ -289,5 +342,123 @@ func TestGeminiE2E_Stream(t *testing.T) {
 	}
 	if !strings.Contains(events, `"text":" mock streaming!"`) {
 		t.Error("missing ' mock streaming!'")
+	}
+}
+
+func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skip("skipping E2E test; claude CLI not found in PATH")
+	}
+
+	// 1. Setup mock Gemini server
+	_, serverCleanup := setupMockGeminiServer(t)
+	defer serverCleanup()
+
+	// 2. Setup mock vault store with dummy key
+	vs := vault.NewEnvVaultBackend()
+	_ = vs.Set("providers/google/default", "AIzaSy-dummy-gemini-key-123")
+	defer func() { _ = vs.Delete("providers/google/default") }()
+
+	// 3. Set config
+	profilesPath, err := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+
+	// Discover free ports
+	gwPort := getFreePort(t)
+	wsPort := getFreePort(t)
+	asPort := getFreePort(t)
+
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Port:              gwPort,
+			ModelProfilesPath: profilesPath,
+		},
+		AgentService: config.AgentServiceConfig{
+			Port: asPort,
+		},
+		WebSocket: config.WebSocketConfig{
+			Port: wsPort,
+		},
+	}
+
+	// 4. Launch HAG
+	srv, err := hag.New(
+		hag.WithConfig(cfg),
+		hag.WithVaultStore(vs),
+	)
+	if err != nil {
+		t.Fatalf("hag.New: %v", err)
+	}
+
+	if err := srv.Launch(t.Context()); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer srv.Shutdown(t.Context())
+
+	// 5. Register claudecode agent with gateway URL
+	gwURL := srv.Gateway().ProxyURL()
+	adapter := claudecode.New(&codingagent.AdapterConfig{
+		GatewayURL:   gwURL,
+		DefaultModel: "gemini-3.5-flash",
+	})
+	srv.AgentService().RegisterAgent(adapter)
+
+	// 6. Ensure cawa-client binary is built
+	projectRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("project root path: %v", err)
+	}
+
+	cawaClientBin := "cawa-client"
+	if os.PathSeparator == '\\' {
+		cawaClientBin = "cawa-client.exe"
+	}
+	cawaClientPath := filepath.Join(projectRoot, "bin", cawaClientBin)
+
+	cawaClientDir := filepath.Join(projectRoot, "examples", "cawa-client")
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", cawaClientBin), ".")
+	buildCmd.Dir = cawaClientDir
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to build cawa-client: %v\noutput: %s", err, string(output))
+	}
+
+	// 7. Execute cawa-client command
+	workDir := t.TempDir()
+	serverURL := fmt.Sprintf("http://localhost:%d", asPort)
+
+	cmd := exec.Command(cawaClientPath, 
+		"--server", serverURL,
+		"--log-level", "trace",
+		"run",
+		"--agent", "claudecode",
+		"--model", "gemini-3.5-flash",
+		"--prompt", "Create test.txt in current directory",
+		"--work-dir", workDir,
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	t.Logf("running cawa-client command: %s", cmd.String())
+	err = cmd.Run()
+	t.Logf("cawa-client stdout:\n%s", stdout.String())
+	t.Logf("cawa-client stderr:\n%s", stderr.String())
+
+	if err != nil {
+		t.Fatalf("cawa-client command failed: %v", err)
+	}
+
+	// 8. Verify the file was created
+	filePath := filepath.Join(workDir, "test.txt")
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("expected test.txt to be created in %s: %v", workDir, err)
+	}
+
+	if !strings.Contains(string(content), "Hello Gemini E2E") {
+		t.Errorf("test.txt content = %q, want it to contain 'Hello Gemini E2E'", string(content))
 	}
 }
