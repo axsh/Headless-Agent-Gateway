@@ -42,7 +42,7 @@ func TestBuildArgs(t *testing.T) {
 				Prompt:         "test",
 				AgentSessionID: "sdk-abc-123",
 			},
-			contains: []string{"--session-id", "sdk-abc-123"},
+			contains: []string{"--resume", "sdk-abc-123"},
 		},
 		{
 			name:     "includes --verbose flag",
