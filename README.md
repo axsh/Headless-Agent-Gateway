@@ -134,6 +134,11 @@ cd ../..
 # ヘルスチェック (サーバの状態と CLI バージョンを確認)
 ./bin/cawa-client --server http://localhost:3100 health
 
+# ログレベルを指定してヘルスチェックを実行 (デバッグ情報を詳細表示)
+./bin/cawa-client --log-level debug health
+# さらに詳細なトレースログ (リクエスト/レスポンスボディのダンプなど) を出力
+./bin/cawa-client --log-level trace health
+
 # 利用可能なエージェント一覧
 ./bin/cawa-client agents
 
@@ -142,6 +147,9 @@ cd ../..
 
 # セッション作成 + メッセージ送信 (SSE ストリーミング, デフォルトモデル)
 ./bin/cawa-client run --agent claudecode --prompt "Hello, what can you do?"
+
+# ログレベルを指定してセッションを作成し実行
+./bin/cawa-client --log-level trace run --agent claudecode --prompt "Create a hello.py file"
 
 # モデルを明示指定してセッション作成
 ./bin/cawa-client run --agent claudecode --model claude-sonnet-4-20250514 --prompt "Hello"
@@ -157,8 +165,16 @@ cd ../..
 ```
 
 `--server` オプションでサーバ URL を指定できます (デフォルト: `http://localhost:3100`)。
+`--log-level` オプションでログ出力レベルを指定できます (デフォルト: `info`、指定可能レベル: `trace`, `debug`, `info`, `warn`, `error`)。
 
-> **Note**: `--model` で指定するモデル名は `model_profiles.yaml` に登録されている名称でなければなりません。
+> [!IMPORTANT]
+> `--log-level` や `--server` などのグローバルオプションは、`run` や `health` などのサブコマンド（非オプション引数）よりも**前に**指定する必要があります。サブコマンドの後ろに指定するとエラーになります。
+>
+> * **正しい例**: `./bin/cawa-client --log-level trace run --agent claudecode --prompt "Create a hello.py file"`
+> * **誤った例**: `./bin/cawa-client run --log-level trace --agent claudecode --prompt "Create a hello.py file"` (エラーになります)
+
+> [!NOTE]
+> `--model` で指定するモデル名は `model_profiles.yaml` に登録されている名称でなければなりません。
 > 未登録のモデル名を指定した場合、セッション作成が 400 エラーで拒否され、
 > 利用可能なモデル名の一覧がレスポンスに含まれます。
 
@@ -425,6 +441,9 @@ claudecode
 ```bash
 # Claude Code エージェントでプロンプトを実行 (SSE ストリーミング)
 ./bin/cawa-client run --agent claudecode --prompt "Create a hello.py file" --work-dir ./tmp/
+
+# ログレベルに trace を指定してプロンプトを実行 (詳細な通信ログ等を表示)
+./bin/cawa-client --log-level trace run --agent claudecode --prompt "Create a hello.py file" --work-dir ./tmp/
 ```
 
 出力例:
@@ -456,6 +475,9 @@ Session created: 30c5db0aeb058d6e1a97f0f03e81ba41
 
 # 接続先サーバを変更する場合
 ./bin/cawa-client --server http://localhost:4000 health
+
+# ログレベルを変更して実行する場合
+./bin/cawa-client --log-level debug health
 ```
 
 ### 4. log-viewer - WebSocket ログビューア
