@@ -359,14 +359,24 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 
 	// Must have at least one text or tool_use event (proof of streaming)
 	hasContent := false
+	hasToolUse := false
 	for _, ev := range events {
 		if ev.Type == codingagent.EventText || ev.Type == codingagent.EventToolUse {
 			hasContent = true
-			break
+		}
+		if ev.Type == codingagent.EventToolUse {
+			hasToolUse = true
+			t.Logf("tool_use event observed: %s", ev.Content)
 		}
 	}
 	if !hasContent {
 		t.Error("expected at least one text or tool_use event in SSE stream")
+	}
+	// File creation requires tool usage (e.g. Write tool). Verify that tool_use
+	// events are actually observed in the stream, proving the tool call pipeline
+	// is working end-to-end (stop_reason=tool_use triggers agent loop continuation).
+	if !hasToolUse {
+		t.Error("expected at least one tool_use event in SSE stream for file creation prompt")
 	}
 
 	// 4. Verify file was created
@@ -529,14 +539,21 @@ func TestE2E_CodingAgentDefaultModel(t *testing.T) {
 		}
 	}
 	hasContent := false
+	hasToolUse := false
 	for _, ev := range events {
 		if ev.Type == codingagent.EventText || ev.Type == codingagent.EventToolUse {
 			hasContent = true
-			break
+		}
+		if ev.Type == codingagent.EventToolUse {
+			hasToolUse = true
+			t.Logf("tool_use event observed: %s", ev.Content)
 		}
 	}
 	if !hasContent {
 		t.Error("expected at least one text or tool_use event")
+	}
+	if !hasToolUse {
+		t.Error("expected at least one tool_use event for file creation prompt")
 	}
 	filePath := filepath.Join(workDir, "test.txt")
 	content, err := os.ReadFile(filePath)
