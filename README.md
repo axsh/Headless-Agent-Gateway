@@ -168,10 +168,15 @@ cd ../..
 `--log-level` オプションでログ出力レベルを指定できます (デフォルト: `info`、指定可能レベル: `trace`, `debug`, `info`, `warn`, `error`)。
 
 > [!IMPORTANT]
-> `--log-level` や `--server` などのグローバルオプションは、`run` や `health` などのサブコマンド（非オプション引数）よりも**前に**指定する必要があります。サブコマンドの後ろに指定するとエラーになります。
+> **グローバルオプションの位置ルールについて**
+> `--log-level` や `--server` などのグローバルオプションは、`run` や `health` などのサブコマンド（非オプション引数）よりも**前に**指定する必要があります。
 >
-> * **正しい例**: `./bin/cawa-client --log-level trace run --agent claudecode --prompt "Create a hello.py file"`
-> * **誤った例**: `./bin/cawa-client run --log-level trace --agent claudecode --prompt "Create a hello.py file"` (エラーになります)
+> * **正しい構成 (動作する)**: `cawa-client [グローバルオプション] [サブコマンド] [サブコマンド用オプション]`
+>   * 例: `./bin/cawa-client --log-level trace run --agent claudecode --prompt "Create a hello.py file"`
+> * **誤った構成 (エラーになる)**: `cawa-client [サブコマンド] [グローバルオプション] ...`
+>   * 例: `./bin/cawa-client run --log-level trace --agent claudecode --prompt "Create a hello.py file"`
+>
+> **理由**: Go言語の標準コマンドライン解析ツール (`flag` パッケージ) の仕様上、オプションではない引数 (サブコマンド名) が現れた時点でグローバルオプションの解析が停止するためです。サブコマンドより後ろにグローバルオプションを指定すると、定義されていないオプションとしてエラー (`flag provided but not defined`) になります。
 
 > [!NOTE]
 > `--model` で指定するモデル名は `model_profiles.yaml` に登録されている名称でなければなりません。
