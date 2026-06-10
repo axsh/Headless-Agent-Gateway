@@ -128,6 +128,13 @@ func StartProcess(
 		return nil, nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 
+	// Close stdin immediately so codex doesn't wait for additional input.
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("stdin pipe: %w", err)
+	}
+
 	// R3: Capture stderr for diagnostics.
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
@@ -137,6 +144,9 @@ func StartProcess(
 		cancel()
 		return nil, nil, fmt.Errorf("start codex: %w", err)
 	}
+
+	// Close stdin immediately after start to prevent "Reading additional input" blocking.
+	stdinPipe.Close()
 
 	ch := make(chan codingagent.StreamEvent, 64)
 	pm := &ProcessManager{cmd: cmd, cancel: cancel, codexHome: codexHome, logger: log}
