@@ -22,6 +22,11 @@ type AdapterConfig struct {
 	// Can be overridden per-session via WithEnvVars.
 	DefaultEnvVars map[string]string
 
+	// DefaultSessionDir is the default session data storage directory.
+	// Can be overridden per-session via WithSessionDir.
+	// Falls back to WorkDir if not set.
+	DefaultSessionDir string
+
 	// DisableSandbox disables the CLI internal sandbox (for container execution).
 	// When true, CLAUDE_CODE_SKIP_SANDBOX=1 is set.
 	DisableSandbox bool

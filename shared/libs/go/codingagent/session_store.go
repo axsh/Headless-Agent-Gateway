@@ -13,14 +13,15 @@ type SessionStore interface {
 
 // SessionRecord is a persisted session record.
 type SessionRecord struct {
-	ID           string    `json:"id"`
-	AgentName    string    `json:"agent_name"`
-	Model        string    `json:"model"`
-	Status       string    `json:"status"`
-	WorkDir      string    `json:"work_dir"`
+	ID             string    `json:"id"`
+	AgentName      string    `json:"agent_name"`
+	Model          string    `json:"model"`
+	Status         string    `json:"status"`
+	WorkDir        string    `json:"work_dir"`
 	AgentSessionID string    `json:"agent_session_id"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	SessionDir     string    `json:"session_dir"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Session status constants.

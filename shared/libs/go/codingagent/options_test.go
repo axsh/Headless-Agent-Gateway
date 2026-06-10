@@ -77,6 +77,15 @@ func TestSessionOptionFunctions(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "WithSessionDir",
+			opt:  codingagent.WithSessionDir("/data/sessions"),
+			check: func(t *testing.T, cfg *codingagent.SessionConfig) {
+				if cfg.SessionDir != "/data/sessions" {
+					t.Errorf("SessionDir = %v, want /data/sessions", cfg.SessionDir)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -160,6 +169,42 @@ func TestApplyDefaults(t *testing.T) {
 		}
 		if _, ok := cfg.EnvVars["A"]; ok {
 			t.Error("EnvVars[A] should not be set when EnvVars already specified")
+		}
+	})
+
+	t.Run("session dir falls back to work dir", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithWorkDir("/workspace/project"),
+		)
+		ac := &codingagent.AdapterConfig{}
+		codingagent.ApplyDefaults(cfg, ac)
+		if cfg.SessionDir != "/workspace/project" {
+			t.Errorf("SessionDir = %v, want /workspace/project", cfg.SessionDir)
+		}
+	})
+
+	t.Run("explicit session dir takes priority", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithWorkDir("/workspace/project"),
+			codingagent.WithSessionDir("/data/sessions"),
+		)
+		ac := &codingagent.AdapterConfig{}
+		codingagent.ApplyDefaults(cfg, ac)
+		if cfg.SessionDir != "/data/sessions" {
+			t.Errorf("SessionDir = %v, want /data/sessions", cfg.SessionDir)
+		}
+	})
+
+	t.Run("default session dir from adapter config", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithWorkDir("/workspace/project"),
+		)
+		ac := &codingagent.AdapterConfig{
+			DefaultSessionDir: "/default/sessions",
+		}
+		codingagent.ApplyDefaults(cfg, ac)
+		if cfg.SessionDir != "/default/sessions" {
+			t.Errorf("SessionDir = %v, want /default/sessions", cfg.SessionDir)
 		}
 	})
 }

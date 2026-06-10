@@ -17,6 +17,12 @@ type SessionConfig struct {
 	// Session resume
 	AgentSessionID string // Agent-managed session ID for context resume
 
+	// Session data storage directory.
+	// When set, the adapter maps this to the agent-specific env var
+	// (e.g., CLAUDE_CONFIG_DIR, CODEX_HOME).
+	// Falls back to WorkDir if not explicitly set.
+	SessionDir string
+
 	// VFS mounts (container execution)
 	VFSMounts []VFSMount // Host->container file mappings
 
@@ -64,6 +70,11 @@ func WithMaxTurns(n int) SessionOption {
 	return func(c *SessionConfig) { c.MaxTurns = n }
 }
 
+// WithSessionDir sets the session data storage directory.
+func WithSessionDir(dir string) SessionOption {
+	return func(c *SessionConfig) { c.SessionDir = dir }
+}
+
 // NewSessionConfig applies the given SessionOptions and returns a SessionConfig.
 func NewSessionConfig(opts ...SessionOption) *SessionConfig {
 	cfg := &SessionConfig{}
@@ -87,6 +98,14 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 		cfg.EnvVars = make(map[string]string)
 		for k, v := range ac.DefaultEnvVars {
 			cfg.EnvVars[k] = v
+		}
+	}
+	// SessionDir fallback: explicit > AdapterConfig > WorkDir
+	if cfg.SessionDir == "" {
+		if ac.DefaultSessionDir != "" {
+			cfg.SessionDir = ac.DefaultSessionDir
+		} else if cfg.WorkDir != "" {
+			cfg.SessionDir = cfg.WorkDir
 		}
 	}
 }
