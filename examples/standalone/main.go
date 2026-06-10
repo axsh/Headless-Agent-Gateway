@@ -13,6 +13,7 @@ import (
 
 	"github.com/axsh/hag/codingagent"
 	"github.com/axsh/hag/codingagent/claudecode"
+	"github.com/axsh/hag/codingagent/codex"
 	"github.com/axsh/hag/hag"
 )
 
@@ -87,6 +88,28 @@ func registerCodingAgents(srv *hag.Server) {
 	} else {
 		fmt.Println("Warning: claude CLI not found, claudecode agent not registered")
 	}
+
+	// Register codex agent if CLI is available.
+	if _, err := exec.LookPath("codex"); err == nil {
+		gwURL := srv.Gateway().ProxyURL()
+
+		defaultModel := ""
+		toolCallFallback := false
+		if dm := srv.Gateway().DefaultModel(); dm != nil {
+			defaultModel = dm.Model
+			toolCallFallback = dm.ToolCallFallback
+		}
+
+		adapter := codex.New(&codingagent.AdapterConfig{
+			GatewayURL:       gwURL,
+			DefaultModel:     defaultModel,
+			ToolCallFallback: toolCallFallback,
+		})
+		srv.AgentService().RegisterAgent(adapter)
+
+		fmt.Printf("Registered coding agent: codex (gateway=%s, default_model=%s, fallback=%v)\n",
+			gwURL, defaultModel, toolCallFallback)
+	} else {
+		fmt.Println("Warning: codex CLI not found, codex agent not registered")
+	}
 }
-
-
