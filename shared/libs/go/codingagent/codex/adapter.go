@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/logger"
 )
 
 // CodexAdapter is a CodingAgent implementation using the Codex CLI.
@@ -13,6 +14,7 @@ type CodexAdapter struct {
 	config *codingagent.AdapterConfig
 	mu     sync.Mutex
 	procs  []*ProcessManager
+	logger logger.Logger
 }
 
 // compile-time interface compliance check
@@ -20,7 +22,14 @@ var _ codingagent.CodingAgent = (*CodexAdapter)(nil)
 
 // New creates a CodexAdapter.
 func New(config *codingagent.AdapterConfig) *CodexAdapter {
-	return &CodexAdapter{config: config}
+	log := config.Logger
+	if log == nil {
+		log = logger.NewDefault(logger.LevelInfo)
+	}
+	return &CodexAdapter{
+		config: config,
+		logger: log.WithComponent("codex"),
+	}
 }
 
 // Name returns "codex".
@@ -33,14 +42,24 @@ func (a *CodexAdapter) CreateSession(
 	cfg := codingagent.NewSessionConfig(opts...)
 	codingagent.ApplyDefaults(cfg, a.config)
 
-	// Generate config.toml for Codex
-	configPath, err := WriteConfigTOML(cfg.Model, a.config.GatewayURL)
+	a.logger.Info("creating codex session", "model", cfg.Model, "work_dir", cfg.WorkDir)
+
+	// R2: Determine wire_api from AdapterConfig.ModelMode.
+	wireAPI := a.config.ModelMode
+	if wireAPI == "" {
+		wireAPI = "chat"
+	}
+
+	// Generate config.toml for Codex with dynamic wire_api.
+	configPath, err := WriteConfigTOML(cfg.Model, a.config.GatewayURL, wireAPI)
 	if err != nil {
+		a.logger.Error("failed to write config.toml", "error", err.Error())
 		return nil, fmt.Errorf("codex: write config: %w", err)
 	}
 
 	ch, pm, err := StartProcess(ctx, a.config, cfg, configPath)
 	if err != nil {
+		a.logger.Error("failed to start codex process", "error", err.Error())
 		return nil, fmt.Errorf("codex: create session: %w", err)
 	}
 
@@ -49,11 +68,13 @@ func (a *CodexAdapter) CreateSession(
 	a.mu.Unlock()
 
 	sid := fmt.Sprintf("codex-%d", pm.cmd.Process.Pid)
+	a.logger.Info("codex session created", "session_id", sid, "pid", pm.cmd.Process.Pid)
 	return &codexSession{id: sid, ch: ch, pm: pm}, nil
 }
 
 // Close stops all active processes and releases resources.
 func (a *CodexAdapter) Close() error {
+	a.logger.Debug("closing all codex sessions")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, pm := range a.procs {

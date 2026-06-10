@@ -36,4 +36,9 @@ type AdapterConfig struct {
 	// so the gateway proxy can apply fallback logic for models that
 	// sometimes emit tool calls as text instead of proper function_call.
 	ToolCallFallback bool
+
+	// ModelMode is the wire API mode for the adapter ("chat" or "responses").
+	// Used by Codex to determine config.toml wire_api value.
+	// Empty string defaults to "chat".
+	ModelMode string
 }
