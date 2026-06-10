@@ -3,6 +3,7 @@ package llmgateway
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -185,4 +186,40 @@ func TestConvertOpenAIStreamToAnthropic_StopReasonDefense_ToolUse(t *testing.T) 
 	assertContains(t, output, `"stop_reason":"tool_use"`)
 	assertContains(t, output, `"type":"tool_use"`)
 	assertContains(t, output, `"name":"Write"`)
+}
+
+// TestConvertOpenAIStreamToAnthropic_LargeEvent verifies that SSE events
+// exceeding the default bufio.Scanner buffer (64KB) are handled correctly.
+func TestConvertOpenAIStreamToAnthropic_LargeEvent(t *testing.T) {
+	// Generate a 100KB content string (well above 64KB default scanner limit).
+	largeContent := strings.Repeat("x", 100*1024)
+
+	sseInput := strings.Join([]string{
+		`data: {"id":"lg","choices":[{"delta":{"role":"assistant","content":""},"finish_reason":null}]}`,
+		``,
+		fmt.Sprintf(`data: {"id":"lg","choices":[{"delta":{"content":"%s"},"finish_reason":null}]}`, largeContent),
+		``,
+		`data: {"id":"lg","choices":[{"delta":{},"finish_reason":"stop"}]}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	rr := httptest.NewRecorder()
+	err := ConvertOpenAIStreamToAnthropic(strings.NewReader(sseInput), rr, "gpt-4o")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := rr.Body.String()
+
+	// Verify essential events are present.
+	assertContains(t, output, `"type":"message_start"`)
+	assertContains(t, output, `"type":"content_block_delta"`)
+	assertContains(t, output, `"type":"message_stop"`)
+
+	// Verify the large content was passed through.
+	if !strings.Contains(output, largeContent) {
+		t.Errorf("output does not contain the 100KB content")
+	}
 }

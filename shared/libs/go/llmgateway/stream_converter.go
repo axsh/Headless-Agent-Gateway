@@ -52,8 +52,7 @@ func ConvertOpenAIStreamToAnthropic(
 	model string,
 ) error {
 	flusher, _ := w.(http.Flusher)
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max to handle large SSE events
+	br := bufio.NewReader(reader)
 
 	var (
 		messageStarted   bool
@@ -77,10 +76,21 @@ func ConvertOpenAIStreamToAnthropic(
 		flush()
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if err == io.EOF && line == "" {
+			break
+		}
+
+		line = strings.TrimRight(line, "\r\n")
 
 		if !strings.HasPrefix(line, "data: ") {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
@@ -145,7 +155,10 @@ func ConvertOpenAIStreamToAnthropic(
 
 		// Parse chunk
 		var chunk OpenAIStreamChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+		if jsonErr := json.Unmarshal([]byte(payload), &chunk); jsonErr != nil {
+			if err == io.EOF {
+				break
+			}
 			continue // Skip malformed chunks
 		}
 
@@ -157,6 +170,9 @@ func ConvertOpenAIStreamToAnthropic(
 		}
 
 		if len(chunk.Choices) == 0 {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
@@ -242,7 +258,11 @@ func ConvertOpenAIStreamToAnthropic(
 		if choice.FinishReason != nil {
 			finishReason = *choice.FinishReason
 		}
+
+		if err == io.EOF {
+			break
+		}
 	}
 
-	return scanner.Err()
+	return nil
 }

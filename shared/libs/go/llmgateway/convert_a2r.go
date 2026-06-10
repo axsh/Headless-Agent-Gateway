@@ -302,8 +302,7 @@ func ConvertResponsesResponseToAnthropic(body []byte, model string) ([]byte, err
 // ConvertResponsesStreamToAnthropic reads OpenAI Responses API SSE events from reader
 // and writes Anthropic Messages API SSE events to writer.
 func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model string) error {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max to handle large SSE events
+	br := bufio.NewReader(reader)
 	flusher, hasFlusher := writer.(http.Flusher)
 
 	messageSent := false
@@ -327,22 +326,39 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 		writeSSE("message_start", data)
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if err == io.EOF && line == "" {
+			break
+		}
+
+		line = strings.TrimRight(line, "\r\n")
 
 		if strings.HasPrefix(line, "event: ") {
 			eventType = strings.TrimPrefix(line, "event: ")
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
 		if !strings.HasPrefix(line, "data: ") {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
 		dataStr := strings.TrimPrefix(line, "data: ")
 
 		var evt responsesStreamEvent
-		if err := json.Unmarshal([]byte(dataStr), &evt); err != nil {
+		if jsonErr := json.Unmarshal([]byte(dataStr), &evt); jsonErr != nil {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
@@ -413,7 +429,11 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 			writeSSE("message_delta", data)
 			writeSSE("message_stop", `{"type":"message_stop"}`)
 		}
+
+		if err == io.EOF {
+			break
+		}
 	}
 
-	return scanner.Err()
+	return nil
 }
