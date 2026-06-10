@@ -30,9 +30,19 @@ func GenerateConfigTOML(model, gatewayURL, wireAPI string) string {
 
 // WriteConfigTOML writes a config.toml to a CODEX_HOME directory and returns the directory path.
 // Codex CLI reads config from $CODEX_HOME/config.toml automatically.
+// Note: Codex CLI refuses CODEX_HOME under OS temp dirs, so we use
+// the user's home directory with a unique subdirectory.
 // The caller is responsible for cleaning up the directory after use.
 func WriteConfigTOML(model, gatewayURL, wireAPI string) (string, error) {
-	dir, err := os.MkdirTemp("", "codex-home-*")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get user home dir: %w", err)
+	}
+	baseDir := filepath.Join(homeDir, ".codex-hag-sessions")
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return "", fmt.Errorf("create base dir: %w", err)
+	}
+	dir, err := os.MkdirTemp(baseDir, "session-*")
 	if err != nil {
 		return "", fmt.Errorf("create codex home dir: %w", err)
 	}
