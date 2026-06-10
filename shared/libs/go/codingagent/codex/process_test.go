@@ -9,14 +9,17 @@ import (
 )
 
 func TestCodexBuildArgs(t *testing.T) {
-	args := codex.BuildArgs("/tmp/codex-config/config.toml")
+	args := codex.BuildArgs("create hello.txt")
 
 	argsStr := strings.Join(args, " ")
-	if !strings.Contains(argsStr, "--config") {
-		t.Errorf("args should contain --config, got %q", argsStr)
+	if !strings.Contains(argsStr, "exec") {
+		t.Errorf("args should contain 'exec', got %q", argsStr)
 	}
-	if !strings.Contains(argsStr, "/tmp/codex-config/config.toml") {
-		t.Errorf("args should contain config path, got %q", argsStr)
+	if !strings.Contains(argsStr, "--json") {
+		t.Errorf("args should contain '--json', got %q", argsStr)
+	}
+	if !strings.Contains(argsStr, "create hello.txt") {
+		t.Errorf("args should contain prompt, got %q", argsStr)
 	}
 }
 

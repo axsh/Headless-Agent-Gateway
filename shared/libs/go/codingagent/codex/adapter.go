@@ -50,14 +50,14 @@ func (a *CodexAdapter) CreateSession(
 		wireAPI = "chat"
 	}
 
-	// Generate config.toml for Codex with dynamic wire_api.
-	configPath, err := WriteConfigTOML(cfg.Model, a.config.GatewayURL, wireAPI)
+	// Generate CODEX_HOME directory with config.toml for Codex.
+	codexHome, err := WriteConfigTOML(cfg.Model, a.config.GatewayURL, wireAPI)
 	if err != nil {
 		a.logger.Error("failed to write config.toml", "error", err.Error())
 		return nil, fmt.Errorf("codex: write config: %w", err)
 	}
 
-	ch, pm, err := StartProcess(ctx, a.config, cfg, configPath)
+	ch, pm, err := StartProcess(ctx, a.config, cfg, codexHome)
 	if err != nil {
 		a.logger.Error("failed to start codex process", "error", err.Error())
 		return nil, fmt.Errorf("codex: create session: %w", err)

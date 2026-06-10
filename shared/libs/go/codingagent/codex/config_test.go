@@ -2,6 +2,7 @@ package codex_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,13 +68,14 @@ func TestGenerateConfigTOML(t *testing.T) {
 }
 
 func TestWriteConfigTOML(t *testing.T) {
-	path, err := codex.WriteConfigTOML("gpt-4o", "http://localhost:14000", "chat")
+	dir, err := codex.WriteConfigTOML("gpt-4o", "http://localhost:14000", "chat")
 	if err != nil {
 		t.Fatalf("WriteConfigTOML error: %v", err)
 	}
-	defer os.RemoveAll(path)
+	defer os.RemoveAll(dir)
 
-	content, err := os.ReadFile(path)
+	configPath := filepath.Join(dir, "config.toml")
+	content, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile error: %v", err)
 	}

@@ -6,86 +6,131 @@ import (
 	"github.com/axsh/hag/codingagent"
 )
 
-// JSONRPCMessage is a generic JSON-RPC 2.0 message structure.
-type JSONRPCMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
+// ExecEvent represents a JSONL event from "codex exec --json" output.
+// Event types include: thread.started, turn.started, turn.completed,
+// turn.failed, message.text, message.tool_use, error, etc.
+type ExecEvent struct {
+	Type     string          `json:"type"`
+	Message  string          `json:"message,omitempty"`
+	ThreadID string          `json:"thread_id,omitempty"`
+	Error    json.RawMessage `json:"error,omitempty"`
 }
 
-// BuildInitializeRequest constructs a JSON-RPC 2.0 initialize request.
-func BuildInitializeRequest() ([]byte, error) {
-	id := 1
-	msg := JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      &id,
-		Method:  "initialize",
-	}
-	return json.Marshal(msg)
+// ExecEventMessage is the data payload for message-type events.
+type ExecEventMessage struct {
+	Type    string `json:"type"`
+	Text    string `json:"text,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Content string `json:"content,omitempty"`
 }
 
-// BuildStartThreadRequest constructs a JSON-RPC 2.0 startThread request.
-func BuildStartThreadRequest(prompt string) ([]byte, error) {
-	id := 2
-	params, _ := json.Marshal(map[string]string{"prompt": prompt})
-	msg := JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      &id,
-		Method:  "startThread",
-		Params:  params,
-	}
-	return json.Marshal(msg)
-}
-
-// ParseNotification converts a JSON-RPC 2.0 notification to a StreamEvent.
-func ParseNotification(line string) *codingagent.StreamEvent {
-	var msg JSONRPCMessage
-	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+// ParseExecEvent converts a JSONL line from "codex exec --json" to a StreamEvent.
+// Returns nil for events that don't map to StreamEvent types.
+func ParseExecEvent(line string) *codingagent.StreamEvent {
+	var ev ExecEvent
+	if err := json.Unmarshal([]byte(line), &ev); err != nil {
 		return nil
 	}
 
-	switch msg.Method {
-	case "text":
-		var p struct {
-			Content string `json:"content"`
+	switch ev.Type {
+	case "message":
+		// Message event with content array
+		var msg struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text,omitempty"`
+			} `json:"content,omitempty"`
 		}
-		json.Unmarshal(msg.Params, &p)
-		return &codingagent.StreamEvent{Type: codingagent.EventText, Content: p.Content}
+		json.Unmarshal([]byte(line), &msg)
+		if len(msg.Content) > 0 {
+			var texts []string
+			for _, c := range msg.Content {
+				if c.Type == "output_text" || c.Type == "text" {
+					texts = append(texts, c.Text)
+				}
+			}
+			if len(texts) > 0 {
+				combined := ""
+				for _, t := range texts {
+					combined += t
+				}
+				return &codingagent.StreamEvent{Type: codingagent.EventText, Content: combined}
+			}
+		}
+		return nil
 
-	case "tool_use":
-		var p struct {
-			Name  string         `json:"name"`
-			Input map[string]any `json:"input"`
+	case "response.output_text.delta":
+		// Streaming text delta
+		var delta struct {
+			Delta string `json:"delta"`
 		}
-		json.Unmarshal(msg.Params, &p)
+		json.Unmarshal([]byte(line), &delta)
+		if delta.Delta != "" {
+			return &codingagent.StreamEvent{Type: codingagent.EventText, Content: delta.Delta}
+		}
+		return nil
+
+	case "response.output_text.done":
+		// Text completion
+		var done struct {
+			Text string `json:"text"`
+		}
+		json.Unmarshal([]byte(line), &done)
+		if done.Text != "" {
+			return &codingagent.StreamEvent{Type: codingagent.EventText, Content: done.Text}
+		}
+		return nil
+
+	case "function_call":
+		// Tool use event
+		var tc struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}
+		json.Unmarshal([]byte(line), &tc)
 		return &codingagent.StreamEvent{
-			Type:      codingagent.EventToolUse,
-			ToolName:  p.Name,
-			ToolInput: p.Input,
+			Type:     codingagent.EventToolUse,
+			ToolName: tc.Name,
+			ToolInput: map[string]any{
+				"arguments": tc.Arguments,
+			},
 		}
 
-	case "result":
+	case "function_call_output":
+		// Tool result
 		return &codingagent.StreamEvent{Type: codingagent.EventResult}
+
+	case "error":
+		return &codingagent.StreamEvent{
+			Type:    codingagent.EventError,
+			Content: ev.Message,
+		}
+
+	case "turn.failed":
+		// Parse nested error message
+		var fail struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		json.Unmarshal([]byte(line), &fail)
+		msg := fail.Error.Message
+		if msg == "" {
+			msg = "codex turn failed"
+		}
+		return &codingagent.StreamEvent{
+			Type:    codingagent.EventError,
+			Content: msg,
+		}
+
+	case "turn.completed":
+		return &codingagent.StreamEvent{Type: codingagent.EventResult}
+
+	case "thread.started", "turn.started":
+		// Lifecycle events - no mapping needed
+		return nil
 
 	default:
 		return nil
 	}
-}
-
-// IsApprovalRequest checks if the message is an approval request.
-func IsApprovalRequest(msg *JSONRPCMessage) bool {
-	return msg.Method == "approval_request" && msg.ID != nil
-}
-
-// BuildApprovalResponse constructs an auto-approval response.
-func BuildApprovalResponse(id int) ([]byte, error) {
-	result, _ := json.Marshal(map[string]bool{"approved": true})
-	msg := JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      &id,
-		Result:  result,
-	}
-	return json.Marshal(msg)
 }

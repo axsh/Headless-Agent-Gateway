@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,16 +20,20 @@ const gracefulShutdownTimeout = 5 * time.Second
 
 // ProcessManager manages a Codex CLI subprocess.
 type ProcessManager struct {
-	cmd        *exec.Cmd
-	cancel     context.CancelFunc
-	configPath string // temporary config.toml path to clean up
-	logger     logger.Logger
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	codexHome string // temporary CODEX_HOME directory to clean up
+	logger    logger.Logger
 }
 
-// BuildArgs constructs codex CLI arguments from the config path.
-func BuildArgs(configPath string) []string {
+// BuildArgs constructs codex CLI arguments for non-interactive execution.
+// Uses "codex exec --json" with prompt passed via stdin.
+func BuildArgs(prompt string) []string {
 	args := []string{
-		"--config", configPath,
+		"exec",
+		"--json",
+		"--dangerously-bypass-approvals-and-sandbox",
+		prompt,
 	}
 	return args
 }
@@ -67,14 +70,13 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 	return result
 }
 
-// StartProcess launches codex CLI as a subprocess.
-// It sends JSON-RPC 2.0 initialize and startThread requests via stdin,
-// and reads JSON-RPC 2.0 notifications from stdout.
+// StartProcess launches codex CLI as a subprocess using "codex exec --json".
+// It reads JSONL events from stdout and converts them to StreamEvents.
 func StartProcess(
 	ctx context.Context,
 	ac *codingagent.AdapterConfig,
 	cfg *codingagent.SessionConfig,
-	configPath string,
+	codexHome string,
 ) (<-chan codingagent.StreamEvent, *ProcessManager, error) {
 	procCtx, cancel := context.WithCancel(ctx)
 
@@ -85,10 +87,24 @@ func StartProcess(
 	}
 	log = log.WithComponent("codex")
 
-	args := BuildArgs(configPath)
+	args := BuildArgs(cfg.Prompt)
 	log.Debug("building CLI arguments", "args", args)
 
 	env := BuildEnv(ac, cfg)
+
+	// Set CODEX_HOME to the temp directory containing our config.toml
+	// (only if not already set by SessionDir)
+	codexHomeSet := false
+	for _, e := range env {
+		if strings.HasPrefix(e, "CODEX_HOME=") {
+			codexHomeSet = true
+			break
+		}
+	}
+	if !codexHomeSet {
+		env = append(env, "CODEX_HOME="+codexHome)
+	}
+
 	// R6: Log masked environment variables.
 	var maskedEnv []string
 	for _, envVar := range env {
@@ -103,12 +119,6 @@ func StartProcess(
 	cmd := exec.CommandContext(procCtx, "codex", args...)
 	cmd.Dir = cfg.WorkDir
 	cmd.Env = append(cmd.Environ(), env...)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("stdin pipe: %w", err)
-	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -127,23 +137,9 @@ func StartProcess(
 	}
 
 	ch := make(chan codingagent.StreamEvent, 64)
-	pm := &ProcessManager{cmd: cmd, cancel: cancel, configPath: configPath, logger: log}
+	pm := &ProcessManager{cmd: cmd, cancel: cancel, codexHome: codexHome, logger: log}
 
-	// Send initialize + startThread requests via stdin.
-	go func() {
-		initReq, _ := BuildInitializeRequest()
-		stdin.Write(initReq)
-		stdin.Write([]byte("\n"))
-
-		threadReq, _ := BuildStartThreadRequest(cfg.Prompt)
-		stdin.Write(threadReq)
-		stdin.Write([]byte("\n"))
-
-		// R7: Close stdin to signal EOF to Codex CLI.
-		stdin.Close()
-	}()
-
-	// Read JSON-RPC 2.0 notifications from stdout.
+	// Read JSONL events from stdout (codex exec --json outputs JSONL).
 	go func() {
 		defer close(ch)
 		scanner := bufio.NewScanner(stdout)
@@ -154,24 +150,7 @@ func StartProcess(
 			}
 			log.Trace("CLI stdout line", "line", line)
 
-			// Check for approval requests and auto-approve.
-			var msg JSONRPCMessage
-			if err := json.Unmarshal([]byte(line), &msg); err == nil {
-				if IsApprovalRequest(&msg) {
-					resp, _ := BuildApprovalResponse(*msg.ID)
-					// Re-open stdin is not possible after Close,
-					// but approval_request requires stdin write.
-					// Note: stdin is already closed via R7.
-					// In practice, Codex CLI auto-approves in full-auto mode
-					// when using the config.toml approach. This path is kept
-					// for compatibility but may not be reached.
-					log.Debug("approval request received (stdin closed, may not respond)", "id", *msg.ID)
-					_ = resp
-					continue
-				}
-			}
-
-			ev := ParseNotification(line)
+			ev := ParseExecEvent(line)
 			if ev != nil {
 				select {
 				case ch <- *ev:
@@ -204,11 +183,11 @@ func StartProcess(
 	return ch, pm, nil
 }
 
-// Stop gracefully terminates the subprocess and cleans up the config file.
+// Stop gracefully terminates the subprocess and cleans up the codex home.
 // 1. Send SIGTERM (Unix) or Kill (Windows)
 // 2. Wait up to 5 seconds for exit
 // 3. Force kill if timeout
-// 4. Clean up temporary config.toml
+// 4. Clean up temporary CODEX_HOME directory
 func (pm *ProcessManager) Stop() error {
 	if pm.cmd.Process == nil {
 		return nil
@@ -233,9 +212,9 @@ func (pm *ProcessManager) Stop() error {
 		}
 	}
 
-	// Clean up temporary config.toml
-	if pm.configPath != "" {
-		os.RemoveAll(strings.TrimSuffix(pm.configPath, "/config.toml"))
+	// Clean up temporary CODEX_HOME directory.
+	if pm.codexHome != "" {
+		os.RemoveAll(pm.codexHome)
 	}
 	return err
 }

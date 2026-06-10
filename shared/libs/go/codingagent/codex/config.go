@@ -28,17 +28,18 @@ func GenerateConfigTOML(model, gatewayURL, wireAPI string) string {
 	return fmt.Sprintf(configTemplate, model, gatewayURL, wireAPI)
 }
 
-// WriteConfigTOML writes a config.toml to a temporary directory and returns the path.
-// The caller is responsible for cleaning up the file after use.
+// WriteConfigTOML writes a config.toml to a CODEX_HOME directory and returns the directory path.
+// Codex CLI reads config from $CODEX_HOME/config.toml automatically.
+// The caller is responsible for cleaning up the directory after use.
 func WriteConfigTOML(model, gatewayURL, wireAPI string) (string, error) {
-	dir, err := os.MkdirTemp("", "codex-config-*")
+	dir, err := os.MkdirTemp("", "codex-home-*")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
+		return "", fmt.Errorf("create codex home dir: %w", err)
 	}
-	path := filepath.Join(dir, "config.toml")
+	configPath := filepath.Join(dir, "config.toml")
 	content := GenerateConfigTOML(model, gatewayURL, wireAPI)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		return "", fmt.Errorf("write config.toml: %w", err)
 	}
-	return path, nil
+	return dir, nil
 }
