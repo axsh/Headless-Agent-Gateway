@@ -26,6 +26,7 @@ providers:
           - name: gpt-5.4-mini
           - name: gpt-5.5
           - name: codex-mini-latest
+            mode: responses
   google:
     keys:
       - name: default
