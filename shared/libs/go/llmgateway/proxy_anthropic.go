@@ -13,7 +13,8 @@ import (
 
 // anthropicRequest represents the minimal fields we parse from Anthropic Messages API.
 type anthropicRequest struct {
-	Model string `json:"model"`
+	Model  string `json:"model"`
+	Stream *bool  `json:"stream,omitempty"`
 }
 
 // handleAnthropicMessages handles POST /v1/messages for Anthropic-compatible API.
@@ -111,6 +112,24 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		if routed.Model != req.Model {
 			forwardBody = rewriteModelField(body, req.Model, routed.Model)
 		}
+	case "google":
+		forwardPath = fmt.Sprintf("/v1beta/models/%s:generateContent", routed.Model)
+		if req.Stream != nil && *req.Stream {
+			forwardPath = fmt.Sprintf("/v1beta/models/%s:streamGenerateContent?alt=sse", routed.Model)
+		}
+		p.logger.Debug("converting anthropic request", "direction", "anthropic->gemini", "target_path", forwardPath)
+		converted, convErr := ConvertAnthropicRequestToGemini(body, p.logger)
+		if convErr != nil {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "api_error",
+				Message: "failed to convert request to Gemini format: " + convErr.Error(),
+				Code:    "conversion_error",
+				Status:  http.StatusInternalServerError,
+			})
+			return
+		}
+		forwardBody = converted
+		p.logger.Info("cross-provider conversion", "direction", "anthropic->gemini", "model", routed.Model)
 	case "openai":
 		if routed.Mode == "responses" {
 			// Responses API route for Codex and similar models.
@@ -189,8 +208,48 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 	p.logger.Debug("upstream response received", "status", resp.StatusCode, "content_type", resp.Header.Get("Content-Type"))
 	p.logger.Trace("upstream response headers", "headers", fmt.Sprintf("%+v", resp.Header))
 
-	// Cross-provider response conversion (OpenAI -> Anthropic).
-	if routed.Provider == "openai" && resp.StatusCode == http.StatusOK {
+	// Cross-provider response conversion (OpenAI -> Anthropic / Google -> Anthropic).
+	if resp.StatusCode == http.StatusOK && (routed.Provider == "openai" || routed.Provider == "google") {
+		if routed.Provider == "google" {
+			// Streaming: convert Gemini SSE -> Anthropic SSE
+			if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("Connection", "keep-alive")
+				w.WriteHeader(http.StatusOK)
+				if streamErr := ConvertGeminiStreamToAnthropic(resp.Body, w, routed.Model, p.logger); streamErr != nil {
+					p.logger.Error("gemini stream conversion error", "error", streamErr.Error(), "body_size", len(body), "model", routed.Model, "provider", routed.Provider)
+				}
+				return
+			}
+
+			// Non-streaming: convert full response
+			respBody, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				WriteErrorResponse(w, &GatewayError{
+					Type:    "api_error",
+					Message: "failed to read upstream response",
+					Code:    "upstream_read_error",
+					Status:  http.StatusBadGateway,
+				})
+				return
+			}
+			converted, convErr := ConvertGeminiResponseToAnthropic(respBody, routed.Model, p.logger)
+			if convErr != nil {
+				WriteErrorResponse(w, &GatewayError{
+					Type:    "api_error",
+					Message: "failed to convert response from Gemini format: " + convErr.Error(),
+					Code:    "conversion_error",
+					Status:  http.StatusInternalServerError,
+				})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write(converted)
+			return
+		}
+
 		if routed.Mode == "responses" {
 			// Responses API response conversion.
 			if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {

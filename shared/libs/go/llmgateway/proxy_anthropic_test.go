@@ -594,3 +594,145 @@ func TestHandleAnthropicMessages_ChatMode_Unchanged(t *testing.T) {
 	}
 }
 
+func TestHandleAnthropicMessages_CrossProviderGemini(t *testing.T) {
+	// Mock upstream Gemini server
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models/gemini-3.5-flash:generateContent" {
+			t.Errorf("expected path /v1beta/models/gemini-3.5-flash:generateContent, got %s", r.URL.Path)
+		}
+		if r.Header.Get("x-goog-api-key") != "AIzaSy-test-key" {
+			t.Errorf("expected x-goog-api-key 'AIzaSy-test-key', got %s", r.Header.Get("x-goog-api-key"))
+		}
+		if r.URL.Query().Get("key") != "AIzaSy-test-key" {
+			t.Errorf("expected key parameter 'AIzaSy-test-key', got %s", r.URL.Query().Get("key"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{
+					"content": map[string]any{
+						"role": "model",
+						"parts": []map[string]any{
+							{"text": "Hello from Gemini!"},
+						},
+					},
+					"finishReason": "STOP",
+				},
+			},
+			"usageMetadata": map[string]int{
+				"promptTokenCount":     10,
+				"candidatesTokenCount": 5,
+				"totalTokenCount":      15,
+			},
+		})
+	}))
+	defer mockUpstream.Close()
+
+	origURL := providerBaseURLs["google"]
+	providerBaseURLs["google"] = mockUpstream.URL
+	defer func() { providerBaseURLs["google"] = origURL }()
+
+	proxy := newTestProxyWithDriver(t)
+
+	body := map[string]any{
+		"model":      "gemini-3.5-flash",
+		"max_tokens": 100,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp AnthropicResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse Anthropic response: %v", err)
+	}
+	if resp.Type != "message" {
+		t.Errorf("type = %q, want message", resp.Type)
+	}
+	if resp.Role != "assistant" {
+		t.Errorf("role = %q, want assistant", resp.Role)
+	}
+	if len(resp.Content) != 1 || resp.Content[0].Text != "Hello from Gemini!" {
+		t.Errorf("content unexpected: %+v", resp.Content)
+	}
+	if resp.StopReason != "end_turn" {
+		t.Errorf("stop_reason = %q, want end_turn", resp.StopReason)
+	}
+}
+
+func TestHandleAnthropicMessages_CrossProviderGemini_Streaming(t *testing.T) {
+	sseResponse := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}]}}]}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" from Gemini!\"}]}}]}\n\n" +
+		"data: {\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":5,\"totalTokenCount\":15}}\n\n"
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models/gemini-3.5-flash:streamGenerateContent" {
+			t.Errorf("expected path /v1beta/models/gemini-3.5-flash:streamGenerateContent, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("alt") != "sse" {
+			t.Errorf("expected alt=sse, got %s", r.URL.Query().Get("alt"))
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(sseResponse))
+	}))
+	defer mockUpstream.Close()
+
+	origURL := providerBaseURLs["google"]
+	providerBaseURLs["google"] = mockUpstream.URL
+	defer func() { providerBaseURLs["google"] = origURL }()
+
+	proxy := newTestProxyWithDriver(t)
+
+	body := map[string]any{
+		"model":      "gemini-3.5-flash",
+		"max_tokens": 100,
+		"stream":     true,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	output := rr.Body.String()
+	if !strings.Contains(output, "event: message_start") {
+		t.Error("missing message_start event")
+	}
+	if !strings.Contains(output, "event: content_block_delta") {
+		t.Error("missing content_block_delta event")
+	}
+	if !strings.Contains(output, "event: message_stop") {
+		t.Error("missing message_stop event")
+	}
+	if !strings.Contains(output, `"text":"Hello"`) {
+		t.Error("missing 'Hello'")
+	}
+	if !strings.Contains(output, `"text":" from Gemini!"`) {
+		t.Error("missing ' from Gemini!'")
+	}
+}
+

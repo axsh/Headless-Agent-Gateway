@@ -77,14 +77,21 @@ func (f *providerForwarder) forwardToProvider(
 	case "openai":
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	case "google":
-		// Google uses API key as query parameter
-		req.URL.RawQuery = "key=" + apiKey
+		req.Header.Set("x-goog-api-key", apiKey)
+		req.Header.Del("Authorization")
+		// Google can also use API key as query parameter
+		if req.URL.RawQuery != "" {
+			req.URL.RawQuery = req.URL.RawQuery + "&key=" + apiKey
+		} else {
+			req.URL.RawQuery = "key=" + apiKey
+		}
 	}
 
 	if log != nil {
 		maskedHeaders := make(http.Header)
 		for k, v := range req.Header {
-			if strings.ToLower(k) == "authorization" || strings.ToLower(k) == "x-api-key" {
+			lowerK := strings.ToLower(k)
+			if lowerK == "authorization" || lowerK == "x-api-key" || lowerK == "x-goog-api-key" {
 				maskedHeaders.Set(k, "[MASKED]")
 			} else {
 				maskedHeaders[k] = v
@@ -311,4 +318,18 @@ func (f *providerForwarder) forwardWithRetry(
 			"path", path)
 	}
 	return nil, lastErr
+}
+
+// SetProviderBaseURL is a test helper to override base URLs for provider APIs.
+func SetProviderBaseURL(provider, url string) {
+	providerBaseURLs[provider] = url
+}
+
+// GetProviderBaseURLs is a test helper to get the original base URLs.
+func GetProviderBaseURLs() map[string]string {
+	m := make(map[string]string)
+	for k, v := range providerBaseURLs {
+		m[k] = v
+	}
+	return m
 }

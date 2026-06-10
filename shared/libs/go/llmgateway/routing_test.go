@@ -36,6 +36,17 @@ func testProfiles() *config.ModelProfilesConfig {
 					},
 				},
 			},
+			"google": {
+				Keys: []config.KeyConfig{
+					{
+						Name:  "default",
+						Value: "AIzaSy-test-key",
+						Models: []config.ModelConfig{
+							{Name: "gemini-3.5-flash"},
+						},
+					},
+				},
+			},
 		},
 	}
 }
