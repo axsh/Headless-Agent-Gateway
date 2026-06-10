@@ -117,3 +117,77 @@ func TestBifrostDriver_ProxyURL_BeforeLaunch(t *testing.T) {
 		t.Fatal("ProxyURL should not be empty even before Launch")
 	}
 }
+
+func TestBifrostDriver_BifrostSDK_Init(t *testing.T) {
+	t.Run("initializes with valid profiles", func(t *testing.T) {
+		cfg := &config.AppConfig{}
+		profiles := testProfiles()
+		driver, err := NewBifrostDriver(cfg, profiles, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if driver.bifrostSDK == nil {
+			t.Fatal("expected bifrostSDK to be initialized with valid profiles")
+		}
+		// Clean up
+		driver.bifrostSDK.Shutdown()
+	})
+
+	t.Run("initializes with nil profiles gracefully", func(t *testing.T) {
+		cfg := &config.AppConfig{}
+		driver, err := NewBifrostDriver(cfg, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// With nil profiles, SDK may or may not init successfully
+		// but driver creation should not fail.
+		if driver.bifrostSDK != nil {
+			driver.bifrostSDK.Shutdown()
+		}
+	})
+
+	t.Run("shutdown does not panic", func(t *testing.T) {
+		cfg := &config.AppConfig{}
+		profiles := testProfiles()
+		driver, err := NewBifrostDriver(cfg, profiles, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should not panic even with Bifrost SDK initialized.
+		ctx := context.Background()
+		if err := driver.Launch(ctx); err != nil {
+			t.Fatalf("Launch failed: %v", err)
+		}
+		if err := driver.Shutdown(ctx); err != nil {
+			t.Fatalf("Shutdown failed: %v", err)
+		}
+	})
+}
+
+func TestBifrostDriver_BifrostSDK_ReloadProfiles(t *testing.T) {
+	cfg := &config.AppConfig{}
+	profiles := testProfiles()
+	driver, err := NewBifrostDriver(cfg, profiles, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	originalSDK := driver.bifrostSDK
+	if originalSDK == nil {
+		t.Fatal("expected bifrostSDK to be initialized before reload")
+	}
+
+	// Reload with new profiles — should reinitialize the SDK.
+	newProfiles := testProfiles()
+	driver.ReloadProfiles(newProfiles)
+
+	if driver.bifrostSDK == nil {
+		t.Fatal("expected bifrostSDK to be reinitialized after reload")
+	}
+	if driver.bifrostSDK == originalSDK {
+		t.Error("expected bifrostSDK to be a new instance after reload")
+	}
+
+	// Clean up
+	driver.bifrostSDK.Shutdown()
+}
+
