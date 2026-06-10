@@ -369,6 +369,11 @@ func TestConvertResponsesStreamToAnthropic_TextStream(t *testing.T) {
 		t.Error("expected 'world!' delta in output")
 	}
 
+	// R1: Verify stop_reason is end_turn for text-only stream.
+	if !strings.Contains(output, `"stop_reason":"end_turn"`) {
+		t.Errorf("expected stop_reason=end_turn for text-only stream, output:\n%s", output)
+	}
+
 	// Verify message_stop event
 	if !strings.Contains(output, `"type":"message_stop"`) {
 		t.Error("expected message_stop event in output")
@@ -418,6 +423,11 @@ func TestConvertResponsesStreamToAnthropic_ToolCallStream(t *testing.T) {
 	// Verify input_json_delta events
 	if !strings.Contains(output, `"type":"input_json_delta"`) {
 		t.Error("expected input_json_delta event in output")
+	}
+
+	// R1: Verify stop_reason is tool_use when function_call events are present.
+	if !strings.Contains(output, `"stop_reason":"tool_use"`) {
+		t.Errorf("expected stop_reason=tool_use for function_call stream, output:\n%s", output)
 	}
 }
 

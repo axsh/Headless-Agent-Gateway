@@ -30,4 +30,10 @@ type AdapterConfig struct {
 	// DisableSandbox disables the CLI internal sandbox (for container execution).
 	// When true, CLAUDE_CODE_SKIP_SANDBOX=1 is set.
 	DisableSandbox bool
+
+	// ToolCallFallback enables text-to-tool-call conversion in the Gateway.
+	// When true, the ANTHROPIC_API_KEY includes ";fallback=true" metadata
+	// so the gateway proxy can apply fallback logic for models that
+	// sometimes emit tool calls as text instead of proper function_call.
+	ToolCallFallback bool
 }

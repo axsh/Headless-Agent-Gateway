@@ -42,9 +42,12 @@ func BuildArgs(cfg *codingagent.SessionConfig) []string {
 	if cfg.AgentSessionID != "" {
 		args = append(args, "--resume", cfg.AgentSessionID)
 	}
-	if cfg.MaxTurns > 0 {
-		args = append(args, "--max-turns", strconv.Itoa(cfg.MaxTurns))
+	// R7: Default maxTurns to 200 if not specified.
+	maxTurns := cfg.MaxTurns
+	if maxTurns == 0 {
+		maxTurns = 200
 	}
+	args = append(args, "--max-turns", strconv.Itoa(maxTurns))
 	return args
 }
 
@@ -54,8 +57,18 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 
 	if ac.GatewayURL != "" {
 		env["ANTHROPIC_BASE_URL"] = ac.GatewayURL
-		// Gateway handles auth; CLI needs a non-empty key to proceed.
-		env["ANTHROPIC_API_KEY"] = "not-needed"
+
+		// R4: Build API key with metadata for gateway.
+		apiKey := "not-needed"
+		fallbackStr := "false"
+		if ac.ToolCallFallback {
+			fallbackStr = "true"
+		}
+		sid := cfg.AgentSessionID
+		if sid == "" {
+			sid = "default"
+		}
+		env["ANTHROPIC_API_KEY"] = apiKey + ";fallback=" + fallbackStr + ";sid=" + sid
 	}
 
 	if ac.DisableSandbox {

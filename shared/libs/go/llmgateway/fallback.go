@@ -218,3 +218,19 @@ func ExtractSessionID(authHeader string) string {
 	}
 	return ""
 }
+
+// ExtractFallbackFlag extracts the fallback flag from an x-api-key or Authorization header value.
+// The format is: "key;fallback=true;sid=SESSION_ID".
+// Returns true if fallback=true is found.
+func ExtractFallbackFlag(authHeader string) bool {
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		authHeader = strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	for _, part := range strings.Split(authHeader, ";") {
+		part = strings.TrimSpace(part)
+		if part == "fallback=true" {
+			return true
+		}
+	}
+	return false
+}

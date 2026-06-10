@@ -135,7 +135,25 @@ func (p *ProxyServer) DefaultModel() *ModelInfo {
 	if dp.Provider == "" || dp.Model == "" {
 		return nil
 	}
-	return &ModelInfo{Provider: dp.Provider, Model: dp.Model}
+
+	// Look up the model's behavior from provider config.
+	info := &ModelInfo{
+		Provider: dp.Provider,
+		Model:    dp.Model,
+	}
+	if prov, ok := p.profiles.Providers[dp.Provider]; ok {
+		for _, key := range prov.Keys {
+			for _, m := range key.Models {
+				if m.Name == dp.Model {
+					if m.Behavior != nil {
+						info.ToolCallFallback = m.Behavior.ToolCallFallback
+					}
+					return info
+				}
+			}
+		}
+	}
+	return info
 }
 
 // Health returns the proxy server health status.

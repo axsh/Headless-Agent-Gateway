@@ -67,6 +67,11 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 		return
 	}
 
+	// R8: OR fallback flag from Authorization header with model profile setting.
+	if ExtractFallbackFlag(r.Header.Get("Authorization")) {
+		routed.ToolCallFallback = true
+	}
+
 	// Resolve vault reference if needed
 	apiKey := routed.KeyValue
 	if vault.IsVaultRef(apiKey) && p.vault != nil {

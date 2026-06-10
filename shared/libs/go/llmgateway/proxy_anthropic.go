@@ -67,6 +67,11 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// R8: OR fallback flag from x-api-key header with model profile setting.
+	if ExtractFallbackFlag(r.Header.Get("x-api-key")) {
+		routed.ToolCallFallback = true
+	}
+
 	// Resolve vault reference if needed
 	apiKey := routed.KeyValue
 	if vault.IsVaultRef(apiKey) && p.vault != nil {

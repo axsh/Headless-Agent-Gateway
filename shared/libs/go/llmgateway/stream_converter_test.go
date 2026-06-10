@@ -152,3 +152,37 @@ func assertContains(t *testing.T, s, substr string) {
 		t.Errorf("output does not contain %q", substr)
 	}
 }
+
+// R3: Defense test - tool_calls present but finish_reason is "stop" instead of "tool_calls".
+// The defense logic should force stop_reason to "tool_use".
+func TestConvertOpenAIStreamToAnthropic_StopReasonDefense_ToolUse(t *testing.T) {
+	sseInput := strings.Join([]string{
+		`data: {"id":"chatcmpl-d1","choices":[{"delta":{"role":"assistant","content":""},"finish_reason":null}]}`,
+		``,
+		`data: {"id":"chatcmpl-d1","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_d1","type":"function","function":{"name":"Write","arguments":""}}]},"finish_reason":null}]}`,
+		``,
+		`data: {"id":"chatcmpl-d1","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"hello.py\"}"}}]},"finish_reason":null}]}`,
+		``,
+		// finish_reason is "stop" instead of "tool_calls" - this is the bug scenario
+		`data: {"id":"chatcmpl-d1","choices":[{"delta":{},"finish_reason":"stop"}]}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	rr := httptest.NewRecorder()
+	err := ConvertOpenAIStreamToAnthropic(
+		strings.NewReader(sseInput), rr, "gpt-4o",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := rr.Body.String()
+
+	// Even though finish_reason was "stop", the defense should override to "tool_use"
+	// because tool blocks were detected during the stream.
+	assertContains(t, output, `"stop_reason":"tool_use"`)
+	assertContains(t, output, `"type":"tool_use"`)
+	assertContains(t, output, `"name":"Write"`)
+}

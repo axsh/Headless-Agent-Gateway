@@ -67,19 +67,23 @@ func registerCodingAgents(srv *hag.Server) {
 	if _, err := exec.LookPath("claude"); err == nil {
 		gwURL := srv.Gateway().ProxyURL()
 
-		// Resolve default model from Gateway (model_profiles.yaml).
+		// Resolve default model and behavior from Gateway (model_profiles.yaml).
 		defaultModel := ""
+		toolCallFallback := false
 		if dm := srv.Gateway().DefaultModel(); dm != nil {
 			defaultModel = dm.Model
+			toolCallFallback = dm.ToolCallFallback
 		}
 
 		adapter := claudecode.New(&codingagent.AdapterConfig{
-			GatewayURL:   gwURL,
-			DefaultModel: defaultModel,
+			GatewayURL:       gwURL,
+			DefaultModel:     defaultModel,
+			ToolCallFallback: toolCallFallback,
 		})
 		srv.AgentService().RegisterAgent(adapter)
 
-		fmt.Printf("Registered coding agent: claudecode (gateway=%s, default_model=%s)\n", gwURL, defaultModel)
+		fmt.Printf("Registered coding agent: claudecode (gateway=%s, default_model=%s, fallback=%v)\n",
+			gwURL, defaultModel, toolCallFallback)
 	} else {
 		fmt.Println("Warning: claude CLI not found, claudecode agent not registered")
 	}

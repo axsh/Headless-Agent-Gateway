@@ -121,6 +121,11 @@ func ConvertOpenAIStreamToAnthropic(
 			if finishReason != "" {
 				stopReason = mapFinishReason(finishReason)
 			}
+			// R3: Defense - force tool_use if tool blocks were detected.
+			// Some models return finish_reason="stop" even when they produced tool_calls.
+			if toolBlockStarted && stopReason != "tool_use" {
+				stopReason = "tool_use"
+			}
 			deltaData := map[string]any{
 				"type":  "message_delta",
 				"delta": map[string]any{"stop_reason": stopReason},

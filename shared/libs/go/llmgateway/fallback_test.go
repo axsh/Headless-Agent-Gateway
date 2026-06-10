@@ -145,3 +145,30 @@ func TestTryFallbackAnthropicResponse(t *testing.T) {
 		t.Errorf("expected stop_reason 'tool_use', got %q", parsed.StopReason)
 	}
 }
+
+// R8: Test ExtractFallbackFlag function.
+func TestExtractFallbackFlag(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		want   bool
+	}{
+		{"with_fallback_true", "not-needed;fallback=true;sid=abc", true},
+		{"with_fallback_false", "not-needed;fallback=false;sid=abc", false},
+		{"no_fallback_part", "not-needed", false},
+		{"empty_string", "", false},
+		{"only_sid", "not-needed;sid=abc", false},
+		{"bearer_prefix", "Bearer not-needed;fallback=true;sid=abc", true},
+		{"bearer_fallback_false", "Bearer not-needed;fallback=false;sid=abc", false},
+		{"spaces_around", "not-needed; fallback=true ; sid=abc", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractFallbackFlag(tt.header)
+			if got != tt.want {
+				t.Errorf("ExtractFallbackFlag(%q) = %v, want %v", tt.header, got, tt.want)
+			}
+		})
+	}
+}

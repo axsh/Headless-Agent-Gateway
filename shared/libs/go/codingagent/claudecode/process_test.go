@@ -51,13 +51,14 @@ func TestBuildArgs(t *testing.T) {
 		},
 		{
 			name:     "with max turns",
-			cfg:      &codingagent.SessionConfig{Prompt: "test", MaxTurns: 200},
-			contains: []string{"--max-turns", "200"},
+			cfg:      &codingagent.SessionConfig{Prompt: "test", MaxTurns: 50},
+			contains: []string{"--max-turns", "50"},
 		},
 		{
-			name:       "zero max turns omits flag",
-			cfg:        &codingagent.SessionConfig{Prompt: "test"},
-			notContain: "--max-turns",
+			// R7: MaxTurns=0 should default to 200.
+			name:     "zero max turns uses default 200",
+			cfg:      &codingagent.SessionConfig{Prompt: "test"},
+			contains: []string{"--max-turns", "200"},
 		},
 	}
 
@@ -81,12 +82,13 @@ func TestBuildArgs(t *testing.T) {
 
 func TestBuildEnv(t *testing.T) {
 	tests := []struct {
-		name    string
-		ac      *codingagent.AdapterConfig
-		cfg     *codingagent.SessionConfig
-		wantKey string
-		wantVal string
-		wantNot string
+		name         string
+		ac           *codingagent.AdapterConfig
+		cfg          *codingagent.SessionConfig
+		wantKey      string
+		wantVal      string
+		wantNot      string
+		wantContains string // checks value Contains instead of exact match
 	}{
 		{
 			name:    "gateway URL sets ANTHROPIC_BASE_URL",
@@ -121,11 +123,12 @@ func TestBuildEnv(t *testing.T) {
 			wantNot: "ANTHROPIC_BASE_URL",
 		},
 		{
-			name:    "with gateway URL: ANTHROPIC_API_KEY set to not-needed",
-			ac:      &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000"},
-			cfg:     &codingagent.SessionConfig{},
-			wantKey: "ANTHROPIC_API_KEY",
-			wantVal: "not-needed",
+			// R4: API key now includes metadata.
+			name:         "with gateway URL: ANTHROPIC_API_KEY contains not-needed",
+			ac:           &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000"},
+			cfg:          &codingagent.SessionConfig{},
+			wantKey:      "ANTHROPIC_API_KEY",
+			wantContains: "not-needed",
 		},
 		{
 			name:    "session dir sets CLAUDE_CONFIG_DIR",
@@ -148,8 +151,13 @@ func TestBuildEnv(t *testing.T) {
 			}
 
 			if tt.wantKey != "" {
-				if val, ok := envMap[tt.wantKey]; !ok || val != tt.wantVal {
+				val, ok := envMap[tt.wantKey]
+				if !ok {
+					t.Errorf("%s should be set", tt.wantKey)
+				} else if tt.wantVal != "" && val != tt.wantVal {
 					t.Errorf("%s = %q, want %q", tt.wantKey, val, tt.wantVal)
+				} else if tt.wantContains != "" && !strings.Contains(val, tt.wantContains) {
+					t.Errorf("%s = %q, want to contain %q", tt.wantKey, val, tt.wantContains)
 				}
 			}
 			if tt.wantNot != "" {
@@ -177,5 +185,51 @@ func TestBuildEnv_SessionEnvVarsOverride(t *testing.T) {
 	if envMap["ANTHROPIC_API_KEY"] != "real-key" {
 		t.Errorf("ANTHROPIC_API_KEY = %q, want %q (session env should override)",
 			envMap["ANTHROPIC_API_KEY"], "real-key")
+	}
+}
+
+// R4: Test API key metadata format.
+func TestBuildEnv_APIKeyMetadata(t *testing.T) {
+	tests := []struct {
+		name         string
+		ac           *codingagent.AdapterConfig
+		cfg          *codingagent.SessionConfig
+		wantContains string
+	}{
+		{
+			name: "fallback_true_with_agentSessionID",
+			ac:   &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: true},
+			cfg:  &codingagent.SessionConfig{AgentSessionID: "sess-123"},
+			wantContains: ";fallback=true;sid=sess-123",
+		},
+		{
+			name: "fallback_false_with_agentSessionID",
+			ac:   &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: false},
+			cfg:  &codingagent.SessionConfig{AgentSessionID: "sess-456"},
+			wantContains: ";fallback=false;sid=sess-456",
+		},
+		{
+			name: "fallback_true_no_sid",
+			ac:   &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: true},
+			cfg:  &codingagent.SessionConfig{},
+			wantContains: ";fallback=true;sid=default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := claudecode.BuildEnv(tt.ac, tt.cfg)
+			envMap := make(map[string]string)
+			for _, e := range env {
+				parts := strings.SplitN(e, "=", 2)
+				if len(parts) == 2 {
+					envMap[parts[0]] = parts[1]
+				}
+			}
+			apiKey := envMap["ANTHROPIC_API_KEY"]
+			if !strings.Contains(apiKey, tt.wantContains) {
+				t.Errorf("ANTHROPIC_API_KEY = %q, want to contain %q", apiKey, tt.wantContains)
+			}
+		})
 	}
 }

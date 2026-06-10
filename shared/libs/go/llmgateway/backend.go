@@ -28,8 +28,9 @@ type LLMGatewayBackend interface {
 
 // ModelInfo describes a configured model.
 type ModelInfo struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	ToolCallFallback bool   `json:"tool_call_fallback,omitempty"`
 }
 
 // HealthStatus describes the backend health.

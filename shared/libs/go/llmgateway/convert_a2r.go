@@ -307,6 +307,7 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 
 	messageSent := false
 	contentBlockIndex := 0
+	hadFunctionCall := false
 	var eventType string
 
 	writeSSE := func(event, data string) {
@@ -362,6 +363,7 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 				json.Unmarshal(evt.Item, &item)
 			}
 			if item.Type == "function_call" {
+				hadFunctionCall = true
 				sendMessageStart("")
 				data := fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"tool_use","id":"%s","name":"%s","input":{}}}`,
 					contentBlockIndex, item.CallID, item.Name)
@@ -401,11 +403,10 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 			contentBlockIndex++
 
 		case "response.completed":
-			// Determine stop reason.
+			// Determine stop reason based on whether function_call events were seen.
 			stopReason := "end_turn"
-			if contentBlockIndex > 0 {
-				// Check if last block was a tool call by looking at what we emitted.
-				// Simple heuristic: if we got function_call events, use tool_use.
+			if hadFunctionCall {
+				stopReason = "tool_use"
 			}
 			data := fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":"%s"},"usage":{"output_tokens":0}}`, stopReason)
 			writeSSE("message_delta", data)
