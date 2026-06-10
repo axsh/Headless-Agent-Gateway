@@ -39,8 +39,8 @@ func BuildArgs(cfg *codingagent.SessionConfig) []string {
 	if len(cfg.AllowedTools) > 0 {
 		args = append(args, "--allowedTools", strings.Join(cfg.AllowedTools, ","))
 	}
-	if cfg.SDKSessionID != "" {
-		args = append(args, "--session-id", cfg.SDKSessionID)
+	if cfg.AgentSessionID != "" {
+		args = append(args, "--session-id", cfg.AgentSessionID)
 	}
 	if cfg.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(cfg.MaxTurns))

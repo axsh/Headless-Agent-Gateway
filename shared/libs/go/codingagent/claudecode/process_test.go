@@ -37,10 +37,10 @@ func TestBuildArgs(t *testing.T) {
 			contains: []string{"--allowedTools", "Read,Edit,Write"},
 		},
 		{
-			name: "with SDK session ID",
+			name: "with agent session ID",
 			cfg: &codingagent.SessionConfig{
-				Prompt:       "test",
-				SDKSessionID: "sdk-abc-123",
+				Prompt:         "test",
+				AgentSessionID: "sdk-abc-123",
 			},
 			contains: []string{"--session-id", "sdk-abc-123"},
 		},
