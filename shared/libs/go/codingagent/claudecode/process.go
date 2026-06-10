@@ -62,6 +62,11 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 		env["CLAUDE_CODE_SKIP_SANDBOX"] = "1"
 	}
 
+	// Session data storage directory override.
+	if cfg.SessionDir != "" {
+		env["CLAUDE_CONFIG_DIR"] = cfg.SessionDir
+	}
+
 	for k, v := range cfg.EnvVars {
 		env[k] = v
 	}

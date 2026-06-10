@@ -127,6 +127,13 @@ func TestBuildEnv(t *testing.T) {
 			wantKey: "ANTHROPIC_API_KEY",
 			wantVal: "not-needed",
 		},
+		{
+			name:    "session dir sets CLAUDE_CONFIG_DIR",
+			ac:      &codingagent.AdapterConfig{},
+			cfg:     &codingagent.SessionConfig{SessionDir: "/data/sessions"},
+			wantKey: "CLAUDE_CONFIG_DIR",
+			wantVal: "/data/sessions",
+		},
 	}
 
 	for _, tt := range tests {
