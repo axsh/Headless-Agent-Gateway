@@ -32,7 +32,7 @@ func startCodexE2EServer(t *testing.T) (string, func()) {
 
 	// Verify codex CLI is available.
 	if _, err := exec.LookPath("codex"); err != nil {
-		t.Fatalf("E2E test requires codex CLI on PATH: %v", err)
+		t.Skipf("codex CLI not found on PATH, skipping: %v", err)
 	}
 
 	modelProfilesSrc, _ := filepath.Abs("../examples/standalone/model_profiles.yaml")
@@ -223,7 +223,7 @@ func TestCodexE2E_GeminiModel_FileCreation(t *testing.T) {
 // the gateway, the error is propagated through SSE.
 func TestCodexE2E_ErrorPropagation(t *testing.T) {
 	if _, err := exec.LookPath("codex"); err != nil {
-		t.Fatalf("E2E test requires codex CLI on PATH: %v", err)
+		t.Skipf("codex CLI not found on PATH, skipping: %v", err)
 	}
 
 	modelProfilesSrc, _ := filepath.Abs("../examples/standalone/model_profiles.yaml")
