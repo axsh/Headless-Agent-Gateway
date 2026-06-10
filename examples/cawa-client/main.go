@@ -55,7 +55,7 @@ func printUsage() {
 	fmt.Println("  models                                List available models")
 	fmt.Println("  run --agent NAME --prompt MSG          Create session and run")
 	fmt.Println("      [--session-dir DIR]                Session storage directory")
-	fmt.Println("  run --session-id ID --prompt MSG       Continue existing session")
+	fmt.Println("  run --resume ID --prompt MSG           Continue existing session")
 	fmt.Println("  session --id ID                        Get session status")
 	fmt.Println("  logs --id ID                           Stream session logs")
 	fmt.Println("  terminate --id ID                      Terminate session")
@@ -160,7 +160,7 @@ func cmdRun(args []string) {
 	prompt := fs.String("prompt", "", "Prompt message (required)")
 	workDir := fs.String("work-dir", ".", "Working directory")
 	sessionDir := fs.String("session-dir", "", "Session data storage directory (default: work-dir)")
-	existingSessionID := fs.String("session-id", "", "Existing session ID (for continuation)")
+	resumeSessionID := fs.String("resume", "", "Existing session ID (for continuation)")
 	fs.Parse(args)
 
 	if *prompt == "" {
@@ -170,9 +170,9 @@ func cmdRun(args []string) {
 	}
 
 	var sid string
-	if *existingSessionID != "" {
+	if *resumeSessionID != "" {
 		// Continuation mode: use existing session.
-		sid = *existingSessionID
+		sid = *resumeSessionID
 		fmt.Printf("Continuing session: %s\n\n", sid)
 	} else {
 		// New session mode: --agent is required.
