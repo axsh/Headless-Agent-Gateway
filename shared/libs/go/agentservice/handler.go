@@ -147,11 +147,16 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := agent.CreateSession(r.Context(),
+	opts := []codingagent.SessionOption{
 		codingagent.WithModel(record.Model),
 		codingagent.WithPrompt(req.Message),
 		codingagent.WithWorkDir(record.WorkDir),
-	)
+	}
+	// Session continuation: pass agent session ID if available.
+	if record.AgentSessionID != "" {
+		opts = append(opts, codingagent.WithAgentSessionID(record.AgentSessionID))
+	}
+	session, err := agent.CreateSession(r.Context(), opts...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -207,10 +212,10 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 			s.taskLog.Add(toAgentLogEntry(ev, sessionID))
 		}
 
-		// Extract SDKSessionID from EventSystem (C2-1)
+		// Extract AgentSessionID from EventSystem (C2-1)
 		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
 			if record, err := s.sessions.Get(sessionID); err == nil {
-				record.SDKSessionID = ev.SessionID
+				record.AgentSessionID = ev.SessionID
 				s.sessions.Update(record)
 			}
 		}
@@ -235,10 +240,10 @@ func (s *Server) respondJSON(w http.ResponseWriter, ch <-chan codingagent.Stream
 			s.taskLog.Add(toAgentLogEntry(ev, sessionID))
 		}
 
-		// Extract SDKSessionID from EventSystem (C2-1)
+		// Extract AgentSessionID from EventSystem (C2-1)
 		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
 			if record, err := s.sessions.Get(sessionID); err == nil {
-				record.SDKSessionID = ev.SessionID
+				record.AgentSessionID = ev.SessionID
 				s.sessions.Update(record)
 			}
 		}

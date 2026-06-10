@@ -43,7 +43,7 @@ func TestMemorySessionStore_Update(t *testing.T) {
 	store.Create(record)
 
 	record.Status = codingagent.StatusCompleted
-	record.SDKSessionID = "sdk-abc"
+	record.AgentSessionID = "sdk-abc"
 	if err := store.Update(record); err != nil {
 		t.Fatalf("Update error: %v", err)
 	}
@@ -52,8 +52,8 @@ func TestMemorySessionStore_Update(t *testing.T) {
 	if got.Status != codingagent.StatusCompleted {
 		t.Errorf("Status = %v, want completed", got.Status)
 	}
-	if got.SDKSessionID != "sdk-abc" {
-		t.Errorf("SDKSessionID = %v, want sdk-abc", got.SDKSessionID)
+	if got.AgentSessionID != "sdk-abc" {
+		t.Errorf("AgentSessionID = %v, want sdk-abc", got.AgentSessionID)
 	}
 }
 
