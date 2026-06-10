@@ -334,6 +334,156 @@ func TestCrossProvider_OpenAI_via_AnthropicEndpoint_Stream(t *testing.T) {
 	t.Logf("Cross-provider (stream) response length: %d bytes", len(events))
 }
 
+func TestResponsesAPI_Codex_via_AnthropicEndpoint_NonStream(t *testing.T) {
+	checkKeyringAvailable(t, "openai")
+
+	baseURL, cleanup := testServer(t)
+	defer cleanup()
+
+	// Send request to /v1/messages (Anthropic endpoint) with Codex model.
+	// The LLMGP should convert Anthropic -> Responses API, forward to api.openai.com/v1/responses,
+	// and convert the response back to Anthropic format.
+	body := map[string]any{
+		"model":      "codex-mini-latest",
+		"max_tokens": 128,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Say exactly: responses api e2e test ok"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("POST /v1/messages (Codex non-stream) failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Response must be in Anthropic format (converted from Responses API).
+	var result map[string]any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		t.Fatalf("JSON decode failed: %v\nbody: %s", err, string(respBody))
+	}
+
+	// Must have Anthropic-style "type": "message"
+	if result["type"] != "message" {
+		t.Errorf("expected type=message, got %v", result["type"])
+	}
+
+	// Must have "role": "assistant"
+	if result["role"] != "assistant" {
+		t.Errorf("expected role=assistant, got %v", result["role"])
+	}
+
+	// Must have Anthropic-style "content" array with non-empty text
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatalf("expected non-empty content array (Anthropic format), got: %s", string(respBody))
+	}
+	block, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected content[0] to be object, got: %v", content[0])
+	}
+	if block["type"] != "text" {
+		t.Errorf("expected content[0].type=text, got %v", block["type"])
+	}
+	text, _ := block["text"].(string)
+	if text == "" {
+		t.Errorf("expected non-empty content[0].text, got empty")
+	}
+
+	// Must have stop_reason (Anthropic field, not finish_reason)
+	if _, ok := result["stop_reason"]; !ok {
+		t.Errorf("expected stop_reason field in response, got: %s", string(respBody))
+	}
+
+	// Must have usage with input_tokens > 0
+	usage, ok := result["usage"].(map[string]any)
+	if !ok {
+		t.Errorf("expected usage object in response, got: %s", string(respBody))
+	} else {
+		inputTokens, _ := usage["input_tokens"].(float64)
+		if inputTokens <= 0 {
+			t.Errorf("expected input_tokens > 0, got %v", inputTokens)
+		}
+	}
+
+	t.Logf("Codex Responses API (non-stream) response: %s", string(respBody))
+}
+
+func TestResponsesAPI_Codex_via_AnthropicEndpoint_Stream(t *testing.T) {
+	checkKeyringAvailable(t, "openai")
+
+	baseURL, cleanup := testServer(t)
+	defer cleanup()
+
+	// Send streaming request to /v1/messages with Codex model.
+	// The LLMGP should convert the request, forward to OpenAI /v1/responses with stream:true,
+	// and convert the Responses API SSE stream to Anthropic SSE stream format.
+	body := map[string]any{
+		"model":      "codex-mini-latest",
+		"max_tokens": 128,
+		"stream":     true,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Say exactly: responses api streaming test ok"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("POST /v1/messages (Codex stream) failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Read the full SSE stream.
+	respBody, _ := io.ReadAll(resp.Body)
+	events := string(respBody)
+
+	// Verify Anthropic SSE event format (converted from Responses API events).
+	if !strings.Contains(events, "event: message_start") {
+		t.Error("missing message_start event")
+	}
+	if !strings.Contains(events, "event: content_block_start") {
+		t.Error("missing content_block_start event")
+	}
+	if !strings.Contains(events, "event: content_block_delta") {
+		t.Error("missing content_block_delta event")
+	}
+	if !strings.Contains(events, "event: message_stop") {
+		t.Error("missing message_stop event")
+	}
+	// Must contain text_delta (Anthropic format, not Responses API delta format).
+	if !strings.Contains(events, "text_delta") {
+		t.Error("missing text_delta in stream events")
+	}
+
+	// Verify event ordering: message_start before text_delta before message_stop.
+	startIdx := strings.Index(events, "message_start")
+	deltaIdx := strings.Index(events, "text_delta")
+	stopIdx := strings.Index(events, "message_stop")
+	if startIdx >= deltaIdx {
+		t.Errorf("message_start (pos %d) should come before text_delta (pos %d)", startIdx, deltaIdx)
+	}
+	if deltaIdx >= stopIdx {
+		t.Errorf("text_delta (pos %d) should come before message_stop (pos %d)", deltaIdx, stopIdx)
+	}
+
+	t.Logf("Codex Responses API (stream) response length: %d bytes", len(events))
+}
+
 func TestMain(m *testing.M) {
 	// Integration tests use the real OS Keyring.
 	// Tests will skip if the required API keys are not registered.
