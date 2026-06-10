@@ -7,19 +7,16 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/axsh/hag/codingagent"
 	"github.com/axsh/hag/codingagent/claudecode"
 	"github.com/axsh/hag/config"
 	"github.com/axsh/hag/hag"
-	"github.com/axsh/hag/llmgateway"
 	"github.com/axsh/hag/vault"
 )
 
@@ -35,149 +32,18 @@ func getFreePort(t *testing.T) int {
 	return port
 }
 
-// setupMockGeminiServer launches a local HTTP server simulating Google Gemini API response.
-func setupMockGeminiServer(t *testing.T) (*httptest.Server, func()) {
+// ensureGoogleAPIKey checks that the Google API key is configured in the keyring.
+func ensureGoogleAPIKey(t *testing.T) {
 	t.Helper()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1beta/models/gemini-3.5-flash:generateContent", func(w http.ResponseWriter, r *http.Request) {
-		// Verify Google API Key is passed via header or query param
-		key := r.Header.Get("x-goog-api-key")
-		if key == "" {
-			key = r.URL.Query().Get("key")
-		}
-		if key != "AIzaSy-dummy-gemini-key-123" {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error": "invalid api key"}`))
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"candidates": [{
-				"content": {
-					"role": "model",
-					"parts": [{"text": "Hello from mock Gemini E2E!"}]
-				},
-				"finishReason": "STOP"
-			}],
-			"usageMetadata": {
-				"promptTokenCount": 12,
-				"candidatesTokenCount": 6,
-				"totalTokenCount": 18
-			}
-		}`))
-	})
-
-	mux.HandleFunc("/v1beta/models/gemini-3.5-flash:streamGenerateContent", func(w http.ResponseWriter, r *http.Request) {
-		key := r.Header.Get("x-goog-api-key")
-		if key == "" {
-			key = r.URL.Query().Get("key")
-		}
-		if key != "AIzaSy-dummy-gemini-key-123" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		if r.URL.Query().Get("alt") != "sse" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		var req llmgateway.GeminiRequest
-		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-
-		flusher, _ := w.(http.Flusher)
-		writeEvent := func(data string) {
-			fmt.Fprintf(w, "%s\n\n", data)
-			if flusher != nil {
-				flusher.Flush()
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-
-		// Check if it's a tool-enabled request (like claude CLI agent request)
-		if len(req.Tools) > 0 {
-			hasResponse := false
-			for _, c := range req.Contents {
-				for _, p := range c.Parts {
-					if p.FunctionResponse != nil {
-						hasResponse = true
-						break
-					}
-				}
-			}
-
-			if !hasResponse {
-				// 1st turn: call Write tool
-				toolName := "Write"
-				for _, t := range req.Tools {
-					for _, fd := range t.FunctionDeclarations {
-						if strings.Contains(strings.ToLower(fd.Name), "write") {
-							toolName = fd.Name
-							break
-						}
-					}
-				}
-				writeEvent(fmt.Sprintf(`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":%q,"args":{"file_path":"test.txt","content":"Hello Gemini E2E"}}}]}}]}`, toolName))
-				writeEvent(`data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10,"totalTokenCount":110}}`)
-			} else {
-				// 2nd turn: success text response
-				writeEvent(`data: {"candidates":[{"content":{"parts":[{"text":"I have created the file test.txt successfully."}]}}]}`)
-				writeEvent(`data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":150,"candidatesTokenCount":20,"totalTokenCount":170}}`)
-			}
-			return
-		}
-
-		events := []string{
-			`data: {"candidates":[{"content":{"parts":[{"text":"Hi from"}]}}]}`,
-			`data: {"candidates":[{"content":{"parts":[{"text":" mock streaming!"}]}}]}`,
-			`data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}}`,
-		}
-
-		for _, ev := range events {
-			writeEvent(ev)
-		}
-	})
-
-	srv := httptest.NewServer(mux)
-
-	// Save original base URL mapping and override for Gemini
-	origMapping := llmgateway.GetProviderBaseURLs()
-	llmgateway.SetProviderBaseURL("google", srv.URL)
-
-	cleanup := func() {
-		srv.Close()
-		// Restore original URL mappings
-		for k, v := range origMapping {
-			llmgateway.SetProviderBaseURL(k, v)
-		}
+	vs := vault.NewKeyringVaultBackend()
+	apiKey, err := vs.Resolve("vault://providers/google/default")
+	if err != nil || apiKey == "" {
+		t.Fatalf("no google api key found in keyring. Please set it using: ./bin/vault-cli set --provider google --key default [key]")
 	}
-
-	return srv, cleanup
 }
 
 func TestGeminiE2E_NonStream(t *testing.T) {
-	_, serverCleanup := setupMockGeminiServer(t)
-	defer serverCleanup()
-
-	// Setup mock vault store
-	vs := vault.NewEnvVaultBackend()
-	_ = vs.Set("providers/google/default", "AIzaSy-dummy-gemini-key-123")
-	defer func() { _ = vs.Delete("providers/google/default") }()
+	ensureGoogleAPIKey(t)
 
 	profilesPath, err := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 	if err != nil {
@@ -189,6 +55,9 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 			Port:              0, // auto-assign
 			ModelProfilesPath: profilesPath,
 		},
+		Vault: config.VaultConfig{
+			Backend: "keyring",
+		},
 		AgentService: config.AgentServiceConfig{
 			Port: getFreePort(t), // dynamic free port
 		},
@@ -199,7 +68,6 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 
 	srv, err := hag.New(
 		hag.WithConfig(cfg),
-		hag.WithVaultStore(vs),
 	)
 	if err != nil {
 		t.Fatalf("hag.New: %v", err)
@@ -216,7 +84,7 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 		"model":      "gemini-3.5-flash",
 		"max_tokens": 100,
 		"messages": []map[string]string{
-			{"role": "user", "content": "Hello Gemini"},
+			{"role": "user", "content": "Hello Gemini, reply only with 'Hello'"},
 		},
 	}
 	bodyBytes, _ := json.Marshal(body)
@@ -250,7 +118,7 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 		t.Fatalf("expected non-empty content array, got: %s", string(respBody))
 	}
 	block := content[0].(map[string]any)
-	if block["type"] != "text" || block["text"] != "Hello from mock Gemini E2E!" {
+	if block["type"] != "text" || !strings.Contains(strings.ToLower(block["text"].(string)), "hello") {
 		t.Errorf("unexpected content block: %v", block)
 	}
 
@@ -260,12 +128,7 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 }
 
 func TestGeminiE2E_Stream(t *testing.T) {
-	_, serverCleanup := setupMockGeminiServer(t)
-	defer serverCleanup()
-
-	vs := vault.NewEnvVaultBackend()
-	_ = vs.Set("providers/google/default", "AIzaSy-dummy-gemini-key-123")
-	defer func() { _ = vs.Delete("providers/google/default") }()
+	ensureGoogleAPIKey(t)
 
 	profilesPath, err := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 	if err != nil {
@@ -277,6 +140,9 @@ func TestGeminiE2E_Stream(t *testing.T) {
 			Port:              0, // auto-assign
 			ModelProfilesPath: profilesPath,
 		},
+		Vault: config.VaultConfig{
+			Backend: "keyring",
+		},
 		AgentService: config.AgentServiceConfig{
 			Port: getFreePort(t), // dynamic free port
 		},
@@ -287,7 +153,6 @@ func TestGeminiE2E_Stream(t *testing.T) {
 
 	srv, err := hag.New(
 		hag.WithConfig(cfg),
-		hag.WithVaultStore(vs),
 	)
 	if err != nil {
 		t.Fatalf("hag.New: %v", err)
@@ -305,7 +170,7 @@ func TestGeminiE2E_Stream(t *testing.T) {
 		"max_tokens": 100,
 		"stream":     true,
 		"messages": []map[string]string{
-			{"role": "user", "content": "Hello Gemini"},
+			{"role": "user", "content": "Hello Gemini, reply only with 'Hello'"},
 		},
 	}
 	bodyBytes, _ := json.Marshal(body)
@@ -336,30 +201,15 @@ func TestGeminiE2E_Stream(t *testing.T) {
 	if !strings.Contains(events, "event: message_stop") {
 		t.Error("missing message_stop event")
 	}
-
-	if !strings.Contains(events, `"text":"Hi from"`) {
-		t.Error("missing 'Hi from'")
-	}
-	if !strings.Contains(events, `"text":" mock streaming!"`) {
-		t.Error("missing ' mock streaming!'")
-	}
 }
 
 func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("skipping E2E test; claude CLI not found in PATH")
 	}
+	ensureGoogleAPIKey(t)
 
-	// 1. Setup mock Gemini server
-	_, serverCleanup := setupMockGeminiServer(t)
-	defer serverCleanup()
-
-	// 2. Setup mock vault store with dummy key
-	vs := vault.NewEnvVaultBackend()
-	_ = vs.Set("providers/google/default", "AIzaSy-dummy-gemini-key-123")
-	defer func() { _ = vs.Delete("providers/google/default") }()
-
-	// 3. Set config
+	// Set config
 	profilesPath, err := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 	if err != nil {
 		t.Fatalf("abs path: %v", err)
@@ -375,6 +225,9 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 			Port:              gwPort,
 			ModelProfilesPath: profilesPath,
 		},
+		Vault: config.VaultConfig{
+			Backend: "keyring",
+		},
 		AgentService: config.AgentServiceConfig{
 			Port: asPort,
 		},
@@ -383,10 +236,9 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 		},
 	}
 
-	// 4. Launch HAG
+	// Launch HAG
 	srv, err := hag.New(
 		hag.WithConfig(cfg),
-		hag.WithVaultStore(vs),
 	)
 	if err != nil {
 		t.Fatalf("hag.New: %v", err)
@@ -397,7 +249,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 	}
 	defer srv.Shutdown(t.Context())
 
-	// 5. Register claudecode agent with gateway URL
+	// Register claudecode agent with gateway URL
 	gwURL := srv.Gateway().ProxyURL()
 	adapter := claudecode.New(&codingagent.AdapterConfig{
 		GatewayURL:   gwURL,
@@ -405,7 +257,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 	})
 	srv.AgentService().RegisterAgent(adapter)
 
-	// 6. Ensure cawa-client binary is built
+	// Ensure cawa-client binary is built
 	projectRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatalf("project root path: %v", err)
@@ -424,7 +276,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 		t.Fatalf("failed to build cawa-client: %v\noutput: %s", err, string(output))
 	}
 
-	// 7. Execute cawa-client command
+	// Execute cawa-client command
 	workDir := t.TempDir()
 	serverURL := fmt.Sprintf("http://localhost:%d", asPort)
 
@@ -434,7 +286,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 		"run",
 		"--agent", "claudecode",
 		"--model", "gemini-3.5-flash",
-		"--prompt", "Create test.txt in current directory",
+		"--prompt", "Create a file named test.txt containing exactly the text 'Hello Gemini E2E'. Do nothing else.",
 		"--work-dir", workDir,
 	)
 
@@ -451,7 +303,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 		t.Fatalf("cawa-client command failed: %v", err)
 	}
 
-	// 8. Verify the file was created
+	// Verify the file was created
 	filePath := filepath.Join(workDir, "test.txt")
 	content, err := os.ReadFile(filePath)
 	if err != nil {
