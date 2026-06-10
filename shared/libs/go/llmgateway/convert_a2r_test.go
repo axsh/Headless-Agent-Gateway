@@ -11,7 +11,7 @@ import (
 
 func TestConvertAnthropicRequestToResponses_BasicText(t *testing.T) {
 	input := `{
-		"model": "codex-mini-latest",
+		"model": "gpt-5.5",
 		"messages": [{"role": "user", "content": "hello world"}],
 		"max_tokens": 1024
 	}`
@@ -26,8 +26,8 @@ func TestConvertAnthropicRequestToResponses_BasicText(t *testing.T) {
 		t.Fatalf("failed to unmarshal result: %v", err)
 	}
 
-	if req.Model != "codex-mini-latest" {
-		t.Errorf("Model = %q, want %q", req.Model, "codex-mini-latest")
+	if req.Model != "gpt-5.5" {
+		t.Errorf("Model = %q, want %q", req.Model, "gpt-5.5")
 	}
 	if len(req.Input) != 1 {
 		t.Fatalf("Input length = %d, want 1", len(req.Input))
@@ -42,7 +42,7 @@ func TestConvertAnthropicRequestToResponses_BasicText(t *testing.T) {
 
 func TestConvertAnthropicRequestToResponses_WithSystem(t *testing.T) {
 	input := `{
-		"model": "codex-mini-latest",
+		"model": "gpt-5.5",
 		"system": "You are a helpful assistant",
 		"messages": [{"role": "user", "content": "hi"}],
 		"max_tokens": 1024
@@ -75,7 +75,7 @@ func TestConvertAnthropicRequestToResponses_WithSystem(t *testing.T) {
 
 func TestConvertAnthropicRequestToResponses_WithTools(t *testing.T) {
 	input := `{
-		"model": "codex-mini-latest",
+		"model": "gpt-5.5",
 		"messages": [{"role": "user", "content": "what is the weather?"}],
 		"max_tokens": 1024,
 		"tools": [{
@@ -114,7 +114,7 @@ func TestConvertAnthropicRequestToResponses_WithTools(t *testing.T) {
 
 func TestConvertAnthropicRequestToResponses_MaxTokensClamp(t *testing.T) {
 	input := `{
-		"model": "codex-mini-latest",
+		"model": "gpt-5.5",
 		"messages": [{"role": "user", "content": "hi"}],
 		"max_tokens": 32000
 	}`
@@ -139,7 +139,7 @@ func TestConvertAnthropicRequestToResponses_MaxTokensClamp(t *testing.T) {
 
 func TestConvertAnthropicRequestToResponses_Stream(t *testing.T) {
 	input := `{
-		"model": "codex-mini-latest",
+		"model": "gpt-5.5",
 		"messages": [{"role": "user", "content": "hi"}],
 		"max_tokens": 1024,
 		"stream": true
@@ -162,7 +162,7 @@ func TestConvertAnthropicRequestToResponses_Stream(t *testing.T) {
 
 func TestConvertAnthropicRequestToResponses_ToolResultMessage(t *testing.T) {
 	input := `{
-		"model": "codex-mini-latest",
+		"model": "gpt-5.5",
 		"messages": [
 			{"role": "user", "content": "get weather"},
 			{"role": "assistant", "content": [
@@ -216,7 +216,7 @@ func TestConvertResponsesResponseToAnthropic_TextOnly(t *testing.T) {
 		"usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 	}`
 
-	result, err := ConvertResponsesResponseToAnthropic([]byte(respBody), "codex-mini-latest")
+	result, err := ConvertResponsesResponseToAnthropic([]byte(respBody), "gpt-5.5")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -235,8 +235,8 @@ func TestConvertResponsesResponseToAnthropic_TextOnly(t *testing.T) {
 	if resp.Role != "assistant" {
 		t.Errorf("Role = %q, want %q", resp.Role, "assistant")
 	}
-	if resp.Model != "codex-mini-latest" {
-		t.Errorf("Model = %q, want %q", resp.Model, "codex-mini-latest")
+	if resp.Model != "gpt-5.5" {
+		t.Errorf("Model = %q, want %q", resp.Model, "gpt-5.5")
 	}
 	if resp.StopReason != "end_turn" {
 		t.Errorf("StopReason = %q, want %q", resp.StopReason, "end_turn")
@@ -268,7 +268,7 @@ func TestConvertResponsesResponseToAnthropic_WithToolCalls(t *testing.T) {
 		"usage": {"input_tokens": 20, "output_tokens": 10, "total_tokens": 30}
 	}`
 
-	result, err := ConvertResponsesResponseToAnthropic([]byte(respBody), "codex-mini-latest")
+	result, err := ConvertResponsesResponseToAnthropic([]byte(respBody), "gpt-5.5")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestConvertResponsesResponseToAnthropic_EmptyOutput(t *testing.T) {
 		"usage": {"input_tokens": 5, "output_tokens": 0, "total_tokens": 5}
 	}`
 
-	result, err := ConvertResponsesResponseToAnthropic([]byte(respBody), "codex-mini-latest")
+	result, err := ConvertResponsesResponseToAnthropic([]byte(respBody), "gpt-5.5")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestConvertResponsesStreamToAnthropic_TextStream(t *testing.T) {
 
 	reader := strings.NewReader(events)
 	var buf bytes.Buffer
-	err := ConvertResponsesStreamToAnthropic(reader, &buf, "codex-mini-latest")
+	err := ConvertResponsesStreamToAnthropic(reader, &buf, "gpt-5.5")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestConvertResponsesStreamToAnthropic_ToolCallStream(t *testing.T) {
 
 	reader := strings.NewReader(events)
 	var buf bytes.Buffer
-	err := ConvertResponsesStreamToAnthropic(reader, &buf, "codex-mini-latest")
+	err := ConvertResponsesStreamToAnthropic(reader, &buf, "gpt-5.5")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestConvertResponsesStreamToAnthropic_EventOrdering(t *testing.T) {
 
 	reader := strings.NewReader(events)
 	var buf bytes.Buffer
-	err := ConvertResponsesStreamToAnthropic(reader, &buf, "codex-mini-latest")
+	err := ConvertResponsesStreamToAnthropic(reader, &buf, "gpt-5.5")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

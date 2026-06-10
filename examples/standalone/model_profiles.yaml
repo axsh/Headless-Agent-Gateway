@@ -13,7 +13,6 @@ providers:
           - name: gpt-4.1-mini
           - name: gpt-5.4-mini
           - name: gpt-5.5
-          - name: codex-mini-latest
             mode: responses
   anthropic:
     keys:

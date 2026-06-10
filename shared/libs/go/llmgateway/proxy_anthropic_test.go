@@ -416,8 +416,8 @@ func TestHandleAnthropicMessages_ResponsesMode_NonStream(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&respReq); err != nil {
 			t.Fatalf("failed to decode Responses request: %v", err)
 		}
-		if respReq.Model != "codex-mini-latest" {
-			t.Errorf("model = %q, want codex-mini-latest", respReq.Model)
+		if respReq.Model != "gpt-5.5" {
+			t.Errorf("model = %q, want gpt-5.5", respReq.Model)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -445,7 +445,7 @@ func TestHandleAnthropicMessages_ResponsesMode_NonStream(t *testing.T) {
 	proxy := newTestProxyWithDriver(t)
 
 	body := map[string]any{
-		"model":      "codex-mini-latest",
+		"model":      "gpt-5.5",
 		"max_tokens": 1024,
 		"messages": []map[string]string{
 			{"role": "user", "content": "hello"},
@@ -512,7 +512,7 @@ func TestHandleAnthropicMessages_ResponsesMode_Stream(t *testing.T) {
 	proxy := newTestProxyWithDriver(t)
 
 	body := map[string]any{
-		"model":      "codex-mini-latest",
+		"model":      "gpt-5.5",
 		"max_tokens": 1024,
 		"stream":     true,
 		"messages": []map[string]string{
