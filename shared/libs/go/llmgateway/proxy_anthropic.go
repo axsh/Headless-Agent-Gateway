@@ -43,6 +43,8 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	p.logger.Debug("anthropic messages request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
+
 	// Route the model
 	if p.driver == nil || p.driver.router == nil {
 		WriteErrorResponse(w, &GatewayError{
@@ -71,6 +73,8 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 	if ExtractFallbackFlag(r.Header.Get("x-api-key")) {
 		routed.ToolCallFallback = true
 	}
+
+	p.logger.Debug("request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode, "fallback", routed.ToolCallFallback)
 
 	// Resolve vault reference if needed
 	apiKey := routed.KeyValue
@@ -111,7 +115,8 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		if routed.Mode == "responses" {
 			// Responses API route for Codex and similar models.
 			forwardPath = "/v1/responses"
-			converted, convErr := ConvertAnthropicRequestToResponses(body)
+			p.logger.Debug("converting anthropic request", "direction", "anthropic->responses", "target_path", forwardPath)
+			converted, convErr := ConvertAnthropicRequestToResponses(body, p.logger)
 			if convErr != nil {
 				WriteErrorResponse(w, &GatewayError{
 					Type:    "api_error",
@@ -126,6 +131,7 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		} else {
 			// Chat Completions API route (default).
 			forwardPath = "/v1/chat/completions"
+			p.logger.Debug("converting anthropic request", "direction", "anthropic->openai", "target_path", forwardPath)
 			converted, convErr := ConvertAnthropicRequestToOpenAI(body)
 			if convErr != nil {
 				WriteErrorResponse(w, &GatewayError{
@@ -149,6 +155,18 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	bodyStr := string(body)
+	if len(bodyStr) > 10240 {
+		bodyStr = bodyStr[:10240] + "..."
+	}
+	p.logger.Trace("anthropic request body", "body", bodyStr)
+
+	fwdBodyStr := string(forwardBody)
+	if len(fwdBodyStr) > 10240 {
+		fwdBodyStr = fwdBodyStr[:10240] + "..."
+	}
+	p.logger.Trace("converted request body", "body", fwdBodyStr)
+
 	// Forward to upstream provider with retry.
 	fwd := newProviderForwarder()
 	retryCfg := p.buildRetryConfig()
@@ -168,6 +186,9 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 	}
 	defer resp.Body.Close()
 
+	p.logger.Debug("upstream response received", "status", resp.StatusCode, "content_type", resp.Header.Get("Content-Type"))
+	p.logger.Trace("upstream response headers", "headers", fmt.Sprintf("%+v", resp.Header))
+
 	// Cross-provider response conversion (OpenAI -> Anthropic).
 	if routed.Provider == "openai" && resp.StatusCode == http.StatusOK {
 		if routed.Mode == "responses" {
@@ -177,8 +198,8 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 				w.Header().Set("Cache-Control", "no-cache")
 				w.Header().Set("Connection", "keep-alive")
 				w.WriteHeader(http.StatusOK)
-				if streamErr := ConvertResponsesStreamToAnthropic(resp.Body, w, routed.Model); streamErr != nil {
-					p.logger.Error("responses stream conversion error", "error", streamErr)
+				if streamErr := ConvertResponsesStreamToAnthropic(resp.Body, w, routed.Model, p.logger); streamErr != nil {
+					p.logger.Error("responses stream conversion error", "error", streamErr.Error(), "body_size", len(body), "model", routed.Model, "provider", routed.Provider)
 				}
 				return
 			}
@@ -193,7 +214,7 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 				})
 				return
 			}
-			converted, convErr := ConvertResponsesResponseToAnthropic(respBody, routed.Model)
+			converted, convErr := ConvertResponsesResponseToAnthropic(respBody, routed.Model, p.logger)
 			if convErr != nil {
 				WriteErrorResponse(w, &GatewayError{
 					Type:    "api_error",
@@ -216,8 +237,8 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
 			w.WriteHeader(http.StatusOK)
-			if streamErr := ConvertOpenAIStreamToAnthropic(resp.Body, w, routed.Model); streamErr != nil {
-				p.logger.Error("stream conversion error", "error", streamErr)
+			if streamErr := ConvertOpenAIStreamToAnthropic(resp.Body, w, routed.Model, p.logger); streamErr != nil {
+				p.logger.Error("stream conversion error", "error", streamErr.Error(), "body_size", len(body), "model", routed.Model, "provider", routed.Provider)
 			}
 			return
 		}
@@ -255,6 +276,7 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		if err == nil {
 			rewritten, ok := TryFallbackAnthropicResponse(respBody)
 			if ok {
+				p.logger.Warn("tool call fallback applied", "model", routed.Model)
 				resp.Body = io.NopCloser(bytes.NewReader(rewritten))
 				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewritten)))
 			} else {

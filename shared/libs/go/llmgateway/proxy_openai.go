@@ -43,6 +43,8 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 		return
 	}
 
+	p.logger.Debug("openai request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
+
 	// Route the model
 	if p.driver == nil || p.driver.router == nil {
 		WriteErrorResponse(w, &GatewayError{
@@ -72,6 +74,8 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 		routed.ToolCallFallback = true
 	}
 
+	p.logger.Debug("request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode, "fallback", routed.ToolCallFallback)
+
 	// Resolve vault reference if needed
 	apiKey := routed.KeyValue
 	if vault.IsVaultRef(apiKey) && p.vault != nil {
@@ -100,6 +104,12 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 		forwardBody = rewriteModelField(body, req.Model, routed.Model)
 	}
 
+	bodyStr := string(body)
+	if len(bodyStr) > 10240 {
+		bodyStr = bodyStr[:10240] + "..."
+	}
+	p.logger.Trace("openai request body", "body", bodyStr)
+
 	// Forward to upstream OpenAI API with retry.
 	fwd := newProviderForwarder()
 	retryCfg := p.buildRetryConfig()
@@ -118,6 +128,9 @@ func (p *ProxyServer) handleOpenAIChatCompletions(w http.ResponseWriter, r *http
 		return
 	}
 	defer resp.Body.Close()
+
+	p.logger.Debug("upstream response received", "status", resp.StatusCode, "content_type", resp.Header.Get("Content-Type"))
+	p.logger.Trace("upstream response headers", "headers", fmt.Sprintf("%+v", resp.Header))
 
 	// Apply ToolCallFallback if enabled
 	if routed.ToolCallFallback && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {

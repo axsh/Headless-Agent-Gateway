@@ -76,6 +76,29 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 
 	// 2. If resolved successfully:
 	if resolved != nil {
+		if r.logger != nil {
+			r.logger.Debug("model routing decision",
+				"requested_model", modelName,
+				"resolved_model", resolved.Model,
+				"provider", resolved.Provider,
+				"mode", resolved.Mode,
+			)
+			baseURL := ""
+			if provider, ok := r.profiles.Providers[resolved.Provider]; ok && provider.NetworkConfig != nil {
+				baseURL = provider.NetworkConfig.BaseURL
+			}
+			keyPrefix := ""
+			if len(resolved.KeyValue) > 8 {
+				keyPrefix = resolved.KeyValue[:8] + "..."
+			} else {
+				keyPrefix = resolved.KeyValue
+			}
+			r.logger.Trace("routing config details",
+				"key_prefix", keyPrefix,
+				"base_url", baseURL,
+				"fallback", resolved.ToolCallFallback,
+			)
+		}
 		if sessionID != "" {
 			r.mu.Lock()
 			if _, exists := r.sessionModels[sessionID]; !exists {

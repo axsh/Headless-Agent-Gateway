@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/axsh/hag/logger"
 )
 
 // OpenAIStreamChunk represents a single chunk in OpenAI's streaming response.
@@ -50,7 +52,16 @@ func ConvertOpenAIStreamToAnthropic(
 	reader io.Reader,
 	w http.ResponseWriter,
 	model string,
+	logs ...logger.Logger,
 ) error {
+	var log logger.Logger
+	if len(logs) > 0 {
+		log = logs[0]
+	}
+	if log != nil {
+		log.Debug("starting SSE stream conversion", "direction", "openai->anthropic", "model", model)
+	}
+
 	flusher, _ := w.(http.Flusher)
 	br := bufio.NewReader(reader)
 
@@ -62,6 +73,7 @@ func ConvertOpenAIStreamToAnthropic(
 		finishReason     string
 		usage            *OpenAIUsage
 		msgID            string
+		eventsCount      int
 	)
 
 	flush := func() {
@@ -86,6 +98,11 @@ func ConvertOpenAIStreamToAnthropic(
 		}
 
 		line = strings.TrimRight(line, "\r\n")
+
+		if log != nil {
+			log.Trace("SSE event", "event_data", line)
+		}
+		eventsCount++
 
 		if !strings.HasPrefix(line, "data: ") {
 			if err == io.EOF {
@@ -150,12 +167,18 @@ func ConvertOpenAIStreamToAnthropic(
 
 			// Send message_stop
 			writeEvent("message_stop", map[string]any{"type": "message_stop"})
+			if log != nil {
+				log.Debug("SSE stream conversion completed", "events_count", eventsCount)
+			}
 			return nil
 		}
 
 		// Parse chunk
 		var chunk OpenAIStreamChunk
 		if jsonErr := json.Unmarshal([]byte(payload), &chunk); jsonErr != nil {
+			if log != nil {
+				log.Warn("SSE event parse warning", "line", payload, "error", jsonErr.Error())
+			}
 			if err == io.EOF {
 				break
 			}

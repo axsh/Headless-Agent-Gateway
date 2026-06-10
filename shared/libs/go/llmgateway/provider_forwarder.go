@@ -44,6 +44,7 @@ func (f *providerForwarder) forwardToProvider(
 	body []byte,
 	apiKey string,
 	originalHeaders http.Header,
+	log logger.Logger,
 ) (*http.Response, error) {
 	baseURL, ok := providerBaseURLs[provider]
 	if !ok {
@@ -78,6 +79,18 @@ func (f *providerForwarder) forwardToProvider(
 	case "google":
 		// Google uses API key as query parameter
 		req.URL.RawQuery = "key=" + apiKey
+	}
+
+	if log != nil {
+		maskedHeaders := make(http.Header)
+		for k, v := range req.Header {
+			if strings.ToLower(k) == "authorization" || strings.ToLower(k) == "x-api-key" {
+				maskedHeaders.Set(k, "[MASKED]")
+			} else {
+				maskedHeaders[k] = v
+			}
+		}
+		log.Trace("upstream request", "url", upstreamURL, "headers", fmt.Sprintf("%+v", maskedHeaders))
 	}
 
 	return f.client.Do(req)
@@ -197,6 +210,9 @@ func (f *providerForwarder) forwardWithRetry(
 	if cfg == nil {
 		cfg = DefaultRetryConfig()
 	}
+	if log != nil {
+		log.Debug("forwarding request to upstream", "provider", provider, "path", path)
+	}
 	var lastErr error
 	var lastResp *http.Response
 	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
@@ -205,30 +221,59 @@ func (f *providerForwarder) forwardWithRetry(
 			return nil, err
 		}
 
-		resp, err := f.forwardToProvider(provider, path, body, apiKey, headers)
+		resp, err := f.forwardToProvider(provider, path, body, apiKey, headers, log)
+		if err == nil && resp != nil && resp.Body != nil {
+			if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+				if log != nil {
+					log.Trace("upstream response body preview", "body_preview", "[SSE Stream]")
+				}
+			} else {
+				previewBuf := make([]byte, 1024)
+				n, _ := resp.Body.Read(previewBuf)
+				if n > 0 {
+					if log != nil {
+						log.Trace("upstream response body preview", "body_preview", string(previewBuf[:n]))
+					}
+					resp.Body = struct {
+						io.Reader
+						io.Closer
+					}{
+						Reader: io.MultiReader(bytes.NewReader(previewBuf[:n]), resp.Body),
+						Closer: resp.Body,
+					}
+				}
+			}
+		}
+
 		if err != nil {
 			if !isRetryableNetworkError(err) {
 				return nil, err
 			}
 			lastErr = err
 			if log != nil {
-				log.Warn("upstream network error, retrying",
+				delay := calculateBackoff(attempt, cfg, nil)
+				log.Warn("retrying upstream request",
 					"attempt", attempt+1,
 					"max_retries", cfg.MaxRetries,
-					"error", err)
+					"delay_ms", delay.Milliseconds(),
+					"status", 0,
+					"error", err.Error())
 			}
 		} else if !isRetryableStatusCode(resp.StatusCode) {
 			// Non-retryable status (200, 400, 401, etc.) - return immediately.
 			return resp, nil
 		} else {
 			// Retryable status (429, 5xx) - drain body and retry.
+			lastResp = resp
+			delay := calculateBackoff(attempt, cfg, lastResp)
 			if log != nil {
-				log.Warn("upstream retryable status, retrying",
+				log.Warn("retrying upstream request",
 					"attempt", attempt+1,
 					"max_retries", cfg.MaxRetries,
-					"status", resp.StatusCode)
+					"delay_ms", delay.Milliseconds(),
+					"status", resp.StatusCode,
+					"error", "")
 			}
-			lastResp = resp
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			lastErr = &GatewayError{
@@ -253,6 +298,17 @@ func (f *providerForwarder) forwardWithRetry(
 				return nil, ctx.Err()
 			}
 		}
+	}
+	if log != nil {
+		errStr := ""
+		if lastErr != nil {
+			errStr = lastErr.Error()
+		}
+		log.Error("all retries exhausted",
+			"attempts", cfg.MaxRetries+1,
+			"last_error", errStr,
+			"provider", provider,
+			"path", path)
 	}
 	return nil, lastErr
 }

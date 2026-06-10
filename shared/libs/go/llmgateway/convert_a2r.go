@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/axsh/hag/logger"
 )
 
 // --- Responses API Request Types ---
@@ -99,10 +101,21 @@ type responsesOutputItem struct {
 
 // ConvertAnthropicRequestToResponses converts an Anthropic Messages API request body
 // to an OpenAI Responses API request body.
-func ConvertAnthropicRequestToResponses(body []byte) ([]byte, error) {
+func ConvertAnthropicRequestToResponses(body []byte, logs ...logger.Logger) ([]byte, error) {
 	var anthReq AnthropicFullRequest
 	if err := json.Unmarshal(body, &anthReq); err != nil {
 		return nil, fmt.Errorf("unmarshal anthropic request: %w", err)
+	}
+
+	var log logger.Logger
+	if len(logs) > 0 {
+		log = logs[0]
+	}
+	if log != nil {
+		log.Debug("converting anthropic to responses",
+			"model", anthReq.Model,
+			"msg_count", len(anthReq.Messages),
+			"tool_count", len(anthReq.Tools))
 	}
 
 	respReq := ResponsesRequest{
@@ -150,7 +163,18 @@ func ConvertAnthropicRequestToResponses(body []byte) ([]byte, error) {
 		})
 	}
 
-	return json.Marshal(respReq)
+	marshaled, err := json.Marshal(respReq)
+	if err != nil {
+		return nil, err
+	}
+	if log != nil {
+		bodyStr := string(marshaled)
+		if len(bodyStr) > 10240 {
+			bodyStr = bodyStr[:10240] + "..."
+		}
+		log.Trace("converted responses request", "body", bodyStr)
+	}
+	return marshaled, nil
 }
 
 // convertAnthropicMsgToResponsesInput converts a single Anthropic message
@@ -241,10 +265,18 @@ func convertAnthropicMsgToResponsesInput(msg AnthropicMsg) ([]ResponsesInput, er
 
 // ConvertResponsesResponseToAnthropic converts an OpenAI Responses API response body
 // to an Anthropic Messages API response body.
-func ConvertResponsesResponseToAnthropic(body []byte, model string) ([]byte, error) {
+func ConvertResponsesResponseToAnthropic(body []byte, model string, logs ...logger.Logger) ([]byte, error) {
 	var respResp ResponsesResponse
 	if err := json.Unmarshal(body, &respResp); err != nil {
 		return nil, fmt.Errorf("unmarshal responses response: %w", err)
+	}
+
+	var log logger.Logger
+	if len(logs) > 0 {
+		log = logs[0]
+	}
+	if log != nil {
+		log.Debug("converting responses to anthropic", "model", model)
 	}
 
 	anthResp := AnthropicResponse{
@@ -294,20 +326,40 @@ func ConvertResponsesResponseToAnthropic(body []byte, model string) ([]byte, err
 		}
 	}
 
-	return json.Marshal(anthResp)
+	marshaled, err := json.Marshal(anthResp)
+	if err != nil {
+		return nil, err
+	}
+	if log != nil {
+		bodyStr := string(marshaled)
+		if len(bodyStr) > 10240 {
+			bodyStr = bodyStr[:10240] + "..."
+		}
+		log.Trace("converted anthropic response", "body", bodyStr)
+	}
+	return marshaled, nil
 }
 
 // --- Streaming Conversion: Responses API SSE -> Anthropic SSE ---
 
 // ConvertResponsesStreamToAnthropic reads OpenAI Responses API SSE events from reader
 // and writes Anthropic Messages API SSE events to writer.
-func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model string) error {
+func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model string, logs ...logger.Logger) error {
+	var log logger.Logger
+	if len(logs) > 0 {
+		log = logs[0]
+	}
+	if log != nil {
+		log.Debug("starting SSE stream conversion", "direction", "responses->anthropic", "model", model)
+	}
+
 	br := bufio.NewReader(reader)
 	flusher, hasFlusher := writer.(http.Flusher)
 
 	messageSent := false
 	contentBlockIndex := 0
 	hadFunctionCall := false
+	eventsCount := 0
 	var eventType string
 
 	writeSSE := func(event, data string) {
@@ -337,6 +389,11 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 
 		line = strings.TrimRight(line, "\r\n")
 
+		if log != nil {
+			log.Trace("SSE event", "event_data", line)
+		}
+		eventsCount++
+
 		if strings.HasPrefix(line, "event: ") {
 			eventType = strings.TrimPrefix(line, "event: ")
 			if err == io.EOF {
@@ -356,6 +413,9 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 
 		var evt responsesStreamEvent
 		if jsonErr := json.Unmarshal([]byte(dataStr), &evt); jsonErr != nil {
+			if log != nil {
+				log.Warn("SSE event parse warning", "line", dataStr, "error", jsonErr.Error())
+			}
 			if err == io.EOF {
 				break
 			}
@@ -435,5 +495,8 @@ func ConvertResponsesStreamToAnthropic(reader io.Reader, writer io.Writer, model
 		}
 	}
 
+	if log != nil {
+		log.Debug("SSE stream conversion completed", "events_count", eventsCount)
+	}
 	return nil
 }

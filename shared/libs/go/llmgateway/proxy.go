@@ -36,6 +36,8 @@ func NewProxyServer(cfg *config.AppConfig, vs vault.VaultStore, log logger.Logge
 		log = logger.NewDefault(logger.LevelInfo)
 	}
 
+	log.Debug("creating proxy server", "port", cfg.LLMGateway.Port)
+
 	p := &ProxyServer{
 		cfg:    cfg,
 		vault:  vs,
@@ -62,6 +64,7 @@ func (p *ProxyServer) Launch(_ context.Context) error {
 	p.setupRoutes(mux)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", p.port)
+	p.logger.Debug("proxy server listening", "addr", addr)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("llmgateway: listen %s: %w", addr, err)
@@ -92,6 +95,7 @@ func (p *ProxyServer) Shutdown(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	p.logger.Debug("proxy server shutting down")
 	p.logger.Info("proxy server shutting down")
 	return p.server.Shutdown(ctx)
 }
@@ -104,6 +108,15 @@ func (p *ProxyServer) ProxyURL() string {
 // ReloadProfiles updates the loaded model profiles at runtime.
 func (p *ProxyServer) ReloadProfiles(profiles *config.ModelProfilesConfig) {
 	p.profiles = profiles
+	count := 0
+	if profiles != nil {
+		for _, provider := range profiles.Providers {
+			for _, key := range provider.Keys {
+				count += len(key.Models)
+			}
+		}
+	}
+	p.logger.Info("model profiles reloaded", "count", count)
 }
 
 // ListModels returns model info from loaded profiles.
