@@ -160,15 +160,22 @@ func TestCodexE2E_FileCreation(t *testing.T) {
 		}
 		t.Fatalf("expected hello.txt in %s, got files: %v, error: %v", workDir, names, err)
 	}
-	if !strings.Contains(string(content), "Hello Codex") {
-		// On Windows, codex may create files with UTF-16 BOM encoding.
-		// Check if the content contains the expected text in any encoding.
-		contentLower := strings.ToLower(string(content))
-		if !strings.Contains(contentLower, "hello") {
-			t.Errorf("hello.txt content = %q, want to contain 'Hello Codex'", string(content))
-		} else {
-			t.Logf("File contains expected text (possibly UTF-16 encoded)")
+	// Decode file content - handle UTF-16 LE BOM if present (Windows codex may use it).
+	contentStr := string(content)
+	if len(content) >= 2 && content[0] == 0xFF && content[1] == 0xFE {
+		// UTF-16 LE BOM detected, decode to UTF-8.
+		var decoded []byte
+		for i := 2; i+1 < len(content); i += 2 {
+			ch := content[i] // Low byte of UTF-16 LE char
+			if ch != 0 || content[i+1] != 0 {
+				decoded = append(decoded, ch)
+			}
 		}
+		contentStr = string(decoded)
+		t.Logf("Decoded UTF-16 LE content: %q", contentStr)
+	}
+	if !strings.Contains(contentStr, "Hello Codex") {
+		t.Errorf("hello.txt content = %q, want to contain 'Hello Codex'", contentStr)
 	}
 	t.Logf("File created successfully: %s (%d bytes)", filePath, len(content))
 
