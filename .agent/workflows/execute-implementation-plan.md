@@ -13,6 +13,7 @@ description: 実装計画(Implementation Plan)に基づいてコードを実装�
 2.  **ルールの読み込み**:
     *   `prompts/rules/coding-rules.md` (コーディングルール)
     *   `prompts/rules/testing-rules.md` (テスト実施ルール)
+    *   `prompts/rules/logging-rules.md` (ログ記述ルール)
 
 ## 2. 実装の実行
 
@@ -24,6 +25,7 @@ description: 実装計画(Implementation Plan)に基づいてコードを実装�
 3.  **コーディング**:
     *   計画書の手順に従ってコードを記述・修正する。
     *   `prompts/rules/coding-rules.md` のスタイルや設計原則を厳守する。
+    *   `prompts/rules/logging-rules.md` のレベル基準に従い、DEBUG ログを積極的に挿入する。
 4.  **こまめな Git コミット**:
     *   各ステップ完了ごとに `git add` → `git commit` を実施する。
     *   コミットルールの詳細は `instructions.md` の「Git 操作ルール」を参照。

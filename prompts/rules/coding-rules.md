@@ -94,7 +94,7 @@
 ## 5. ロギングと通信処理
 
 *   **統一ログシステムの使用**: 全てのログ出力は、プロジェクト共通の `internal/logger` パッケージを通じて行うこと。標準の `log` パッケージや `fmt.Print`、`slog` の直接使用は禁止とする。
-*   **ログレベルの使い分け**: `Debug`, `Info`, `Warn`, `Error` を適切に使い分けること。
+*   **ログレベルの使い分け**: `Trace`, `Debug`, `Info`, `Warn`, `Error` を適切に使い分けること。詳細な使用基準や命名規則については [logging-rules.md](file://prompts/rules/logging-rules.md) を参照し、それに従うこと。
 
 ### 5.1 Backend Server Binding (Go)
 
