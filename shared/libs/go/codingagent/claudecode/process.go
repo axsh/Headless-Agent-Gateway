@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/logger"
 )
 
 const gracefulShutdownTimeout = 5 * time.Second
@@ -21,6 +22,7 @@ const gracefulShutdownTimeout = 5 * time.Second
 type ProcessManager struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
+	logger logger.Logger
 }
 
 // BuildArgs constructs claude CLI arguments from SessionConfig.
@@ -100,10 +102,29 @@ func StartProcess(
 ) (<-chan codingagent.StreamEvent, *ProcessManager, error) {
 	procCtx, cancel := context.WithCancel(ctx)
 
+	log := ac.Logger
+	if log == nil {
+		log = logger.NewDefault(logger.LevelInfo)
+	}
+	log = log.WithComponent("claudecode")
+
 	args := BuildArgs(cfg)
+	log.Debug("building CLI arguments", "args", args)
+
+	env := BuildEnv(ac, cfg)
+	var maskedEnv []string
+	for _, envVar := range env {
+		if strings.HasPrefix(envVar, "ANTHROPIC_API_KEY=") {
+			maskedEnv = append(maskedEnv, "ANTHROPIC_API_KEY=****")
+		} else {
+			maskedEnv = append(maskedEnv, envVar)
+		}
+	}
+	log.Trace("CLI environment variables", "env", maskedEnv)
+
 	cmd := exec.CommandContext(procCtx, "claude", args...)
 	cmd.Dir = cfg.WorkDir
-	cmd.Env = append(cmd.Environ(), BuildEnv(ac, cfg)...)
+	cmd.Env = append(cmd.Environ(), env...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -118,20 +139,22 @@ func StartProcess(
 	// R7: Suppress stdin warning by providing an empty reader that returns EOF immediately.
 	cmd.Stdin = bytes.NewReader(nil)
 
+	log.Info("starting claude CLI process", "work_dir", cfg.WorkDir, "model", cfg.Model)
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, nil, fmt.Errorf("start claude: %w", err)
 	}
 
 	ch := make(chan codingagent.StreamEvent, 64)
-	pm := &ProcessManager{cmd: cmd, cancel: cancel}
+	pm := &ProcessManager{cmd: cmd, cancel: cancel, logger: log}
 
 	go func() {
 		defer close(ch)
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
-			ev := ParseJSONLinesEvent(line)
+			log.Trace("CLI stdout line", "line", line)
+			ev := ParseJSONLinesEvent(line, log)
 			if ev != nil {
 				select {
 				case ch <- *ev:
@@ -146,6 +169,7 @@ func StartProcess(
 			if errMsg == "" {
 				errMsg = err.Error()
 			}
+			log.Warn("claude CLI process exited with error", "error", err.Error(), "stderr", errMsg)
 			select {
 			case ch <- codingagent.StreamEvent{
 				Type:    codingagent.EventError,
@@ -153,6 +177,9 @@ func StartProcess(
 			}:
 			case <-procCtx.Done():
 			}
+		} else {
+			exitCode := cmd.ProcessState.ExitCode()
+			log.Debug("claude CLI process exited", "exit_code", exitCode)
 		}
 	}()
 
@@ -167,6 +194,8 @@ func (pm *ProcessManager) Stop() error {
 	if pm.cmd.Process == nil {
 		return nil
 	}
+
+	pm.logger.Debug("stopping claude CLI process")
 
 	// Windows: no SIGTERM, just kill
 	if runtime.GOOS == "windows" {
@@ -185,6 +214,7 @@ func (pm *ProcessManager) Stop() error {
 		return err
 	case <-time.After(gracefulShutdownTimeout):
 		// Force kill
+		pm.logger.Debug("graceful shutdown timed out, killing process")
 		pm.cancel()
 		return <-done
 	}

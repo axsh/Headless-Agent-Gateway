@@ -6,11 +6,13 @@ import (
 	"sync"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/logger"
 )
 
 // ClaudeCodeAdapter is a CodingAgent implementation using the Claude Code CLI.
 type ClaudeCodeAdapter struct {
 	config *codingagent.AdapterConfig
+	logger logger.Logger
 	mu     sync.Mutex
 	procs  []*ProcessManager
 }
@@ -20,7 +22,14 @@ var _ codingagent.CodingAgent = (*ClaudeCodeAdapter)(nil)
 
 // New creates a ClaudeCodeAdapter.
 func New(config *codingagent.AdapterConfig) *ClaudeCodeAdapter {
-	return &ClaudeCodeAdapter{config: config}
+	log := config.Logger
+	if log == nil {
+		log = logger.NewDefault(logger.LevelInfo)
+	}
+	return &ClaudeCodeAdapter{
+		config: config,
+		logger: log.WithComponent("claudecode"),
+	}
 }
 
 // Name returns "claudecode".
@@ -33,6 +42,8 @@ func (a *ClaudeCodeAdapter) CreateSession(
 	cfg := codingagent.NewSessionConfig(opts...)
 	codingagent.ApplyDefaults(cfg, a.config)
 
+	a.logger.Debug("creating claude code session", "model", cfg.Model, "work_dir", cfg.WorkDir, "session_dir", cfg.SessionDir)
+
 	ch, pm, err := StartProcess(ctx, a.config, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: create session: %w", err)
@@ -43,11 +54,13 @@ func (a *ClaudeCodeAdapter) CreateSession(
 	a.mu.Unlock()
 
 	sid := fmt.Sprintf("claude-%d", pm.cmd.Process.Pid)
+	a.logger.Debug("claude code session created", "session_id", sid)
 	return &claudeSession{id: sid, ch: ch, pm: pm}, nil
 }
 
 // Close stops all active processes and releases resources.
 func (a *ClaudeCodeAdapter) Close() error {
+	a.logger.Debug("closing claude code adapter")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, pm := range a.procs {

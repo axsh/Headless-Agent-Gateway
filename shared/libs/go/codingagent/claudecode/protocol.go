@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/hag/logger"
 )
 
 // rawEvent is the raw structure of Claude CLI JSON Lines output.
@@ -41,83 +42,98 @@ type contentBlock struct {
 
 // ParseJSONLinesEvent converts a single JSON Lines output line to a StreamEvent.
 // Returns nil for events that should be ignored.
-func ParseJSONLinesEvent(line string) *codingagent.StreamEvent {
+func ParseJSONLinesEvent(line string, logs ...logger.Logger) *codingagent.StreamEvent {
 	if line == "" {
 		return nil
 	}
 
+	var log logger.Logger
+	if len(logs) > 0 {
+		log = logs[0]
+	}
+
+	if log != nil {
+		log.Trace("parsing JSON Lines event", "line", line)
+	}
+
 	var raw rawEvent
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
+		if log != nil {
+			linePreview := line
+			if len(linePreview) > 100 {
+				linePreview = linePreview[:100] + "..."
+			}
+			log.Warn("failed to parse JSON Lines event", "error", err.Error(), "line_preview", linePreview)
+		}
 		return &codingagent.StreamEvent{Type: codingagent.EventError, Error: err}
 	}
 
+	var ev *codingagent.StreamEvent
 	switch raw.Type {
 	case "system":
 		if raw.Subtype == "init" {
-			return &codingagent.StreamEvent{
+			ev = &codingagent.StreamEvent{
 				Type:      codingagent.EventSystem,
 				SessionID: raw.SessionID,
 			}
 		}
-		return nil
 
 	case "stream_event":
 		var payload streamEventPayload
 		if err := json.Unmarshal(raw.Event, &payload); err != nil {
-			return &codingagent.StreamEvent{Type: codingagent.EventError, Error: err}
-		}
-		if payload.Type == "content_block_delta" && payload.Delta.Type == "text_delta" {
-			return &codingagent.StreamEvent{
+			ev = &codingagent.StreamEvent{Type: codingagent.EventError, Error: err}
+		} else if payload.Type == "content_block_delta" && payload.Delta.Type == "text_delta" {
+			ev = &codingagent.StreamEvent{
 				Type:    codingagent.EventText,
 				Content: payload.Delta.Text,
 			}
 		}
-		return nil
 
 	case "assistant":
 		var msg messagePayload
-		if err := json.Unmarshal(raw.Message, &msg); err != nil {
-			return nil
-		}
-		for _, block := range msg.Content {
-			switch block.Type {
-			case "tool_use":
-				return &codingagent.StreamEvent{
-					Type:      codingagent.EventToolUse,
-					ToolName:  block.Name,
-					ToolInput: block.Input,
-				}
-			case "text":
-				if block.Text != "" {
-					return &codingagent.StreamEvent{
-						Type:    codingagent.EventText,
-						Content: block.Text,
+		if err := json.Unmarshal(raw.Message, &msg); err == nil {
+			for _, block := range msg.Content {
+				switch block.Type {
+				case "tool_use":
+					ev = &codingagent.StreamEvent{
+						Type:      codingagent.EventToolUse,
+						ToolName:  block.Name,
+						ToolInput: block.Input,
+					}
+				case "text":
+					if block.Text != "" {
+						ev = &codingagent.StreamEvent{
+							Type:    codingagent.EventText,
+							Content: block.Text,
+						}
 					}
 				}
-			// case "thinking": silently ignored
+				if ev != nil {
+					break
+				}
 			}
 		}
-		return nil
 
 	case "user":
 		var msg messagePayload
-		if err := json.Unmarshal(raw.Message, &msg); err != nil {
-			return nil
-		}
-		for _, block := range msg.Content {
-			if block.Type == "tool_result" {
-				return &codingagent.StreamEvent{
-					Type:    codingagent.EventToolResult,
-					Content: block.Content,
+		if err := json.Unmarshal(raw.Message, &msg); err == nil {
+			for _, block := range msg.Content {
+				if block.Type == "tool_result" {
+					ev = &codingagent.StreamEvent{
+						Type:    codingagent.EventToolResult,
+						Content: block.Content,
+					}
+					break
 				}
 			}
 		}
-		return nil
 
 	case "result":
-		return &codingagent.StreamEvent{Type: codingagent.EventResult}
-
-	default:
-		return nil
+		ev = &codingagent.StreamEvent{Type: codingagent.EventResult}
 	}
+
+	if ev != nil && log != nil {
+		log.Debug("parsed event", "type", raw.Type, "subtype", raw.Subtype)
+	}
+	return ev
 }
