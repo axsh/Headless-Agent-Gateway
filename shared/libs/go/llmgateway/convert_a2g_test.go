@@ -300,3 +300,78 @@ func TestConvertGeminiStreamToAnthropic_ToolCallStream(t *testing.T) {
 		t.Error("expected stop_reason tool_use")
 	}
 }
+
+func TestConvertAnthropicRequestToGemini_SchemaCleansing(t *testing.T) {
+	input := `{
+		"model": "gemini-3.5-flash",
+		"messages": [{"role": "user", "content": "find files"}],
+		"tools": [{
+			"name": "Glob",
+			"description": "Find files",
+			"input_schema": {
+				"$schema": "http://json-schema.org/draft-07/schema#",
+				"additionalProperties": false,
+				"type": "object",
+				"properties": {
+					"patterns": {
+						"type": "string",
+						"const": "test-const"
+					},
+					"limit": {
+						"type": "integer",
+						"exclusiveMinimum": 0
+					}
+				},
+				"required": ["patterns"],
+				"propertyNames": {
+					"pattern": "^[a-zA-Z0-9_-]+$"
+				}
+			}
+		}]
+	}`
+
+	result, err := ConvertAnthropicRequestToGemini([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var req GeminiRequest
+	if err := json.Unmarshal(result, &req); err != nil {
+		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+
+	if len(req.Tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(req.Tools))
+	}
+	fd := req.Tools[0].FunctionDeclarations[0]
+
+	paramsStr := string(fd.Parameters)
+
+	// Assert that disallowed properties are removed
+	disallowed := []string{
+		`"$schema"`,
+		`"additionalProperties"`,
+		`"const"`,
+		`"exclusiveMinimum"`,
+		`"propertyNames"`,
+	}
+	for _, dis := range disallowed {
+		if strings.Contains(paramsStr, dis) {
+			t.Errorf("parameters should NOT contain %s, got: %s", dis, paramsStr)
+		}
+	}
+
+	// Assert that required properties are preserved and capitalized
+	expected := []string{
+		`"type":"OBJECT"`,
+		`"type":"STRING"`,
+		`"type":"INTEGER"`,
+		`"properties"`,
+		`"required"`,
+	}
+	for _, exp := range expected {
+		if !strings.Contains(paramsStr, exp) {
+			t.Errorf("parameters should contain %s, got: %s", exp, paramsStr)
+		}
+	}
+}

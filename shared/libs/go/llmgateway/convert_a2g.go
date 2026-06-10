@@ -72,6 +72,32 @@ type GeminiUsageMetadata struct {
 	TotalTokenCount      int `json:"totalTokenCount"`
 }
 
+// cleanseGeminiSchema recursively removes unsupported JSON Schema properties
+// (like "$schema", "additionalProperties", "const", "exclusiveMinimum", "propertyNames")
+// for Gemini compatibility.
+func cleanseGeminiSchema(val interface{}) interface{} {
+	switch v := val.(type) {
+	case map[string]interface{}:
+		newMap := make(map[string]interface{})
+		for k, v2 := range v {
+			// Skip unsupported keys
+			if k == "$schema" || k == "additionalProperties" || k == "const" || k == "exclusiveMinimum" || k == "propertyNames" {
+				continue
+			}
+			newMap[k] = cleanseGeminiSchema(v2)
+		}
+		return newMap
+	case []interface{}:
+		newSlice := make([]interface{}, len(v))
+		for i, v2 := range v {
+			newSlice[i] = cleanseGeminiSchema(v2)
+		}
+		return newSlice
+	default:
+		return val
+	}
+}
+
 // convertSchemaTypesToUppercase recursively traverses the schema map or array
 // and converts all schema "type" values to uppercase.
 func convertSchemaTypesToUppercase(val interface{}) interface{} {
@@ -161,7 +187,8 @@ func ConvertAnthropicRequestToGemini(body []byte, logs ...logger.Logger) ([]byte
 				var schema interface{}
 				if err := json.Unmarshal(t.InputSchema, &schema); err == nil {
 					uppercaseSchema := convertSchemaTypesToUppercase(schema)
-					if marshaled, err2 := json.Marshal(uppercaseSchema); err2 == nil {
+					cleansedSchema := cleanseGeminiSchema(uppercaseSchema)
+					if marshaled, err2 := json.Marshal(cleansedSchema); err2 == nil {
 						paramsRaw = marshaled
 					}
 				}

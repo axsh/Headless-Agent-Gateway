@@ -21,6 +21,9 @@ HAG から Google Gemini のモデルに対話およびツール実行要求を�
 * **ツール定義の変換**:
   * Anthropic の `tools` 定義（JSONスキーマ）を、Gemini の `tools` -> `functionDeclarations` のスキーマ構造に変換する。
   * JSON スキーマタイプ（`string`, `object` など）について、Google Gemini API の要件に従い大文字（`STRING`, `OBJECT` など）に変換する処理を組み込む。
+* **R1.1: JSONスキーマのクレンジング (Schema Cleansing)**:
+  * Google Gemini API は、ツール定義パラメータの JSON スキーマにおいて一部の標準/非サポートプロパティ（`$schema`、`additionalProperties`、`const`、`exclusiveMinimum`、`propertyNames` など）を検出すると 400 Bad Request (`Cannot find field`) を返します。
+  * そのため、リクエスト変換処理において、ツールの JSON スキーマから上記の非サポートメタプロパティを再帰的にフィルタリングして削除するクレンジング処理を実装する。
 * **パラメータのマッピング**:
   * `temperature`, `max_tokens` (Gemini では `maxOutputTokens`) をマッピングする。
 
