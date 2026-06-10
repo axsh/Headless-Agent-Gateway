@@ -53,10 +53,28 @@ func New(opts ...Option) (*Server, error) {
 	// Step 3: Resolve Logger.
 	log := resolveLogger(o, cfg)
 
+	if log != nil {
+		log.Debug("resolving config", "config_path", o.configPath)
+		log.Trace("config resolved",
+			"gateway_port", cfg.LLMGateway.Port,
+			"ws_port", cfg.WebSocket.Port,
+			"agent_port", cfg.AgentService.Port,
+			"vault_backend", cfg.Vault.Backend)
+		log.Debug("resolving logger", "level", cfg.Log.Level)
+		log.Debug("resolving vault", "backend", cfg.Vault.Backend)
+	}
+
 	// Step 4: Resolve VaultStore.
 	vs := resolveVault(o, cfg)
 
 	// Step 5: Resolve Gateway.
+	if log != nil {
+		gatewayType := "proxy"
+		if cfg.LLMGateway.ModelProfilesPath != "" {
+			gatewayType = "bifrost"
+		}
+		log.Debug("resolving gateway", "type", gatewayType, "port", cfg.LLMGateway.Port)
+	}
 	gw, err := resolveGateway(o, cfg, vs, log, configDir)
 	if err != nil {
 		return nil, fmt.Errorf("hag: %w", err)
@@ -94,10 +112,12 @@ func (s *Server) Launch(ctx context.Context) error {
 	if err := s.gateway.Launch(ctx); err != nil {
 		return fmt.Errorf("hag: gateway launch: %w", err)
 	}
+	s.logger.Debug("gateway launched", "port", s.cfg.LLMGateway.Port)
 
 	if err := s.wsServer.Launch(ctx); err != nil {
 		return fmt.Errorf("hag: wsserver launch: %w", err)
 	}
+	s.logger.Debug("websocket server launched", "port", s.cfg.WebSocket.Port)
 
 	// AgentService HTTP server
 	agentPort := s.cfg.AgentService.Port
@@ -107,6 +127,7 @@ func (s *Server) Launch(ctx context.Context) error {
 	if err := s.agentService.Launch(ctx, agentPort); err != nil {
 		return fmt.Errorf("hag: agentservice launch: %w", err)
 	}
+	s.logger.Debug("agent service launched", "port", s.agentService.Port())
 
 	s.logger.Info("HAG server started")
 	return nil
