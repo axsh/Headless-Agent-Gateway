@@ -425,9 +425,9 @@ func TestCodexE2E_AnthropicModel_FileCreation(t *testing.T) {
 	t.Logf("File created successfully: %s (%d bytes)", filePath, len(content))
 }
 
-// --- TC-Codex-006: Codex + GPT-5.x-codex model file creation ---
+// --- TC-Codex-006: Codex + GPT-5.3-codex model file creation ---
 
-// TestCodexE2E_GPT5Codex_FileCreation verifies Codex CLI + GPT-5.x-codex (OpenAI)
+// TestCodexE2E_GPT5Codex_FileCreation verifies Codex CLI + GPT-5.3-codex (OpenAI)
 // continues to work through Bifrost SDK routing.
 func TestCodexE2E_GPT5Codex_FileCreation(t *testing.T) {
 	baseURL, cleanup := startCodexE2EServer(t)
@@ -435,7 +435,7 @@ func TestCodexE2E_GPT5Codex_FileCreation(t *testing.T) {
 	workDir := t.TempDir()
 
 	sessionID := createE2ESessionWithModel(
-		t, baseURL, "codex", "gpt-5.x-codex", workDir)
+		t, baseURL, "codex", "gpt-5.3-codex", workDir)
 	t.Logf("Session created: %s", sessionID)
 
 	prompt := "Create a file named test_gpt5.txt in the current directory " +

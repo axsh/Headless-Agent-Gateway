@@ -251,10 +251,13 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 	p.logger.Trace("openai responses request body", "body", bodyStr)
 
 	// Build BifrostResponsesRequest with raw body passthrough.
+	// Input must be non-nil to pass Bifrost's validation guard (bifrost.go:859).
+	// With RawRequestBody + UseRawRequestBody, the actual body bypasses Input entirely.
 	providerKey := toBifrostProvider(routed.Provider)
 	bifrostReq := &bifrostSchemas.BifrostResponsesRequest{
 		Provider:       providerKey,
 		Model:          routed.Model,
+		Input:          []bifrostSchemas.ResponsesMessage{},
 		RawRequestBody: forwardBody,
 	}
 
