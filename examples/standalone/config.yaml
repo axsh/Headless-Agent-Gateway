@@ -6,13 +6,13 @@ llm_gateway:
     initial_delay_seconds: 1
     max_delay_seconds: 30
 log:
-  level: "info"
+  level: "trace"
   outputs:
     - type: "stdout"
-#   - type: "syslog"
-#     network: "udp"
-#     address: "localhost:514"
-#     tag: "hag"
+    - type: "syslog"
+      network: "udp"
+      address: "localhost:514"
+      tag: "hag"
 vault:
   backend: "keyring"
 websocket:
