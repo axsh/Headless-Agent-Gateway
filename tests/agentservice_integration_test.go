@@ -13,6 +13,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -627,6 +630,102 @@ func TestAgentServiceSSEErrorPropagation(t *testing.T) {
 	}
 	if errorContent == "" {
 		t.Error("error event should have non-empty content")
+	}
+}
+
+// TestCawaClientErrorPropagation verifies that cawa-client detects SSE errors
+// and exits with status 1.
+func TestCawaClientErrorPropagation(t *testing.T) {
+	// 1. Build cawa-client binary
+	projectRoot, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("project root path: %v", err)
+	}
+
+	cawaClientBin := "cawa-client"
+	if os.PathSeparator == '\\' {
+		cawaClientBin = "cawa-client.exe"
+	}
+	cawaClientPath := filepath.Join(projectRoot, "bin", cawaClientBin)
+
+	cawaClientDir := filepath.Join(projectRoot, "examples", "cawa-client")
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", cawaClientBin), ".")
+	buildCmd.Dir = cawaClientDir
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to build cawa-client: %v\noutput: %s", err, string(output))
+	}
+
+	// 2. Setup server with errorMockAgent
+	tl := tasklog.New()
+	srv := agentservice.New(agentservice.WithTaskLog(tl))
+	srv.RegisterAgent(&errorMockAgent{name: "erroragent"})
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	// 3. Run cawa-client run
+	workDir := t.TempDir()
+	cmd := exec.Command(cawaClientPath,
+		"--server", ts.URL,
+		"--log-level", "debug",
+		"run",
+		"--agent", "erroragent",
+		"--prompt", "test",
+		"--work-dir", workDir,
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	t.Logf("cawa-client stdout:\n%s", stdout.String())
+	t.Logf("cawa-client stderr:\n%s", stderr.String())
+
+	// We expect the command to fail (exit code 1) because of the error event
+	if err == nil {
+		t.Fatal("expected cawa-client to exit with error, but got success")
+	}
+
+	// Verify error output contains the mocked error
+	stderrStr := stderr.String()
+	if !strings.Contains(stderrStr, "claude exited with code 1: authentication failed") {
+		t.Errorf("stderr does not contain expected error message, got: %s", stderrStr)
+	}
+
+	// 4. Run cawa-client session to check status is error
+	stdoutStr := stdout.String()
+	var sessionID string
+	for _, line := range strings.Split(stdoutStr, "\n") {
+		if strings.HasPrefix(line, "Session created: ") {
+			sessionID = strings.TrimSpace(strings.TrimPrefix(line, "Session created: "))
+			break
+		}
+	}
+	if sessionID == "" {
+		t.Fatal("could not find session ID in cawa-client output")
+	}
+
+	cmdSession := exec.Command(cawaClientPath,
+		"--server", ts.URL,
+		"session",
+		"--id", sessionID,
+	)
+	var sessStdout, sessStderr bytes.Buffer
+	cmdSession.Stdout = &sessStdout
+	cmdSession.Stderr = &sessStderr
+
+	err = cmdSession.Run()
+	t.Logf("cawa-client session stdout:\n%s", sessStdout.String())
+	t.Logf("cawa-client session stderr:\n%s", sessStderr.String())
+
+	// We expect cawa-client session to also fail with exit code 1
+	if err == nil {
+		t.Fatal("expected cawa-client session to exit with error, but got success")
+	}
+
+	sessStderrStr := sessStderr.String()
+	if !strings.Contains(sessStderrStr, "Session failed with error: claude exited with code 1: authentication failed") {
+		t.Errorf("cawa-client session stderr does not contain expected error message, got: %s", sessStderrStr)
 	}
 }
 
