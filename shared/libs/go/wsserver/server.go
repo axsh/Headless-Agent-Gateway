@@ -103,7 +103,7 @@ func (s *Server) URL() string {
 func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		s.logger.Error("websocket upgrade error", "error", err)
+		s.logger.Error("websocket upgrade error", "error", err, "remote_addr", r.RemoteAddr)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (s *Server) wireTaskLog() {
 		}
 		data, err := NewLogMessage(agentLog)
 		if err != nil {
-			s.logger.Error("log message marshal error", "error", err)
+			s.logger.Error("log message marshal error", "error", err, "log_id", agentLog.ID, "session_id", agentLog.AgentID)
 			return
 		}
 		s.hub.broadcast <- data

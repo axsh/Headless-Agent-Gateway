@@ -103,7 +103,11 @@ func (h *Hub) sendSnapshot(client *Client) {
 	data, err := NewSnapshotMessage(entries)
 	if err != nil {
 		if h.logger != nil {
-			h.logger.Error("snapshot marshal error", "error", err)
+			remoteAddr := ""
+			if client.conn != nil {
+				remoteAddr = client.conn.RemoteAddr().String()
+			}
+			h.logger.Error("snapshot marshal error", "error", err, "remote_addr", remoteAddr, "entry_count", len(entries))
 		}
 		return
 	}
