@@ -276,16 +276,22 @@ func cmdRun(args []string) {
 	log.Debug("message response received", "status", resp.StatusCode)
 
 	// Stream SSE events.
-	streamSSE(resp.Body)
+	streamErr := streamSSE(resp.Body)
 
 	// Show final session status.
 	fmt.Println()
 	cmdSessionByID(sid)
+
+	if streamErr != nil {
+		os.Exit(1)
+	}
 }
 
 // streamSSE reads SSE data lines and prints events to stdout.
-func streamSSE(body io.Reader) {
+// Returns error if an error event is received.
+func streamSSE(body io.Reader) error {
 	scanner := bufio.NewScanner(body)
+	var lastError error
 	for scanner.Scan() {
 		line := scanner.Text()
 		log.Trace("SSE raw line received", "line", line)
@@ -296,7 +302,7 @@ func streamSSE(body io.Reader) {
 		if data == "[DONE]" {
 			log.Debug("SSE stream completed with DONE signal")
 			fmt.Println("\n--- Stream completed ---")
-			return
+			return lastError
 		}
 		var ev struct {
 			Type     string `json:"type"`
@@ -319,10 +325,12 @@ func streamSSE(body io.Reader) {
 		case "error":
 			log.Error("SSE error event received", "error", ev.Content)
 			fmt.Fprintf(os.Stderr, "\n[Error] %s\n", ev.Content)
+			lastError = fmt.Errorf("%s", ev.Content)
 		default:
 			fmt.Printf("[%s] %s\n", ev.Type, ev.Content)
 		}
 	}
+	return lastError
 }
 
 // cmdSession handles the session subcommand.
@@ -360,6 +368,14 @@ func cmdSessionByID(id string) {
 	if err := json.Unmarshal(bodyBytes, &session); err == nil {
 		out, _ := json.MarshalIndent(session, "", "  ")
 		fmt.Println(string(out))
+		if status, ok := session["status"].(string); ok && status == "error" {
+			errMsg := "unknown error"
+			if msg, ok := session["error"].(string); ok && msg != "" {
+				errMsg = msg
+			}
+			fmt.Fprintf(os.Stderr, "Session failed with error: %s\n", errMsg)
+			os.Exit(1)
+		}
 	} else {
 		log.Error("failed to decode session details response", "session_id", id, "error", err.Error())
 	}
@@ -387,7 +403,9 @@ func cmdLogs(args []string) {
 	}
 	defer resp.Body.Close()
 	log.Debug("session logs stream connection established", "session_id", *id, "status", resp.StatusCode)
-	streamSSE(resp.Body)
+	if err := streamSSE(resp.Body); err != nil {
+		os.Exit(1)
+	}
 }
 
 // cmdTerminate handles the terminate subcommand.
