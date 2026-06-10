@@ -1,5 +1,3 @@
-//go:build integration
-
 // Package llm_test contains E2E tests for the Codex CodingAgent pipeline.
 // These tests use REAL codex CLI and LLM Gateway to verify end-to-end
 // functionality: server startup, SSE streaming, file generation, and error handling.
