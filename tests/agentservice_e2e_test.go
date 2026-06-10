@@ -393,12 +393,12 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 		t.Errorf("session status = %q, want %q", sessionStatus, "completed")
 	}
 
-	// 6. Verify sdk_session_id was captured
-	sdkSID, _ := session["sdk_session_id"].(string)
-	if sdkSID == "" {
-		t.Error("sdk_session_id should be non-empty after successful session")
+	// 6. Verify agent_session_id was captured
+	agentSID, _ := session["agent_session_id"].(string)
+	if agentSID == "" {
+		t.Error("agent_session_id should be non-empty after successful session")
 	}
-	t.Logf("SDK Session ID: %s", sdkSID)
+	t.Logf("Agent Session ID: %s", agentSID)
 }
 
 // --- TC-005: Error event E2E verification ---
