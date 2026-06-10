@@ -81,7 +81,7 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 	baseURL := srv.Gateway().ProxyURL()
 
 	body := map[string]any{
-		"model":      "gemini-3.5-flash",
+		"model":      "gemini-2.5-flash",
 		"max_tokens": 100,
 		"messages": []map[string]string{
 			{"role": "user", "content": "Hello Gemini, reply only with 'Hello'"},
@@ -166,7 +166,7 @@ func TestGeminiE2E_Stream(t *testing.T) {
 	baseURL := srv.Gateway().ProxyURL()
 
 	body := map[string]any{
-		"model":      "gemini-3.5-flash",
+		"model":      "gemini-2.5-flash",
 		"max_tokens": 100,
 		"stream":     true,
 		"messages": []map[string]string{
@@ -253,7 +253,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 	gwURL := srv.Gateway().ProxyURL()
 	adapter := claudecode.New(&codingagent.AdapterConfig{
 		GatewayURL:   gwURL,
-		DefaultModel: "gemini-3.5-flash",
+		DefaultModel: "gemini-2.5-flash",
 	})
 	srv.AgentService().RegisterAgent(adapter)
 
@@ -285,7 +285,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 		"--log-level", "trace",
 		"run",
 		"--agent", "claudecode",
-		"--model", "gemini-3.5-flash",
+		"--model", "gemini-2.5-flash",
 		"--prompt", "Create a file named test.txt containing exactly the text 'Hello Gemini E2E'. Do nothing else.",
 		"--work-dir", workDir,
 	)
