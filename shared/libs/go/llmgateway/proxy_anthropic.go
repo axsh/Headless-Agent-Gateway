@@ -310,7 +310,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 	emitSSEJSON(w, flusher, "message_start", startMsg)
 
 	blockIndex := 0
-	chunkCount := 0
+	textStarted := false
 	var totalOutputTokens int
 
 	for chunk := range ch {
@@ -330,13 +330,13 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 		// Handle BifrostResponsesStreamResponse chunks
 		if chunk.BifrostResponsesStreamResponse != nil {
 			streamResp := chunk.BifrostResponsesStreamResponse
-			chunkCount++
 
 			switch streamResp.Type {
 			case bifrostSchemas.ResponsesStreamResponseTypeOutputTextDelta:
 				// Text delta -> content_block_delta
 				if streamResp.Delta != nil {
-					if chunkCount == 1 {
+					if !textStarted {
+						textStarted = true
 						// First text chunk: emit content_block_start
 						emitSSEJSON(w, flusher, "content_block_start", map[string]any{
 							"type":          "content_block_start",
@@ -358,6 +358,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 					"index": blockIndex,
 				})
 				blockIndex++
+				textStarted = false
 
 			case bifrostSchemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta:
 				// Function call arguments delta (tool_use in Anthropic stream)
