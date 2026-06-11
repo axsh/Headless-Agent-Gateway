@@ -2,7 +2,10 @@ module github.com/axsh/arctic-tern/examples/cawa-server
 
 go 1.26.4
 
-require github.com/axsh/arctic-tern v0.0.0
+require (
+	github.com/axsh/arctic-tern v0.0.0
+	github.com/spf13/cobra v1.10.2
+)
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -43,6 +46,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
@@ -55,6 +59,7 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
