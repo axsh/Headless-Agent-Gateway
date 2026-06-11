@@ -21,9 +21,7 @@ type openaiRequest struct {
 
 // handleOpenAIResponses handles POST /v1/responses for OpenAI Responses API.
 // This handler is used by Codex CLI in "responses" wire_api mode.
-// It resolves the model via ModelRouter, and delegates to Bifrost SDK for
-// provider-specific conversion (OpenAI, Gemini, Anthropic).
-// Falls back to legacy passthrough when Bifrost SDK is not initialized.
+// It resolves the model via ModelRouter, and delegates to Bifrost SDK.
 func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 	// Read and parse the request body
 	body, err := io.ReadAll(r.Body)
@@ -83,10 +81,14 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 
 	p.logger.Debug("responses request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode)
 
-	// Fallback to legacy passthrough when Bifrost SDK is not available.
+	// Bifrost SDK path (required)
 	if p.driver.bifrostSDK == nil {
-		p.logger.Debug("bifrost SDK not available, using legacy forwarder")
-		p.handleOpenAIResponsesLegacy(w, r, body, req, routed)
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "api_error",
+			Message: "Bifrost SDK not initialized",
+			Code:    "not_configured",
+			Status:  http.StatusServiceUnavailable,
+		})
 		return
 	}
 
@@ -257,71 +259,7 @@ func (p *ProxyServer) handleOpenAIResponsesStream(
 	p.logger.Debug("bifrost stream completed", "model", req.Model, "chunks", chunkCount)
 }
 
-// handleOpenAIResponsesLegacy is the original passthrough implementation.
-// Used when Bifrost SDK is not initialized (fallback path).
-func (p *ProxyServer) handleOpenAIResponsesLegacy(
-	w http.ResponseWriter, r *http.Request,
-	body []byte, req openaiRequest, routed *RoutedModel,
-) {
-	p.logger.Debug("using legacy forwarder for responses request", "model", routed.Model, "provider", routed.Provider)
 
-	// Resolve vault reference if needed
-	apiKey := routed.KeyValue
-	if vault.IsVaultRef(apiKey) && p.vault != nil {
-		resolved, err := p.vault.Resolve(apiKey)
-		if err != nil {
-			WriteErrorResponse(w, &GatewayError{
-				Type:    "api_error",
-				Message: "failed to resolve API key from vault",
-				Code:    "vault_error",
-				Status:  http.StatusInternalServerError,
-			})
-			return
-		}
-		apiKey = resolved
-	}
-
-	p.logger.Info("openai responses request routed (legacy)",
-		"model", routed.Model,
-		"provider", routed.Provider,
-		"key", MaskSecret(apiKey),
-	)
-
-	// Rewrite model field in body if it has changed due to routing
-	forwardBody := body
-	if routed.Model != req.Model {
-		forwardBody = rewriteModelField(body, req.Model, routed.Model)
-	}
-
-	bodyStr := string(body)
-	if len(bodyStr) > 10240 {
-		bodyStr = bodyStr[:10240] + "..."
-	}
-	p.logger.Trace("openai responses request body", "body", bodyStr)
-
-	// Forward to upstream OpenAI Responses API with retry.
-	fwd := newProviderForwarder()
-	retryCfg := p.buildRetryConfig()
-	resp, err := fwd.forwardWithRetry(r.Context(), routed.Provider, "/v1/responses", forwardBody, apiKey, r.Header, retryCfg, p.logger)
-	if err != nil {
-		if gwErr, ok := err.(*GatewayError); ok {
-			WriteErrorResponse(w, gwErr)
-		} else {
-			WriteErrorResponse(w, &GatewayError{
-				Type:    "api_error",
-				Message: "upstream request failed: " + err.Error(),
-				Code:    "upstream_error",
-				Status:  http.StatusBadGateway,
-			})
-		}
-		return
-	}
-	defer resp.Body.Close()
-
-	p.logger.Debug("upstream responses response received (legacy)", "status", resp.StatusCode, "content_type", resp.Header.Get("Content-Type"))
-
-	proxyResponse(w, resp)
-}
 
 // isStreamRequest checks if the request body has "stream": true.
 func isStreamRequest(body []byte) bool {
