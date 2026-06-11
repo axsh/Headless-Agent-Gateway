@@ -310,6 +310,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 	emitSSEJSON(w, flusher, "message_start", startMsg)
 
 	blockIndex := 0
+	chunkCount := 0
 	textStarted := false
 	var totalOutputTokens int
 
@@ -330,6 +331,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 		// Handle BifrostResponsesStreamResponse chunks
 		if chunk.BifrostResponsesStreamResponse != nil {
 			streamResp := chunk.BifrostResponsesStreamResponse
+			chunkCount++
 
 			switch streamResp.Type {
 			case bifrostSchemas.ResponsesStreamResponseTypeOutputTextDelta:
