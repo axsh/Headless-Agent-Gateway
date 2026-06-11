@@ -19,12 +19,7 @@ func (p *googleProvider) BaseURL() string { return "https://generativelanguage.g
 func (p *googleProvider) SetAuthHeaders(req *http.Request, apiKey string, originalHeaders http.Header) {
 	req.Header.Set("x-goog-api-key", apiKey)
 	req.Header.Del("Authorization")
-	// Google also accepts API key as query parameter.
-	if req.URL.RawQuery != "" {
-		req.URL.RawQuery = req.URL.RawQuery + "&key=" + apiKey
-	} else {
-		req.URL.RawQuery = "key=" + apiKey
-	}
+	// URL query parameter is intentionally NOT set to prevent API key exposure in logs.
 }
 
 func (p *googleProvider) BifrostProvider() bifrostSchemas.ModelProvider {

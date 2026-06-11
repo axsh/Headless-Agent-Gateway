@@ -87,12 +87,7 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 			if provider, ok := r.profiles.Providers[resolved.Provider]; ok && provider.NetworkConfig != nil {
 				baseURL = provider.NetworkConfig.BaseURL
 			}
-			keyPrefix := ""
-			if len(resolved.KeyValue) > 8 {
-				keyPrefix = resolved.KeyValue[:8] + "..."
-			} else {
-				keyPrefix = resolved.KeyValue
-			}
+			keyPrefix := MaskSecret(resolved.KeyValue)
 			r.logger.Trace("routing config details",
 				"key_prefix", keyPrefix,
 				"base_url", baseURL,

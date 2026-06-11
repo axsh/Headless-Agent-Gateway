@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/axsh/arctic-tern/config"
 	"github.com/axsh/arctic-tern/logger"
@@ -73,7 +74,14 @@ func (p *ProxyServer) Launch(_ context.Context) error {
 	// Extract the actual port (important when port=0).
 	p.port = listener.Addr().(*net.TCPAddr).Port
 
-	p.server = &http.Server{Handler: mux}
+	serverCfg := p.cfg.LLMGateway.Server
+	p.server = &http.Server{
+		Handler:        mux,
+		ReadTimeout:    time.Duration(serverCfg.ReadTimeoutSeconds) * time.Second,
+		WriteTimeout:   time.Duration(serverCfg.WriteTimeoutSeconds) * time.Second,
+		IdleTimeout:    time.Duration(serverCfg.IdleTimeoutSeconds) * time.Second,
+		MaxHeaderBytes: serverCfg.MaxHeaderBytes,
+	}
 
 	p.logger.Info("proxy server started", "port", p.port)
 

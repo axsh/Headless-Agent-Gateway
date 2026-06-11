@@ -2,6 +2,7 @@ package llmgateway
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,9 +22,24 @@ type anthropicRequest struct {
 // It routes the request through the model router and delegates to Bifrost SDK.
 // Falls back to legacy conversion path when Bifrost SDK is not initialized.
 func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
+	// R5: Apply request body size limit.
+	if maxBody := p.cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	}
+
 	// Read and parse the request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "invalid_request_error",
+				Message: "request body too large",
+				Code:    "request_too_large",
+				Status:  http.StatusRequestEntityTooLarge,
+			})
+			return
+		}
 		WriteErrorResponse(w, &GatewayError{
 			Type:    "invalid_request_error",
 			Message: "failed to read request body",

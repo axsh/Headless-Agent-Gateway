@@ -2,6 +2,7 @@ package llmgateway
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,9 +24,24 @@ type openaiRequest struct {
 // This handler is used by Codex CLI in "responses" wire_api mode.
 // It resolves the model via ModelRouter, and delegates to Bifrost SDK.
 func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
+	// R5: Apply request body size limit.
+	if maxBody := p.cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	}
+
 	// Read and parse the request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			WriteErrorResponse(w, &GatewayError{
+				Type:    "invalid_request_error",
+				Message: "request body too large",
+				Code:    "request_too_large",
+				Status:  http.StatusRequestEntityTooLarge,
+			})
+			return
+		}
 		WriteErrorResponse(w, &GatewayError{
 			Type:    "invalid_request_error",
 			Message: "failed to read request body",
