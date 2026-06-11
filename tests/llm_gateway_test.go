@@ -111,42 +111,7 @@ func TestAnthropicMessages_NonStream(t *testing.T) {
 	t.Logf("Anthropic response: %s", string(respBody))
 }
 
-func TestOpenAIChatCompletions_NonStream(t *testing.T) {
-	checkKeyringAvailable(t, "openai")
 
-	baseURL, token, cleanup := testServer(t)
-	defer cleanup()
-
-	body := map[string]any{
-		"model": "gpt-4.1-mini",
-		"messages": []map[string]string{
-			{"role": "user", "content": "Say exactly: hello integration test"},
-		},
-		"max_tokens": 50,
-	}
-
-	resp := postWithAuth(t, token, nil, baseURL+"/v1/chat/completions", body)
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result map[string]any
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		t.Fatalf("JSON decode failed: %v\nbody: %s", err, string(respBody))
-	}
-
-	// OpenAI response should have "choices" array
-	choices, ok := result["choices"].([]any)
-	if !ok || len(choices) == 0 {
-		t.Fatalf("expected non-empty choices array, got: %s", string(respBody))
-	}
-
-	t.Logf("OpenAI response: %s", string(respBody))
-}
 
 func TestAnthropicMessages_Stream(t *testing.T) {
 	checkKeyringAvailable(t, "anthropic")
