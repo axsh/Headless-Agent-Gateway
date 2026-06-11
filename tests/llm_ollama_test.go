@@ -8,7 +8,6 @@
 package llm_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
