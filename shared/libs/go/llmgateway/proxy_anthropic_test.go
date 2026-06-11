@@ -84,4 +84,43 @@ func TestHandleAnthropicMessages_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestAnthropicHandler_MaxBodySize(t *testing.T) {
+	proxy := newTestProxyWithDriver(t)
+	proxy.cfg.LLMGateway.MaxRequestBodyBytes = 10
+
+	// 10 bytes body
+	bodyBytes := []byte(`{"a":"b"}`) // 9 bytes
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rr, req)
+	if rr.Code == http.StatusRequestEntityTooLarge {
+		t.Errorf("expected small request to pass, got status %d", rr.Code)
+	}
+
+	// 11 bytes body (limit is 10)
+	bodyBytesLarge := []byte(`{"abc":"def"}`) // 13 bytes
+	reqLarge := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(bodyBytesLarge))
+	reqLarge.Header.Set("Content-Type", "application/json")
+	rrLarge := httptest.NewRecorder()
+
+	proxy.handleAnthropicMessages(rrLarge, reqLarge)
+	if rrLarge.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want %d (Request Entity Too Large)", rrLarge.Code, http.StatusRequestEntityTooLarge)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rrLarge.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	errObj, ok := resp["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected error object, got %v", resp)
+	}
+	if errObj["code"] != "request_too_large" {
+		t.Errorf("error code = %v, want request_too_large", errObj["code"])
+	}
+}
+
 

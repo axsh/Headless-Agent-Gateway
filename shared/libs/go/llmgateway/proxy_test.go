@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/axsh/arctic-tern/config"
 )
@@ -495,6 +496,76 @@ func TestProxyServer_ModelsWithDefaultModel(t *testing.T) {
 	}
 	if body.DefaultModel.Model != "claude-sonnet-4-20250514" {
 		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-20250514")
+	}
+}
+
+func TestProxyServer_TimeoutConfig(t *testing.T) {
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Server: config.ServerConfig{
+				ReadTimeoutSeconds:  15,
+				WriteTimeoutSeconds: 120,
+				IdleTimeoutSeconds:  30,
+				MaxHeaderBytes:      524288,
+			},
+		},
+	}
+	p, err := NewProxyServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewProxyServer() error = %v", err)
+	}
+
+	if err := p.Launch(nil); err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	defer p.Shutdown(nil)
+
+	if p.server == nil {
+		t.Fatal("http.Server is nil after Launch")
+	}
+
+	if p.server.ReadTimeout != 15*time.Second {
+		t.Errorf("ReadTimeout = %v, want %v", p.server.ReadTimeout, 15*time.Second)
+	}
+	if p.server.WriteTimeout != 120*time.Second {
+		t.Errorf("WriteTimeout = %v, want %v", p.server.WriteTimeout, 120*time.Second)
+	}
+	if p.server.IdleTimeout != 30*time.Second {
+		t.Errorf("IdleTimeout = %v, want %v", p.server.IdleTimeout, 30*time.Second)
+	}
+	if p.server.MaxHeaderBytes != 524288 {
+		t.Errorf("MaxHeaderBytes = %d, want %d", p.server.MaxHeaderBytes, 524288)
+	}
+}
+
+func TestProxyServer_DefaultTimeout(t *testing.T) {
+	cfg := &config.AppConfig{}
+	cfg.LLMGateway.ApplyDefaults() // default limits are applied
+	p, err := NewProxyServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewProxyServer() error = %v", err)
+	}
+
+	if err := p.Launch(nil); err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	defer p.Shutdown(nil)
+
+	if p.server == nil {
+		t.Fatal("http.Server is nil after Launch")
+	}
+
+	if p.server.ReadTimeout != 30*time.Second {
+		t.Errorf("ReadTimeout = %v, want %v", p.server.ReadTimeout, 30*time.Second)
+	}
+	if p.server.WriteTimeout != 300*time.Second {
+		t.Errorf("WriteTimeout = %v, want %v", p.server.WriteTimeout, 300*time.Second)
+	}
+	if p.server.IdleTimeout != 60*time.Second {
+		t.Errorf("IdleTimeout = %v, want %v", p.server.IdleTimeout, 60*time.Second)
+	}
+	if p.server.MaxHeaderBytes != 1<<20 {
+		t.Errorf("MaxHeaderBytes = %d, want %d", p.server.MaxHeaderBytes, 1<<20)
 	}
 }
 
