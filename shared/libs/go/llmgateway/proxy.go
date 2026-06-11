@@ -184,7 +184,6 @@ func (p *ProxyServer) setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", p.handleHealth)
 	mux.HandleFunc("GET /v1/models", p.handleModels)
 	mux.HandleFunc("POST /v1/messages", p.handleAnthropicMessages)
-	mux.HandleFunc("POST /v1/chat/completions", p.handleOpenAIChatCompletions)
 	mux.HandleFunc("POST /v1/responses", p.handleOpenAIResponses)
 }
 
@@ -197,7 +196,6 @@ func (p *ProxyServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 			"GET /health",
 			"GET /v1/models",
 			"POST /v1/messages",
-			"POST /v1/chat/completions",
 			"POST /v1/responses",
 		},
 	})

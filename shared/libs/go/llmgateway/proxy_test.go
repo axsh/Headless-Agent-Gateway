@@ -167,7 +167,7 @@ func TestProxyServer_AnthropicStub(t *testing.T) {
 	}
 }
 
-func TestProxyServer_OpenAIStub(t *testing.T) {
+func TestProxyServer_OpenAIResponsesStub(t *testing.T) {
 	p := newTestProxy(t)
 	if err := p.Launch(nil); err != nil {
 		t.Fatalf("Launch() error = %v", err)
@@ -175,9 +175,9 @@ func TestProxyServer_OpenAIStub(t *testing.T) {
 	defer p.Shutdown(nil)
 
 	// Standalone ProxyServer (no driver) - nil body produces 400 from JSON parsing.
-	resp, err := http.Post(p.ProxyURL()+"/v1/chat/completions", "application/json", nil)
+	resp, err := http.Post(p.ProxyURL()+"/v1/responses", "application/json", nil)
 	if err != nil {
-		t.Fatalf("POST /v1/chat/completions error = %v", err)
+		t.Fatalf("POST /v1/responses error = %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -387,7 +387,7 @@ func TestProxyServer_StubErrorResponseBody(t *testing.T) {
 
 	endpoints := []string{
 		"/v1/messages",
-		"/v1/chat/completions",
+		"/v1/responses",
 	}
 
 	for _, ep := range endpoints {
