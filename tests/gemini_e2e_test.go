@@ -77,8 +77,8 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 		t.Fatalf("Launch: %v", err)
 	}
 	defer srv.Shutdown(t.Context())
-
 	baseURL := srv.Gateway().ProxyURL()
+	token := srv.GatewayToken()
 
 	body := map[string]any{
 		"model":      "gemini-2.5-flash",
@@ -87,12 +87,8 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 			{"role": "user", "content": "Hello Gemini, reply only with 'Hello'"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
-	resp, err := http.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST to gateway failed: %v", err)
-	}
+	resp := postWithAuth(t, token, nil, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
@@ -162,8 +158,8 @@ func TestGeminiE2E_Stream(t *testing.T) {
 		t.Fatalf("Launch: %v", err)
 	}
 	defer srv.Shutdown(t.Context())
-
 	baseURL := srv.Gateway().ProxyURL()
+	token := srv.GatewayToken()
 
 	body := map[string]any{
 		"model":      "gemini-2.5-flash",
@@ -173,12 +169,8 @@ func TestGeminiE2E_Stream(t *testing.T) {
 			{"role": "user", "content": "Hello Gemini, reply only with 'Hello'"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
-	resp, err := http.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST to gateway failed: %v", err)
-	}
+	resp := postWithAuth(t, token, nil, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
