@@ -263,24 +263,36 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 	bifrostReq.Provider = providerKey
 	bifrostReq.Model = routed.Model
 
-	// Sanitize ToolChoice for cross-provider requests.
-	// Codex CLI may send non-function tools (e.g. "container", "local_shell") with
-	// tool_choice:"auto". Gemini/Anthropic only support function-type tools, so if
-	// there are no function tools, ToolConfig/FunctionCallingConfig would be set
-	// without any function_declarations, causing the provider API to reject the request.
-	// Clear ToolChoice when no function tools are present.
-	if bifrostReq.Params != nil && bifrostReq.Params.ToolChoice != nil {
-		hasFunctionTool := false
+	// Sanitize tools for cross-provider requests.
+	// Codex CLI sends OpenAI-specific tool types (e.g. "container", "local_shell") that
+	// Gemini/Anthropic cannot handle. The Bifrost SDK's Gemini converter enters the
+	// tool conversion block when len(Params.Tools) > 0 and sets FunctionCallingConfig
+	// (from ToolChoice) even if no function_declarations are produced, causing Gemini
+	// to reject the request with "Function calling config is set without function_declarations."
+	//
+	// Fix: For non-OpenAI providers, filter Params.Tools to keep only provider-compatible
+	// tool types (function, web_search). If no compatible tools remain, clear both Tools
+	// and ToolChoice to prevent the SDK from entering the tool conversion path at all.
+	if bifrostReq.Params != nil && providerKey != bifrostSchemas.OpenAI {
+		var compatibleTools []bifrostSchemas.ResponsesTool
 		for _, tool := range bifrostReq.Params.Tools {
-			if tool.Type == bifrostSchemas.ResponsesToolTypeFunction {
-				hasFunctionTool = true
-				break
+			switch tool.Type {
+			case bifrostSchemas.ResponsesToolTypeFunction,
+				bifrostSchemas.ResponsesToolTypeWebSearch,
+				bifrostSchemas.ResponsesToolTypeWebSearchPreview:
+				compatibleTools = append(compatibleTools, tool)
+			default:
+				p.logger.Debug("filtering unsupported tool type for provider",
+					"tool_type", tool.Type, "provider", providerKey)
 			}
 		}
-		if !hasFunctionTool {
-			p.logger.Debug("clearing ToolChoice: no function-type tools in request",
-				"tool_count", len(bifrostReq.Params.Tools))
+		if len(compatibleTools) == 0 {
+			bifrostReq.Params.Tools = nil
 			bifrostReq.Params.ToolChoice = nil
+			p.logger.Debug("cleared all tools and tool_choice: no provider-compatible tools",
+				"provider", providerKey, "original_tool_count", len(bifrostReq.Params.Tools))
+		} else {
+			bifrostReq.Params.Tools = compatibleTools
 		}
 	}
 
