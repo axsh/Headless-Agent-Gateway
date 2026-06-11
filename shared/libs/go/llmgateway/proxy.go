@@ -2,10 +2,12 @@ package llmgateway
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/axsh/arctic-tern/config"
@@ -15,14 +17,16 @@ import (
 
 // ProxyServer implements LLMGatewayBackend with an HTTP proxy server.
 type ProxyServer struct {
-	cfg      *config.AppConfig
-	profiles *config.ModelProfilesConfig
-	vault    vault.VaultStore
-	logger   logger.Logger
-	server   *http.Server
-	listener net.Listener
-	port     int
-	driver   *BifrostDriver // back-reference for handler delegation (nil when standalone)
+	cfg       *config.AppConfig
+	profiles  *config.ModelProfilesConfig
+	vault     vault.VaultStore
+	logger    logger.Logger
+	server    *http.Server
+	listener  net.Listener
+	port      int
+	driver    *BifrostDriver // back-reference for handler delegation (nil when standalone)
+	authToken string          // R4: internal auth token
+	tlsMgr    *TLSCertManager // R1: TLS cert manager (nil if TLS disabled)
 }
 
 // NewProxyServer creates a ProxyServer.
@@ -57,6 +61,16 @@ func NewProxyServer(cfg *config.AppConfig, vs vault.VaultStore, log logger.Logge
 	return p, nil
 }
 
+// SetAuthToken sets the internal authentication token.
+func (p *ProxyServer) SetAuthToken(token string) {
+	p.authToken = token
+}
+
+// SetTLSCertManager sets the TLS certificate manager.
+func (p *ProxyServer) SetTLSCertManager(mgr *TLSCertManager) {
+	p.tlsMgr = mgr
+}
+
 // Launch starts the HTTP server on the configured port.
 // If port is 0, an ephemeral port is used (useful for testing).
 func (p *ProxyServer) Launch(_ context.Context) error {
@@ -85,17 +99,32 @@ func (p *ProxyServer) Launch(_ context.Context) error {
 
 	p.logger.Info("proxy server started", "port", p.port)
 
-	go func() {
-		if err := p.server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			p.logger.Error("proxy server error", "error", err)
+	if p.tlsMgr != nil {
+		p.server.TLSConfig = &tls.Config{
+			GetCertificate: p.tlsMgr.GetCertificate,
 		}
-	}()
+		p.tlsMgr.Start()
+		go func() {
+			if err := p.server.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
+				p.logger.Error("proxy server TLS error", "error", err)
+			}
+		}()
+	} else {
+		go func() {
+			if err := p.server.Serve(listener); err != nil && err != http.ErrServerClosed {
+				p.logger.Error("proxy server error", "error", err)
+			}
+		}()
+	}
 
 	return nil
 }
 
 // Shutdown gracefully stops the HTTP server.
 func (p *ProxyServer) Shutdown(ctx context.Context) error {
+	if p.tlsMgr != nil {
+		p.tlsMgr.Stop()
+	}
 	if p.server == nil {
 		return nil
 	}
@@ -107,9 +136,13 @@ func (p *ProxyServer) Shutdown(ctx context.Context) error {
 	return p.server.Shutdown(ctx)
 }
 
-// ProxyURL returns "http://localhost:{port}".
+// ProxyURL returns the server URL.
 func (p *ProxyServer) ProxyURL() string {
-	return fmt.Sprintf("http://localhost:%d", p.port)
+	scheme := "http"
+	if p.tlsMgr != nil {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://localhost:%d", scheme, p.port)
 }
 
 // ReloadProfiles updates the loaded model profiles at runtime.
@@ -179,10 +212,65 @@ func (p *ProxyServer) DefaultModel() *ModelInfo {
 
 // Health returns the proxy server health status.
 func (p *ProxyServer) Health() HealthStatus {
-	return HealthStatus{
-		Status: "ok",
-		Models: len(p.ListModels()),
+	status := "ok"
+	message := ""
+	if p.tlsMgr != nil && p.tlsMgr.IsDegraded() {
+		status = "degraded"
+		if p.tlsMgr.IsExpired() {
+			message = "TLS certificate expired -- restart the server to restore HTTPS"
+		} else {
+			message = "TLS certificate expiring soon -- auto-renewal in progress"
+		}
 	}
+	return HealthStatus{
+		Status:  status,
+		Message: message,
+		Models:  len(p.ListModels()),
+	}
+}
+
+// authMiddleware handles token validation for protected endpoints.
+func (p *ProxyServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if p.authToken == "" {
+			next(w, r)
+			return
+		}
+		// Check X-Gateway-Token header
+		if token := r.Header.Get("X-Gateway-Token"); token == p.authToken {
+			next(w, r)
+			return
+		}
+		// Check x-api-key metadata (Claude Code)
+		if extractToken(r.Header.Get("x-api-key")) == p.authToken {
+			next(w, r)
+			return
+		}
+		// Check Authorization metadata (Codex)
+		if extractToken(r.Header.Get("Authorization")) == p.authToken {
+			next(w, r)
+			return
+		}
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "authentication_error",
+			Message: "invalid or missing gateway token",
+			Code:    "unauthorized",
+			Status:  http.StatusUnauthorized,
+		})
+	}
+}
+
+func extractToken(headerValue string) string {
+	if strings.HasPrefix(headerValue, "Bearer ") {
+		headerValue = strings.TrimPrefix(headerValue, "Bearer ")
+	}
+	for _, part := range strings.Split(headerValue, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "token=") {
+			return strings.TrimPrefix(part, "token=")
+		}
+	}
+	return ""
 }
 
 // setupRoutes registers HTTP handlers on the given mux.
@@ -190,8 +278,8 @@ func (p *ProxyServer) setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", p.handleIndex)
 	mux.HandleFunc("GET /health", p.handleHealth)
 	mux.HandleFunc("GET /v1/models", p.handleModels)
-	mux.HandleFunc("POST /v1/messages", p.handleAnthropicMessages)
-	mux.HandleFunc("POST /v1/responses", p.handleOpenAIResponses)
+	mux.HandleFunc("POST /v1/messages", p.authMiddleware(p.handleAnthropicMessages))
+	mux.HandleFunc("POST /v1/responses", p.authMiddleware(p.handleOpenAIResponses))
 }
 
 // handleIndex returns 200 OK with endpoint list (Claude Code reachability check).
@@ -208,10 +296,39 @@ func (p *ProxyServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type healthResponse struct {
+	Status  string     `json:"status"`
+	Message string     `json:"message,omitempty"`
+	Models  int        `json:"models"`
+	TLS     *tlsStatus `json:"tls,omitempty"`
+}
+
+type tlsStatus struct {
+	Enabled       bool   `json:"enabled"`
+	Mode          string `json:"mode"`
+	CertExpiresAt string `json:"cert_expires_at,omitempty"`
+	CertExpired   bool   `json:"cert_expired"`
+}
+
 // handleHealth returns the health status as JSON.
 func (p *ProxyServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	h := p.Health()
+	resp := healthResponse{
+		Status:  h.Status,
+		Message: h.Message,
+		Models:  h.Models,
+	}
+	if p.tlsMgr != nil {
+		ts := &tlsStatus{
+			Enabled:       true,
+			Mode:          p.cfg.LLMGateway.TLS.Mode,
+			CertExpiresAt: p.tlsMgr.ExpiresAt().Format(time.RFC3339),
+			CertExpired:   p.tlsMgr.IsExpired(),
+		}
+		resp.TLS = ts
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(p.Health())
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleModels returns the list of configured models with optional default.

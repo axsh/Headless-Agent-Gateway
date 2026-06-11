@@ -1,6 +1,7 @@
 package llmgateway
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -566,6 +567,160 @@ func TestProxyServer_DefaultTimeout(t *testing.T) {
 	}
 	if p.server.MaxHeaderBytes != 1<<20 {
 		t.Errorf("MaxHeaderBytes = %d, want %d", p.server.MaxHeaderBytes, 1<<20)
+	}
+}
+
+func TestAuthMiddleware(t *testing.T) {
+	cfg := &config.AppConfig{}
+	p, err := NewProxyServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewProxyServer() error = %v", err)
+	}
+	p.SetAuthToken("correct-token-123")
+
+	if err := p.Launch(nil); err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	defer p.Shutdown(nil)
+
+	url := p.ProxyURL()
+
+	// 1. GET / and /health should bypass auth (return 200)
+	resp, err := http.Get(url + "/health")
+	if err != nil {
+		t.Fatalf("GET /health error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /health status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	resp, err = http.Get(url + "/")
+	if err != nil {
+		t.Fatalf("GET / error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET / status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	// 2. Protect POST /v1/messages
+	// Case A: Missing token -> 401
+	resp, err = http.Post(url+"/v1/messages", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /v1/messages error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("POST /v1/messages status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+
+	// Case B: Correct token in X-Gateway-Token -> bypass auth
+	req, _ := http.NewRequest(http.MethodPost, url+"/v1/messages", nil)
+	req.Header.Set("X-Gateway-Token", "correct-token-123")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST with X-Gateway-Token error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		t.Errorf("expected bypass, got status %d", resp.StatusCode)
+	}
+
+	// Case C: Correct token in x-api-key -> bypass auth
+	req, _ = http.NewRequest(http.MethodPost, url+"/v1/messages", nil)
+	req.Header.Set("x-api-key", "not-needed;token=correct-token-123;fallback=false")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST with x-api-key error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		t.Errorf("expected bypass, got status %d", resp.StatusCode)
+	}
+
+	// Case D: Correct token in Authorization -> bypass auth
+	req, _ = http.NewRequest(http.MethodPost, url+"/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer not-needed;token=correct-token-123")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST with Authorization error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		t.Errorf("expected bypass, got status %d", resp.StatusCode)
+	}
+
+	// Case E: Incorrect token -> 401
+	req, _ = http.NewRequest(http.MethodPost, url+"/v1/messages", nil)
+	req.Header.Set("X-Gateway-Token", "wrong-token")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST with wrong token error = %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+func TestHealthResponse_TLSInfo(t *testing.T) {
+	cfg := &config.AppConfig{}
+	cfg.LLMGateway.TLS.Enabled = true
+	cfg.LLMGateway.TLS.Mode = "auto"
+
+	p, err := NewProxyServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewProxyServer() error = %v", err)
+	}
+
+	tlsMgr := NewTLSCertManager(cfg.LLMGateway.TLS, nil)
+	if err := tlsMgr.GenerateAndLoad(); err != nil {
+		t.Fatalf("GenerateAndLoad failed: %v", err)
+	}
+	p.SetTLSCertManager(tlsMgr)
+
+	if err := p.Launch(nil); err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	defer p.Shutdown(nil)
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+	resp, err := client.Get(p.ProxyURL() + "/health")
+	if err != nil {
+		t.Fatalf("GET /health failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var health map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		t.Fatalf("json decode error: %v", err)
+	}
+
+	if health["status"] != "ok" {
+		t.Errorf("status = %v, want ok", health["status"])
+	}
+
+	tlsInfo, ok := health["tls"].(map[string]any)
+	if !ok {
+		t.Fatal("expected tls object in health response")
+	}
+
+	if tlsInfo["enabled"] != true {
+		t.Errorf("tls.enabled = %v, want true", tlsInfo["enabled"])
+	}
+	if tlsInfo["mode"] != "auto" {
+		t.Errorf("tls.mode = %v, want auto", tlsInfo["mode"])
+	}
+	if tlsInfo["cert_expires_at"] == "" {
+		t.Error("expected cert_expires_at in tls info")
 	}
 }
 
