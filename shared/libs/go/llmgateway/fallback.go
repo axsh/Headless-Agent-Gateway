@@ -1,9 +1,7 @@
 package llmgateway
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -190,18 +188,6 @@ func TryFallbackAnthropicResponse(body []byte) ([]byte, bool) {
 		return body, false
 	}
 	return rewritten, true
-}
-
-// rewriteModelField replaces the "model" value in the JSON body.
-func rewriteModelField(body []byte, oldModel, newModel string) []byte {
-	old := fmt.Sprintf(`"model":"%s"`, oldModel)
-	new := fmt.Sprintf(`"model":"%s"`, newModel)
-	result := bytes.Replace(body, []byte(old), []byte(new), 1)
-	// Also handle space variations: "model": "value"
-	old = fmt.Sprintf(`"model": "%s"`, oldModel)
-	new = fmt.Sprintf(`"model": "%s"`, newModel)
-	result = bytes.Replace(result, []byte(old), []byte(new), 1)
-	return result
 }
 
 // ExtractSessionID extracts the session ID from an x-api-key or Authorization header value.
