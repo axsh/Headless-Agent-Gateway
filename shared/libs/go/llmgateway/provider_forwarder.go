@@ -14,13 +14,6 @@ import (
 	"github.com/axsh/arctic-tern/logger"
 )
 
-// providerBaseURLs maps provider names to their API base URLs.
-var providerBaseURLs = map[string]string{
-	"anthropic": "https://api.anthropic.com",
-	"openai":    "https://api.openai.com",
-	"google":    "https://generativelanguage.googleapis.com",
-}
-
 // providerForwarder handles forwarding requests to upstream LLM providers.
 type providerForwarder struct {
 	client *http.Client
@@ -46,7 +39,7 @@ func (f *providerForwarder) forwardToProvider(
 	originalHeaders http.Header,
 	log logger.Logger,
 ) (*http.Response, error) {
-	baseURL, ok := providerBaseURLs[provider]
+	p, ok := GetProvider(provider)
 	if !ok {
 		return nil, &GatewayError{
 			Type:    "api_error",
@@ -56,7 +49,7 @@ func (f *providerForwarder) forwardToProvider(
 		}
 	}
 
-	upstreamURL := baseURL + path
+	upstreamURL := p.BaseURL() + path
 
 	req, err := http.NewRequest(http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
@@ -65,27 +58,8 @@ func (f *providerForwarder) forwardToProvider(
 
 	req.Header.Set("Content-Type", "application/json")
 
-	// Set provider-specific auth headers
-	switch provider {
-	case "anthropic":
-		req.Header.Set("x-api-key", apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-		// Forward anthropic-beta if present
-		if beta := originalHeaders.Get("anthropic-beta"); beta != "" {
-			req.Header.Set("anthropic-beta", beta)
-		}
-	case "openai":
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	case "google":
-		req.Header.Set("x-goog-api-key", apiKey)
-		req.Header.Del("Authorization")
-		// Google can also use API key as query parameter
-		if req.URL.RawQuery != "" {
-			req.URL.RawQuery = req.URL.RawQuery + "&key=" + apiKey
-		} else {
-			req.URL.RawQuery = "key=" + apiKey
-		}
-	}
+	// Delegate provider-specific auth headers to the Provider implementation.
+	p.SetAuthHeaders(req, apiKey, originalHeaders)
 
 	if log != nil {
 		maskedHeaders := make(http.Header)
@@ -320,16 +294,32 @@ func (f *providerForwarder) forwardWithRetry(
 	return nil, lastErr
 }
 
-// SetProviderBaseURL is a test helper to override base URLs for provider APIs.
-func SetProviderBaseURL(provider, url string) {
-	providerBaseURLs[provider] = url
+// urlOverrideProvider wraps an existing Provider, overriding only the base URL.
+// This preserves the original provider's SetAuthHeaders and BifrostProvider behavior.
+type urlOverrideProvider struct {
+	Provider // embedded original provider
+	baseURL  string
 }
 
-// GetProviderBaseURLs is a test helper to get the original base URLs.
-func GetProviderBaseURLs() map[string]string {
-	m := make(map[string]string)
-	for k, v := range providerBaseURLs {
-		m[k] = v
+func (p *urlOverrideProvider) BaseURL() string { return p.baseURL }
+
+// overrideProviderBaseURL temporarily overrides a provider's base URL for testing.
+// Returns a cleanup function that restores the original provider.
+func overrideProviderBaseURL(provider, url string) func() {
+	providerMu.Lock()
+	orig := providerRegistry[provider]
+	if orig != nil {
+		providerRegistry[provider] = &urlOverrideProvider{Provider: orig, baseURL: url}
 	}
-	return m
+	providerMu.Unlock()
+
+	return func() {
+		providerMu.Lock()
+		if orig != nil {
+			providerRegistry[provider] = orig
+		} else {
+			delete(providerRegistry, provider)
+		}
+		providerMu.Unlock()
+	}
 }

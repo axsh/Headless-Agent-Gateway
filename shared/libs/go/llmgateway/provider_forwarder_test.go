@@ -95,9 +95,8 @@ func TestForwardWithRetry_Success(t *testing.T) {
 		client: srv.Client(),
 	}
 	// Override base URL for test.
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = srv.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", srv.URL)
+	defer cleanup()
 
 	cfg := &RetryConfig{MaxRetries: 3, InitialDelay: 10 * time.Millisecond, MaxDelay: 50 * time.Millisecond}
 	resp, err := fwd.forwardWithRetry(context.Background(), "openai", "/v1/test", []byte(`{}`), "key", nil, cfg, nil)
@@ -129,9 +128,8 @@ func TestForwardWithRetry_429(t *testing.T) {
 	defer srv.Close()
 
 	fwd := &providerForwarder{client: srv.Client()}
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = srv.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", srv.URL)
+	defer cleanup()
 
 	cfg := &RetryConfig{MaxRetries: 3, InitialDelay: 10 * time.Millisecond, MaxDelay: 50 * time.Millisecond}
 	resp, err := fwd.forwardWithRetry(context.Background(), "openai", "/v1/test", []byte(`{}`), "key", nil, cfg, nil)
@@ -163,9 +161,8 @@ func TestForwardWithRetry_500(t *testing.T) {
 	defer srv.Close()
 
 	fwd := &providerForwarder{client: srv.Client()}
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = srv.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", srv.URL)
+	defer cleanup()
 
 	cfg := &RetryConfig{MaxRetries: 3, InitialDelay: 10 * time.Millisecond, MaxDelay: 50 * time.Millisecond}
 	resp, err := fwd.forwardWithRetry(context.Background(), "openai", "/v1/test", []byte(`{}`), "key", nil, cfg, nil)
@@ -192,9 +189,8 @@ func TestForwardWithRetry_400_NoRetry(t *testing.T) {
 	defer srv.Close()
 
 	fwd := &providerForwarder{client: srv.Client()}
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = srv.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", srv.URL)
+	defer cleanup()
 
 	cfg := &RetryConfig{MaxRetries: 3, InitialDelay: 10 * time.Millisecond, MaxDelay: 50 * time.Millisecond}
 	resp, err := fwd.forwardWithRetry(context.Background(), "openai", "/v1/test", []byte(`{}`), "key", nil, cfg, nil)
@@ -222,9 +218,8 @@ func TestForwardWithRetry_MaxAttempts(t *testing.T) {
 	defer srv.Close()
 
 	fwd := &providerForwarder{client: srv.Client()}
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = srv.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", srv.URL)
+	defer cleanup()
 
 	cfg := &RetryConfig{MaxRetries: 2, InitialDelay: 10 * time.Millisecond, MaxDelay: 50 * time.Millisecond}
 	resp, err := fwd.forwardWithRetry(context.Background(), "openai", "/v1/test", []byte(`{}`), "key", nil, cfg, nil)
@@ -249,9 +244,8 @@ func TestForwardWithRetry_ContextCancel(t *testing.T) {
 	defer srv.Close()
 
 	fwd := &providerForwarder{client: srv.Client()}
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = srv.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", srv.URL)
+	defer cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
@@ -282,9 +276,8 @@ func TestForwardWithRetry_RetryAfterHeader(t *testing.T) {
 	defer srv.Close()
 
 	fwd := &providerForwarder{client: srv.Client()}
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = srv.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", srv.URL)
+	defer cleanup()
 
 	cfg := &RetryConfig{MaxRetries: 3, InitialDelay: 10 * time.Millisecond, MaxDelay: 50 * time.Millisecond}
 	start := time.Now()

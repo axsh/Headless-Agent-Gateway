@@ -104,9 +104,8 @@ func TestHandleAnthropicMessages_KnownModel_ForwardsToUpstream(t *testing.T) {
 	defer mockUpstream.Close()
 
 	// Temporarily override the base URL
-	origURL := providerBaseURLs["anthropic"]
-	providerBaseURLs["anthropic"] = mockUpstream.URL
-	defer func() { providerBaseURLs["anthropic"] = origURL }()
+	cleanup := overrideProviderBaseURL("anthropic", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 
@@ -147,9 +146,8 @@ func TestHandleAnthropicMessages_ToolCallFallback(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["anthropic"]
-	providerBaseURLs["anthropic"] = mockUpstream.URL
-	defer func() { providerBaseURLs["anthropic"] = origURL }()
+	cleanup := overrideProviderBaseURL("anthropic", mockUpstream.URL)
+	defer cleanup()
 
 	cfg := &config.AppConfig{}
 
@@ -253,9 +251,8 @@ func TestHandleAnthropicMessages_CrossProviderOpenAI(t *testing.T) {
 	defer mockUpstream.Close()
 
 	// Override OpenAI base URL to point to mock
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 
@@ -358,9 +355,8 @@ func TestHandleAnthropicMessages_CrossProviderOpenAI_Streaming(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 
@@ -438,9 +434,8 @@ func TestHandleAnthropicMessages_ResponsesMode_NonStream(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 
@@ -505,9 +500,8 @@ func TestHandleAnthropicMessages_ResponsesMode_Stream(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 
@@ -568,9 +562,8 @@ func TestHandleAnthropicMessages_ChatMode_Unchanged(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 
@@ -630,9 +623,8 @@ func TestHandleAnthropicMessages_CrossProviderGemini(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["google"]
-	providerBaseURLs["google"] = mockUpstream.URL
-	defer func() { providerBaseURLs["google"] = origURL }()
+	cleanup := overrideProviderBaseURL("google", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 
@@ -692,9 +684,8 @@ func TestHandleAnthropicMessages_CrossProviderGemini_Streaming(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["google"]
-	providerBaseURLs["google"] = mockUpstream.URL
-	defer func() { providerBaseURLs["google"] = origURL }()
+	cleanup := overrideProviderBaseURL("google", mockUpstream.URL)
+	defer cleanup()
 
 	proxy := newTestProxyWithDriver(t)
 

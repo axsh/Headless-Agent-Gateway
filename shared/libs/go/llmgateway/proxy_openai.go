@@ -520,9 +520,9 @@ func isStreamRequest(body []byte) bool {
 }
 
 // toBifrostProvider converts tern provider name to Bifrost ModelProvider.
-// Uses the providerNameMap defined in bifrost_account.go.
+// Uses the Provider Registry first, then falls back to static mapping.
 func toBifrostProvider(provider string) bifrostSchemas.ModelProvider {
-	if mp, ok := providerNameMap[provider]; ok {
+	if mp, ok := resolveProviderName(provider); ok {
 		return mp
 	}
 	return bifrostSchemas.ModelProvider(provider)

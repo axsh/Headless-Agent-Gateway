@@ -2,39 +2,64 @@
 
 > Fly with the best agent. Anywhere. Anytime.
 
-The Arctic Tern makes one of the longest migrations on Earth.
+Tern is an open-source framework for running Coding Agents and Language Models through a common interoperability layer.
 
-It never stays where conditions are no longer optimal.
+The project is built around a simple belief:
 
-When the environment changes, it moves.
+**The AI ecosystem evolves too quickly to commit to a single agent forever.**
 
-We believe developers should be able to do the same.
+New Coding Agents appear regularly.
+New Language Models continuously redefine what is possible.
+Local inference is becoming increasingly practical.
+Deployment requirements vary across organizations and projects.
 
-The AI ecosystem evolves too quickly to commit to a single agent forever.
+Developers should be able to adapt to these changes without rebuilding their workflows each time.
 
-Tern helps you keep your context while the ecosystem evolves around you.
-
----
-
-## What is Tern?
-
-Tern is an open-source framework that lets you use any Coding Agent with any Language Model through a unified interface.
-
-More importantly, Tern is being designed around a simple idea:
-
-**Your work should not be trapped inside a single agent, model, or vendor ecosystem.**
-
-Today you may prefer Claude Code.
-
-Tomorrow you may prefer Codex.
-
-Next year an entirely new agent may become the best choice.
-
-Tern allows you to adapt without starting over.
+Tern aims to make that possible by enabling portable context, agent interoperability, and model interoperability.
 
 ---
 
-## Quick Example
+## Why Tern?
+
+The Arctic Tern is known for making one of the longest migrations on Earth.
+
+Rather than remaining in one place, it continuously moves toward better conditions.
+
+We believe software tooling should be able to evolve in a similar way.
+
+A developer may prefer Claude Code today, Codex tomorrow, and a completely different agent next year. The same is true for Language Models, where capabilities, pricing, privacy requirements, and deployment options continue to change.
+
+Tern is designed to help developers adapt to these changes while preserving the most important asset in an AI workflow: context.
+
+---
+
+## What Tern Provides
+
+Tern focuses on three capabilities.
+
+### Context Portability
+
+Work performed in one environment should not become inaccessible when moving to another.
+
+Tern is being designed around portable context that can move with the developer as tools evolve.
+
+### Agent Interoperability
+
+Coding Agents should be interchangeable.
+
+Applications should not need to be rewritten whenever a new Coding Agent becomes available.
+
+### Model Interoperability
+
+Language Models should be interchangeable.
+
+Developers should be free to choose between hosted services, private deployments, and local inference depending on their requirements.
+
+---
+
+## Example
+
+The intended developer experience is intentionally simple.
 
 ```go
 agent := tern.New()
@@ -45,105 +70,56 @@ agent.Model("claude-sonnet")
 result, err := agent.Run(task)
 ```
 
-Switch agents:
+Changing the underlying agent:
 
 ```go
 agent.Use("codex")
 agent.Model("gpt-5")
 ```
 
-Switch models:
+Changing the underlying model:
 
 ```go
 agent.Use("claude-code")
 agent.Model("qwen3-local")
 ```
 
-The goal is simple:
-
-Keep your workflow.
-
-Keep your context.
-
-Adapt continuously.
+The surrounding application should remain unchanged.
 
 ---
 
-## Why Tern?
+## Example Use Cases
 
-The AI ecosystem moves incredibly fast.
+### Maintain Existing Workflows
 
-New models become state-of-the-art.
+Organizations often standardize on a Coding Agent while allowing flexibility in model selection.
 
-New Coding Agents introduce better workflows.
+Examples include:
 
-Local models become practical.
+* Claude Code with hosted Anthropic models
+* Claude Code with private Anthropic-compatible deployments
+* Claude Code with local inference infrastructure
 
-Hosted services evolve.
+### Evaluate New Models
 
-Pricing changes.
+Teams should be able to experiment with new models without rebuilding integrations.
 
-Capabilities change.
-
-Developers naturally want to use whatever works best today.
-
-The problem is not choice.
-
-The problem is migration.
-
-Changing agents, changing models, or moving between cloud and local deployments often requires rebuilding workflows, integrations, tooling, and habits.
-
-Many developers simply stay where they are because moving is expensive.
-
-Tern exists to reduce that friction.
-
----
-
-## Use Cases
-
-### Keep Your Favorite Agent
-
-Use the Coding Agent you like most while choosing the model that best fits your requirements.
-
-Examples:
-
-* Claude Code + Claude
-* Claude Code + private Anthropic-compatible endpoint
-* Claude Code + local deployment
-
----
-
-### Move Between Model Providers
-
-Switch models without rebuilding your workflow.
-
-Examples:
+Examples include:
 
 * GPT-5 → GPT-OSS
 * Gemini → Gemma
-* Cloud → Local
-* Hosted → Private
+* Hosted → Local
+* Cloud → Private
 
----
+### Reduce Migration Costs
 
-### Reduce Vendor Lock-In
+The cost of changing tools often exceeds the cost of adopting them.
 
-Keep your options open as the ecosystem evolves.
-
-Choose based on:
-
-* Quality
-* Cost
-* Privacy
-* Compliance
-* Latency
-* Availability
-
----
+Tern aims to reduce that cost by providing common interfaces and portable context.
 
 ### Future: Context-Preserving Agent Migration
 
-Our long-term goal is to allow developers to move between Coding Agents while preserving context.
+A long-term goal of the project is to support movement between Coding Agents while preserving context and workflow continuity.
 
 ```text
 Claude Code
@@ -153,9 +129,7 @@ Claude Code
  Gemini CLI
 ```
 
-without losing the work already done.
-
-This is one of the core ideas behind Tern.
+without requiring developers to start over.
 
 ---
 
@@ -168,33 +142,32 @@ We envision a future where:
 * Language Models are interchangeable
 * Local and cloud deployments coexist
 * Vendor lock-in becomes optional
-* Developers continuously adapt as the ecosystem evolves
 
-Tern is being built to make that future possible.
+Tern is being built to support that future.
 
 ---
 
-## Core Principles
+## Architecture Overview
 
-### Context Portability
+Tern consists of three major components.
 
-Your work should not be trapped inside a single agent.
+### CAWA
 
-### Agent Neutral
+Coding Agent Web API.
 
-Use the Coding Agent that works best for you.
+CAWA defines a common interface for Coding Agents.
 
-### Model Neutral
+### LLMGP
 
-Use the Language Model that works best for you.
+LLM Gateway Protocol.
 
-### Local First
+LLMGP defines a common interface for Language Models and inference backends.
 
-Local models should be first-class citizens.
+### Integration Layer
 
-### Open Standards
+The Integration Layer connects Coding Agents and Language Models through a unified abstraction.
 
-Interoperability should be built into the ecosystem.
+Additional architectural details will be documented separately.
 
 ---
 
@@ -214,8 +187,8 @@ Interoperability should be built into the ecosystem.
 
 * [ ] Session portability
 * [ ] Context export/import
-* [ ] Model switching
 * [ ] Agent switching
+* [ ] Model switching
 
 ### Phase 3
 
@@ -225,95 +198,11 @@ Interoperability should be built into the ecosystem.
 
 ---
 
-## Internal Architecture
+## Status
 
-Tern consists of three major components:
+Tern is currently in the early design and implementation phase.
 
-### CAWA
-
-**Coding Agent Web API**
-
-A common interface for Coding Agents.
-
-CAWA aims to provide a consistent API regardless of the underlying agent implementation.
-
-Supported adapters will eventually include:
-
-* Claude Code
-* Codex
-* Gemini CLI
-* Additional future agents
-
----
-
-### LLMGP
-
-**LLM Gateway Protocol**
-
-A common interface for Language Models.
-
-LLMGP allows agents to communicate with:
-
-* OpenAI
-* Anthropic
-* Gemini
-* Ollama
-* vLLM
-* llama.cpp
-* Future model providers
-
-through a unified abstraction layer.
-
----
-
-### Integration Layer
-
-The Integration Layer connects Coding Agents and Language Models through common interfaces.
-
-```text
-Application
-      │
-      ▼
-
-     Tern
-
- ├─ CAWA
- │   ├─ Claude Code
- │   ├─ Codex
- │   ├─ Gemini CLI
- │   └─ Future Agents
- │
- ├─ LLMGP
- │   ├─ OpenAI
- │   ├─ Anthropic
- │   ├─ Gemini
- │   ├─ Ollama
- │   ├─ vLLM
- │   ├─ llama.cpp
- │   └─ Future Models
- │
- └─ Integration Layer
-```
-
----
-
-## Open Standards
-
-### Coding Agent Web API (CAWA)
-
-CAWA aims to provide a common interoperability layer for Coding Agents.
-
-Comparable examples include:
-
-* OpenAPI for HTTP APIs
-* OCI for containers
-* MCP for AI tool integration
-
-We believe Coding Agents will eventually need a similar interoperability layer.
-
-Status: Early design phase.
-
-Contributors welcome.
+Contributors, reviewers, and early adopters are welcome.
 
 ---
 
@@ -329,18 +218,6 @@ TODO: Write quick start guide.
 
 ---
 
-## Supported Agents
-
-TODO: Add support matrix.
-
----
-
-## Supported Models
-
-TODO: Add support matrix.
-
----
-
 ## Documentation
 
 TODO: Add documentation links.
@@ -349,46 +226,15 @@ TODO: Add documentation links.
 
 ## Design Documents
 
-TODO: Add architecture and protocol specifications.
+TODO: Publish architecture and protocol specifications.
 
 ---
 
 ## Contributing
 
-Tern is still in its early stages.
+Ideas, experiments, implementation feedback, and specification discussions are welcome.
 
-We are actively looking for:
-
-* Contributors
-* Early adopters
-* Adapter developers
-* Protocol designers
-* Specification reviewers
-* Architecture discussions
-
-Ideas, experiments, criticism, and feedback are all welcome.
-
-Please open an issue and join the discussion.
-
----
-
-## FAQ
-
-### Is Tern another Coding Agent?
-
-No.
-
-Tern is the interoperability layer around Coding Agents and Language Models.
-
-### Is Tern another model provider?
-
-No.
-
-Tern works with existing model providers and local inference engines.
-
-### Why build Tern?
-
-Because the ecosystem evolves too quickly to commit to a single agent forever.
+Please open an issue to start a conversation.
 
 ---
 

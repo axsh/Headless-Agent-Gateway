@@ -72,9 +72,8 @@ func TestHandleOpenAIChatCompletions_KnownModel_ForwardsToUpstream(t *testing.T)
 	defer mockUpstream.Close()
 
 	// Temporarily override the base URL
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	cfg := &config.AppConfig{}
 	profiles := testProfiles()
@@ -117,9 +116,8 @@ func TestHandleOpenAIChatCompletions_Stream(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	cfg := &config.AppConfig{}
 	profiles := testProfiles()
@@ -173,9 +171,8 @@ func TestHandleOpenAIChatCompletions_ToolCallFallback(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	origURL := providerBaseURLs["openai"]
-	providerBaseURLs["openai"] = mockUpstream.URL
-	defer func() { providerBaseURLs["openai"] = origURL }()
+	cleanup := overrideProviderBaseURL("openai", mockUpstream.URL)
+	defer cleanup()
 
 	cfg := &config.AppConfig{}
 

@@ -10,16 +10,25 @@ import (
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 )
 
-// providerNameMap maps tern provider names to Bifrost ModelProvider constants.
-var providerNameMap = map[string]bifrostSchemas.ModelProvider{
-	"anthropic": bifrostSchemas.Anthropic,
-	"openai":    bifrostSchemas.OpenAI,
-	"ollama":    bifrostSchemas.Ollama,
-	"bedrock":   bifrostSchemas.Bedrock,
-	"azure":     bifrostSchemas.Azure,
-	"cohere":    bifrostSchemas.Cohere,
-	"gemini":    bifrostSchemas.Gemini,
-	"google":    bifrostSchemas.Gemini, // tern uses "google" in model_profiles.yaml
+// fallbackProviderNameMap covers providers not yet migrated to the Provider Registry.
+// These entries are used as a fallback when GetProvider() returns false.
+var fallbackProviderNameMap = map[string]bifrostSchemas.ModelProvider{
+	"bedrock": bifrostSchemas.Bedrock,
+	"azure":   bifrostSchemas.Azure,
+	"cohere":  bifrostSchemas.Cohere,
+	"gemini":  bifrostSchemas.Gemini,
+}
+
+// resolveProviderName maps a tern provider name to a Bifrost ModelProvider.
+// Checks the Provider Registry first, then falls back to static map.
+func resolveProviderName(name string) (bifrostSchemas.ModelProvider, bool) {
+	if p, ok := GetProvider(name); ok {
+		return p.BifrostProvider(), true
+	}
+	if mp, ok := fallbackProviderNameMap[name]; ok {
+		return mp, true
+	}
+	return "", false
 }
 
 // BifrostAccount implements bifrost schemas.Account interface
@@ -52,7 +61,7 @@ func (a *BifrostAccount) GetConfiguredProviders() ([]bifrostSchemas.ModelProvide
 
 	providers := make([]bifrostSchemas.ModelProvider, 0, len(a.profiles.Providers))
 	for name := range a.profiles.Providers {
-		mp, ok := providerNameMap[name]
+		mp, ok := resolveProviderName(name)
 		if !ok {
 			// Use the raw name as a custom provider key
 			mp = bifrostSchemas.ModelProvider(name)
@@ -71,7 +80,7 @@ func (a *BifrostAccount) GetKeysForProvider(ctx context.Context, providerKey bif
 	// Find the provider config by matching the Bifrost ModelProvider key
 	var provCfg *config.ProviderConfig
 	for name, cfg := range a.profiles.Providers {
-		mp, ok := providerNameMap[name]
+		mp, ok := resolveProviderName(name)
 		if !ok {
 			mp = bifrostSchemas.ModelProvider(name)
 		}
@@ -138,7 +147,7 @@ func (a *BifrostAccount) GetConfigForProvider(providerKey bifrostSchemas.ModelPr
 	// Find the provider config
 	var provCfg *config.ProviderConfig
 	for name, cfg := range a.profiles.Providers {
-		mp, ok := providerNameMap[name]
+		mp, ok := resolveProviderName(name)
 		if !ok {
 			mp = bifrostSchemas.ModelProvider(name)
 		}
