@@ -27,7 +27,7 @@ import (
 
 // testServer starts a tern.Server with KeyringVaultBackend and returns
 // the base URL and a cleanup function.
-func testServer(t *testing.T) (string, func()) {
+func testServer(t *testing.T) (string, string, func()) {
 	t.Helper()
 
 	profilesPath, err := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
@@ -56,8 +56,9 @@ func testServer(t *testing.T) (string, func()) {
 
 	gw := srv.Gateway()
 	baseURL := gw.ProxyURL()
+	token := srv.GatewayToken()
 
-	return baseURL, func() {
+	return baseURL, token, func() {
 		_ = srv.Shutdown(t.Context())
 	}
 }
@@ -75,7 +76,7 @@ func checkKeyringAvailable(t *testing.T, provider string) {
 func TestAnthropicMessages_NonStream(t *testing.T) {
 	checkKeyringAvailable(t, "anthropic")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	body := map[string]any{
@@ -85,12 +86,8 @@ func TestAnthropicMessages_NonStream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: hello integration test"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
-	resp, err := http.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages failed: %v", err)
-	}
+	resp := postWithAuth(t, token, nil, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
@@ -117,7 +114,7 @@ func TestAnthropicMessages_NonStream(t *testing.T) {
 func TestOpenAIChatCompletions_NonStream(t *testing.T) {
 	checkKeyringAvailable(t, "openai")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	body := map[string]any{
@@ -127,12 +124,8 @@ func TestOpenAIChatCompletions_NonStream(t *testing.T) {
 		},
 		"max_tokens": 50,
 	}
-	bodyBytes, _ := json.Marshal(body)
 
-	resp, err := http.Post(baseURL+"/v1/chat/completions", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/chat/completions failed: %v", err)
-	}
+	resp := postWithAuth(t, token, nil, baseURL+"/v1/chat/completions", body)
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
@@ -158,7 +151,7 @@ func TestOpenAIChatCompletions_NonStream(t *testing.T) {
 func TestAnthropicMessages_Stream(t *testing.T) {
 	checkKeyringAvailable(t, "anthropic")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	body := map[string]any{
@@ -169,13 +162,9 @@ func TestAnthropicMessages_Stream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: hello streaming test"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages (stream) failed: %v", err)
-	}
+	resp := postWithAuth(t, token, client, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -197,7 +186,7 @@ func TestAnthropicMessages_Stream(t *testing.T) {
 func TestServerLifecycle(t *testing.T) {
 	checkKeyringAvailable(t, "anthropic")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, _, cleanup := testServer(t)
 
 	// Verify server is running
 	resp, err := http.Get(baseURL + "/health")
@@ -225,7 +214,7 @@ func TestServerLifecycle(t *testing.T) {
 func TestCrossProvider_OpenAI_via_AnthropicEndpoint_NonStream(t *testing.T) {
 	checkKeyringAvailable(t, "openai")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	// Send request to /v1/messages (Anthropic endpoint) with OpenAI model.
@@ -238,13 +227,9 @@ func TestCrossProvider_OpenAI_via_AnthropicEndpoint_NonStream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: cross-provider test ok"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages (cross-provider) failed: %v", err)
-	}
+	resp := postWithAuth(t, token, client, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
@@ -281,7 +266,7 @@ func TestCrossProvider_OpenAI_via_AnthropicEndpoint_NonStream(t *testing.T) {
 func TestCrossProvider_OpenAI_via_AnthropicEndpoint_Stream(t *testing.T) {
 	checkKeyringAvailable(t, "openai")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	// Send streaming request to /v1/messages with OpenAI model.
@@ -295,13 +280,9 @@ func TestCrossProvider_OpenAI_via_AnthropicEndpoint_Stream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: cross-provider streaming test ok"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages (cross-provider stream) failed: %v", err)
-	}
+	resp := postWithAuth(t, token, client, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -337,7 +318,7 @@ func TestCrossProvider_OpenAI_via_AnthropicEndpoint_Stream(t *testing.T) {
 func TestResponsesAPI_Codex_via_AnthropicEndpoint_NonStream(t *testing.T) {
 	checkKeyringAvailable(t, "openai")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	// Send request to /v1/messages (Anthropic endpoint) with Codex model.
@@ -350,13 +331,9 @@ func TestResponsesAPI_Codex_via_AnthropicEndpoint_NonStream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: responses api e2e test ok"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages (Codex non-stream) failed: %v", err)
-	}
+	resp := postWithAuth(t, token, client, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
@@ -420,7 +397,7 @@ func TestResponsesAPI_Codex_via_AnthropicEndpoint_NonStream(t *testing.T) {
 func TestResponsesAPI_Codex_via_AnthropicEndpoint_Stream(t *testing.T) {
 	checkKeyringAvailable(t, "openai")
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	// Send streaming request to /v1/messages with Codex model.
@@ -434,13 +411,9 @@ func TestResponsesAPI_Codex_via_AnthropicEndpoint_Stream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: responses api streaming test ok"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages (Codex stream) failed: %v", err)
-	}
+	resp := postWithAuth(t, token, client, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -490,4 +463,26 @@ func TestMain(m *testing.M) {
 	fmt.Println("LLM Integration Tests")
 	fmt.Println("Prerequisites: API keys registered via bin/vault-cli")
 	os.Exit(m.Run())
+}
+
+func postWithAuth(t *testing.T, token string, client *http.Client, url string, body any) *http.Response {
+	t.Helper()
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Gateway-Token", token)
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	return resp
 }

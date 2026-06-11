@@ -31,7 +31,7 @@ func checkOllamaAvailable(t *testing.T) {
 func TestOllama_NonStream(t *testing.T) {
 	checkOllamaAvailable(t)
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	body := map[string]any{
@@ -41,13 +41,9 @@ func TestOllama_NonStream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: hello ollama test"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages (Ollama) failed: %v", err)
-	}
+	resp := postWithAuth(t, token, client, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
@@ -75,7 +71,7 @@ func TestOllama_NonStream(t *testing.T) {
 func TestOllama_Stream(t *testing.T) {
 	checkOllamaAvailable(t)
 
-	baseURL, cleanup := testServer(t)
+	baseURL, token, cleanup := testServer(t)
 	defer cleanup()
 
 	body := map[string]any{
@@ -86,13 +82,9 @@ func TestOllama_Stream(t *testing.T) {
 			{"role": "user", "content": "Say exactly: hello ollama streaming"},
 		},
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(baseURL+"/v1/messages", "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		t.Fatalf("POST /v1/messages (Ollama stream) failed: %v", err)
-	}
+	resp := postWithAuth(t, token, client, baseURL+"/v1/messages", body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
