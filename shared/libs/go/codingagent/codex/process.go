@@ -67,6 +67,15 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 		env["CODEX_HOME"] = cfg.SessionDir
 	}
 
+	if runtime.GOOS == "windows" {
+		// Suppress Git Bash path conversion behavior for subprocesses.
+		env["MSYS_NO_PATHCONV"] = "1"
+		// Force Codex to use Windows native cmd.exe instead of bash under Git Bash.
+		// This resolves path mapping issues (e.g. /tmp/...) by avoiding msys-style shell outputs.
+		env["SHELL"] = "C:\\Windows\\System32\\cmd.exe"
+		env["COMSPEC"] = "C:\\Windows\\System32\\cmd.exe"
+	}
+
 	for k, v := range cfg.EnvVars {
 		env[k] = v
 	}
@@ -134,12 +143,8 @@ func StartProcess(
 		return nil, nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 
-	// Close stdin immediately so codex doesn't wait for additional input.
-	stdinPipe, err := cmd.StdinPipe()
-	if err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("stdin pipe: %w", err)
-	}
+	// Suppress stdin warning/blocking by providing an empty reader that returns EOF immediately.
+	cmd.Stdin = bytes.NewReader(nil)
 
 	// R3: Capture stderr for diagnostics.
 	var stderrBuf bytes.Buffer
@@ -150,9 +155,6 @@ func StartProcess(
 		cancel()
 		return nil, nil, fmt.Errorf("start codex: %w", err)
 	}
-
-	// Close stdin immediately after start to prevent "Reading additional input" blocking.
-	stdinPipe.Close()
 
 	ch := make(chan codingagent.StreamEvent, 64)
 	pm := &ProcessManager{cmd: cmd, cancel: cancel, codexHome: codexHome, logger: log}
