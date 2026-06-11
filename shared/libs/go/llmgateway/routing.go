@@ -2,6 +2,7 @@ package llmgateway
 
 import (
 	"sync"
+	"time"
 
 	"github.com/axsh/arctic-tern/config"
 	"github.com/axsh/arctic-tern/logger"
@@ -17,21 +18,38 @@ type RoutedModel struct {
 	ToolCallFallback bool   // enable text-to-tool-call conversion
 }
 
+type sessionEntry struct {
+	model    *RoutedModel
+	lastUsed time.Time
+}
+
 // ModelRouter resolves model names to provider/key/model using model profiles.
 type ModelRouter struct {
 	profiles      *config.ModelProfilesConfig
 	logger        logger.Logger
 	mu            sync.RWMutex
-	sessionModels map[string]*RoutedModel
+	sessionModels map[string]*sessionEntry
+	maxSessions   int
+	sessionTTL    time.Duration
+	accessOrder   []string // LRU order: oldest first
 }
 
 // NewModelRouter creates a ModelRouter from model profiles config.
 // profiles and log may be nil.
-func NewModelRouter(profiles *config.ModelProfilesConfig, log logger.Logger) *ModelRouter {
+func NewModelRouter(profiles *config.ModelProfilesConfig, cfg *config.AppConfig, log logger.Logger) *ModelRouter {
+	maxSessions := 0
+	var sessionTTL time.Duration
+	if cfg != nil {
+		maxSessions = cfg.LLMGateway.Session.MaxSessions
+		sessionTTL = time.Duration(cfg.LLMGateway.Session.TTLSeconds) * time.Second
+	}
 	return &ModelRouter{
 		profiles:      profiles,
 		logger:        log,
-		sessionModels: make(map[string]*RoutedModel),
+		sessionModels: make(map[string]*sessionEntry),
+		maxSessions:   maxSessions,
+		sessionTTL:    sessionTTL,
+		accessOrder:   make([]string, 0),
 	}
 }
 
@@ -97,7 +115,19 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 		if sessionID != "" {
 			r.mu.Lock()
 			if _, exists := r.sessionModels[sessionID]; !exists {
-				r.sessionModels[sessionID] = resolved
+				// Evict oldest if at capacity
+				if r.maxSessions > 0 && len(r.sessionModels) >= r.maxSessions {
+					r.evictOldest()
+				}
+				r.sessionModels[sessionID] = &sessionEntry{
+					model:    resolved,
+					lastUsed: time.Now(),
+				}
+				r.accessOrder = append(r.accessOrder, sessionID)
+			} else {
+				// Update LRU position
+				r.sessionModels[sessionID].lastUsed = time.Now()
+				r.touchAccessOrder(sessionID)
 			}
 			r.mu.Unlock()
 		}
@@ -107,15 +137,57 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 	// 3. If modelName is not found:
 	if sessionID != "" {
 		r.mu.RLock()
-		fallbackModel, exists := r.sessionModels[sessionID]
+		entry, exists := r.sessionModels[sessionID]
 		r.mu.RUnlock()
 		if exists {
-			if r.logger != nil {
-				r.logger.Info("model rewrite: " + modelName + " -> " + fallbackModel.Model + " (sid=" + sessionID + ")")
+			// TTL check
+			if r.sessionTTL > 0 && time.Since(entry.lastUsed) > r.sessionTTL {
+				r.mu.Lock()
+				delete(r.sessionModels, sessionID)
+				r.removeFromAccessOrder(sessionID)
+				r.mu.Unlock()
+				if r.logger != nil {
+					r.logger.Debug("session expired (TTL)", "sid", sessionID)
+				}
+				// Fall through to "not found" error
+			} else {
+				r.mu.Lock()
+				entry.lastUsed = time.Now()
+				r.touchAccessOrder(sessionID)
+				r.mu.Unlock()
+				if r.logger != nil {
+					r.logger.Info("model rewrite: " + modelName + " -> " + entry.model.Model + " (sid=" + sessionID + ")")
+				}
+				return entry.model, nil
 			}
-			return fallbackModel, nil
 		}
 	}
 
 	return nil, ErrModelNotFound
+}
+
+func (r *ModelRouter) evictOldest() {
+	if len(r.accessOrder) == 0 {
+		return
+	}
+	oldest := r.accessOrder[0]
+	r.accessOrder = r.accessOrder[1:]
+	delete(r.sessionModels, oldest)
+	if r.logger != nil {
+		r.logger.Debug("session evicted (max capacity)", "sid", oldest)
+	}
+}
+
+func (r *ModelRouter) touchAccessOrder(sessionID string) {
+	r.removeFromAccessOrder(sessionID)
+	r.accessOrder = append(r.accessOrder, sessionID)
+}
+
+func (r *ModelRouter) removeFromAccessOrder(sessionID string) {
+	for i, sid := range r.accessOrder {
+		if sid == sessionID {
+			r.accessOrder = append(r.accessOrder[:i], r.accessOrder[i+1:]...)
+			break
+		}
+	}
 }

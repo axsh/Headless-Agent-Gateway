@@ -45,7 +45,7 @@ func NewBifrostDriver(
 		profiles: profiles,
 		vault:    vs,
 		logger:   log.WithComponent("bifrost-driver"),
-		router:   NewModelRouter(profiles, log),
+		router:   NewModelRouter(profiles, cfg, log),
 		account:  NewBifrostAccount(profiles, vs, log),
 	}
 
@@ -107,7 +107,7 @@ func (d *BifrostDriver) Shutdown(ctx context.Context) error {
 // ReloadProfiles updates the loaded model profiles at runtime.
 func (d *BifrostDriver) ReloadProfiles(profiles *config.ModelProfilesConfig) {
 	d.profiles = profiles
-	d.router = NewModelRouter(profiles, d.logger)
+	d.router = NewModelRouter(profiles, d.cfg, d.logger)
 	d.account = NewBifrostAccount(profiles, d.vault, d.logger)
 
 	// Reinitialize Bifrost SDK with new account.
