@@ -26,6 +26,7 @@ import (
 
 // startCodexE2EServer starts a tern server with codex agent registered.
 // It uses the standalone model_profiles.yaml and dynamically-assigned ports.
+// Agents are auto-registered via codingagent.CreateAll() in tern.New().
 // Returns the AgentService base URL and a cleanup function.
 func startCodexE2EServer(t *testing.T) (string, func()) {
 	t.Helper()
@@ -71,14 +72,6 @@ agent_service:
 	if err := srv.Launch(ctx); err != nil {
 		t.Fatalf("Launch failed: %v", err)
 	}
-
-	// Register real codex agent with gateway URL.
-	gwURL := srv.Gateway().ProxyURL()
-	codexAdapter := codex.New(&codingagent.AdapterConfig{
-		GatewayURL:   gwURL,
-		DefaultModel: "gpt-4o",
-	})
-	srv.AgentService().RegisterAgent(codexAdapter)
 
 	port := srv.AgentService().Port()
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
