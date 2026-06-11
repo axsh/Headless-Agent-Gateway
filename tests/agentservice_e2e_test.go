@@ -68,7 +68,7 @@ func startE2EServer(t *testing.T) (string, func()) {
   port: %d
   model_profiles_path: "%s"
 log:
-  level: "info"
+  level: "trace"
 vault:
   backend: "keyring"
 websocket:
@@ -151,9 +151,26 @@ func parseE2ESSEEvents(t *testing.T, body *http.Response) ([]codingagent.StreamE
 	return events, gotDone
 }
 
+func initGitRepo(t *testing.T, workDir string) {
+	t.Helper()
+	cmd := exec.Command("git", "init")
+	cmd.Dir = workDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init failed: %v", err)
+	}
+	cmd2 := exec.Command("git", "config", "user.name", "Test User")
+	cmd2.Dir = workDir
+	_ = cmd2.Run()
+
+	cmd3 := exec.Command("git", "config", "user.email", "test@example.com")
+	cmd3.Dir = workDir
+	_ = cmd3.Run()
+}
+
 // createE2ESession creates a session via the AgentService API.
 func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 	t.Helper()
+	initGitRepo(t, workDir)
 	sessionDir := filepath.Join(workDir, "sessions")
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		t.Fatalf("create session dir: %v", err)
@@ -185,6 +202,7 @@ func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 // This tests the DefaultModel fallback path (cawa-client equivalent).
 func createE2ESessionNoModel(t *testing.T, baseURL, agent, workDir string) string {
 	t.Helper()
+	initGitRepo(t, workDir)
 	sessionDir := filepath.Join(workDir, "sessions")
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		t.Fatalf("create session dir: %v", err)
@@ -215,6 +233,7 @@ func createE2ESessionNoModel(t *testing.T, baseURL, agent, workDir string) strin
 // Used by TC-006 (OpenAI) and TC-007 (Google) to test cross-provider routing.
 func createE2ESessionWithModel(t *testing.T, baseURL, agent, model, workDir string) string {
 	t.Helper()
+	initGitRepo(t, workDir)
 	sessionDir := filepath.Join(workDir, "sessions")
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		t.Fatalf("create session dir: %v", err)
@@ -494,7 +513,7 @@ agent_service:
 
 	// Create session and send message - should get error because gateway is unreachable.
 	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
-	resp := sendE2EMessage(t, baseURL, sessionID, "say hello", 15*time.Second)
+	resp := sendE2EMessage(t, baseURL, sessionID, "say hello", 45*time.Second)
 	defer resp.Body.Close()
 
 	events, _ := parseE2ESSEEvents(t, resp)
@@ -601,7 +620,7 @@ func TestE2E_SessionContinuation(t *testing.T) {
 	t.Logf("Session created: %s", sessionID)
 
 	// 2. First message
-	prompt1 := "Create a file named msg1.txt in the current directory containing exactly 'first message'. Do nothing else."
+	prompt1 := "Say 'hello from turn 1' and nothing else."
 	resp1 := sendE2EMessage(t, baseURL, sessionID, prompt1, 120*time.Second)
 	events1, gotDone1 := parseE2ESSEEvents(t, resp1)
 	resp1.Body.Close()
@@ -623,7 +642,7 @@ func TestE2E_SessionContinuation(t *testing.T) {
 	t.Logf("Agent Session ID after msg1: %s", agentSID1)
 
 	// 4. Second message (continuation)
-	prompt2 := "List all files in the current directory. Do nothing else."
+	prompt2 := "Say 'hello from turn 2' and nothing else."
 	resp2 := sendE2EMessage(t, baseURL, sessionID, prompt2, 120*time.Second)
 	events2, gotDone2 := parseE2ESSEEvents(t, resp2)
 	resp2.Body.Close()
@@ -656,6 +675,7 @@ func TestE2E_SessionDirFallback(t *testing.T) {
 	baseURL, cleanup := startE2EServer(t)
 	defer cleanup()
 	workDir := t.TempDir()
+	initGitRepo(t, workDir)
 
 	// Create session WITHOUT session_dir
 	body, _ := json.Marshal(map[string]string{

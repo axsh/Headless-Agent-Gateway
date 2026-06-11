@@ -20,9 +20,10 @@ const gracefulShutdownTimeout = 5 * time.Second
 
 // ProcessManager manages a Claude CLI subprocess.
 type ProcessManager struct {
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
-	logger logger.Logger
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	logger    logger.Logger
+	stderrBuf *bytes.Buffer
 }
 
 // BuildArgs constructs claude CLI arguments from SessionConfig.
@@ -84,6 +85,15 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 	// Session data storage directory override.
 	if cfg.SessionDir != "" {
 		env["CLAUDE_CONFIG_DIR"] = cfg.SessionDir
+	}
+
+	if runtime.GOOS == "windows" {
+		// Suppress Git Bash path conversion behavior for subprocesses.
+		env["MSYS_NO_PATHCONV"] = "1"
+		// Force Claude Code to use Windows native cmd.exe instead of bash under Git Bash.
+		// This resolves path mapping issues (e.g. /tmp/...) by avoiding msys-style shell outputs.
+		env["SHELL"] = "C:\\Windows\\System32\\cmd.exe"
+		env["COMSPEC"] = "C:\\Windows\\System32\\cmd.exe"
 	}
 
 	for k, v := range cfg.EnvVars {
@@ -150,7 +160,7 @@ func StartProcess(
 	}
 
 	ch := make(chan codingagent.StreamEvent, 64)
-	pm := &ProcessManager{cmd: cmd, cancel: cancel, logger: log}
+	pm := &ProcessManager{cmd: cmd, cancel: cancel, logger: log, stderrBuf: &stderrBuf}
 
 	go func() {
 		defer close(ch)
@@ -200,6 +210,13 @@ func (pm *ProcessManager) Stop() error {
 	}
 
 	pm.logger.Debug("stopping claude CLI process")
+
+	if pm.stderrBuf != nil {
+		stderrStr := strings.TrimSpace(pm.stderrBuf.String())
+		if stderrStr != "" {
+			fmt.Printf("[DEBUG-CLAUDE-STOP-STDERR] session_pid=%d stderr:\n%s\n", pm.cmd.Process.Pid, stderrStr)
+		}
+	}
 
 	// Windows: no SIGTERM, just kill
 	if runtime.GOOS == "windows" {
