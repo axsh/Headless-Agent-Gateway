@@ -1,4 +1,4 @@
-# 001-Factory-Registry-Bifrost-Part2
+# 041-Factory-Registry-Bifrost-Part2
 
 > **Source Specification**: prompts/phases/000-foundation/branches/feat-llm-backend/ideas/030-Factory-Registry-And-Bifrost-Unification.md
 
