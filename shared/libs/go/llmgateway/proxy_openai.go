@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	bifrostOpenAI "github.com/maximhq/bifrost/core/providers/openai"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
 	"github.com/axsh/hag/vault"
@@ -170,8 +171,11 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 	}
 	defer r.Body.Close()
 
-	var req openaiRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	// Full-parse into Bifrost's OpenAIResponsesRequest to enable typed conversion.
+	// This populates Instructions, ToolChoice, Tools etc. in ResponsesParameters,
+	// allowing Bifrost SDK's requestConverter to translate them to provider-native formats.
+	var oaiReq bifrostOpenAI.OpenAIResponsesRequest
+	if err := json.Unmarshal(body, &oaiReq); err != nil {
 		WriteErrorResponse(w, &GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
@@ -180,6 +184,9 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
+
+	// Wrap model in openaiRequest for compatibility with routing and legacy fallback code.
+	req := openaiRequest{Model: oaiReq.Model}
 
 	p.logger.Debug("openai responses request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
 
@@ -238,32 +245,23 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 		"key", MaskSecret(apiKey),
 	)
 
-	// Rewrite model field in body if it has changed due to routing
-	forwardBody := body
-	if routed.Model != req.Model {
-		forwardBody = rewriteModelField(body, req.Model, routed.Model)
-	}
-
 	bodyStr := string(body)
 	if len(bodyStr) > 10240 {
 		bodyStr = bodyStr[:10240] + "..."
 	}
 	p.logger.Trace("openai responses request body", "body", bodyStr)
 
-	// Build BifrostResponsesRequest with raw body passthrough.
-	// Input must be non-nil to pass Bifrost's validation guard (bifrost.go:859).
-	// With RawRequestBody + UseRawRequestBody, the actual body bypasses Input entirely.
-	providerKey := toBifrostProvider(routed.Provider)
-	bifrostReq := &bifrostSchemas.BifrostResponsesRequest{
-		Provider:       providerKey,
-		Model:          routed.Model,
-		Input:          []bifrostSchemas.ResponsesMessage{},
-		RawRequestBody: forwardBody,
-	}
-
-	// Build BifrostContext with raw body mode enabled.
+	// Build BifrostResponsesRequest via typed conversion path.
+	// ToBifrostResponsesRequest populates Input and Params (Instructions, ToolChoice, Tools, etc.)
+	// from the fully-parsed OpenAIResponsesRequest. Bifrost SDK's requestConverter then
+	// translates these to provider-native formats (e.g. instructions -> SystemInstruction for Gemini).
 	bifrostCtx := bifrostSchemas.NewBifrostContext(r.Context(), bifrostSchemas.NoDeadline)
-	bifrostCtx.SetValue(bifrostSchemas.BifrostContextKeyUseRawRequestBody, true)
+	bifrostReq := oaiReq.ToBifrostResponsesRequest(bifrostCtx)
+
+	// Override provider and model with routing results.
+	providerKey := toBifrostProvider(routed.Provider)
+	bifrostReq.Provider = providerKey
+	bifrostReq.Model = routed.Model
 
 	p.logger.Debug("bifrost request constructed",
 		"provider", providerKey, "model", routed.Model,
