@@ -1,12 +1,10 @@
 package llmgateway
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
@@ -102,15 +100,17 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		"key", MaskSecret(apiKey),
 	)
 
-	// Bifrost SDK primary path
-	if p.driver.bifrostSDK != nil {
-		p.handleAnthropicMessagesViaBifrost(w, r, body, routed)
+	// Bifrost SDK path (required)
+	if p.driver.bifrostSDK == nil {
+		WriteErrorResponse(w, &GatewayError{
+			Type:    "api_error",
+			Message: "Bifrost SDK not initialized",
+			Code:    "not_configured",
+			Status:  http.StatusServiceUnavailable,
+		})
 		return
 	}
-
-	// Legacy fallback (to be removed in R7)
-	p.logger.Debug("bifrost SDK not available, using legacy forwarder for /v1/messages")
-	p.handleAnthropicMessagesLegacy(w, r, body, &req, routed, apiKey)
+	p.handleAnthropicMessagesViaBifrost(w, r, body, routed)
 }
 
 // handleAnthropicMessagesViaBifrost handles /v1/messages via Bifrost SDK.
@@ -424,256 +424,4 @@ func emitSSEJSON(w http.ResponseWriter, flusher http.Flusher, eventType string, 
 	flusher.Flush()
 }
 
-// handleAnthropicMessagesLegacy is the legacy forwarding path for /v1/messages.
-// Used when Bifrost SDK is not initialized. Will be removed in R7.
-func (p *ProxyServer) handleAnthropicMessagesLegacy(
-	w http.ResponseWriter, r *http.Request,
-	body []byte, req *anthropicRequest, routed *RoutedModel, apiKey string,
-) {
-	// Determine forwarding path and body based on provider.
-	var (
-		forwardPath string
-		forwardBody []byte
-	)
 
-	switch routed.Provider {
-	case "anthropic":
-		forwardPath = "/v1/messages"
-		forwardBody = body
-		if routed.Model != req.Model {
-			forwardBody = rewriteModelField(body, req.Model, routed.Model)
-		}
-	case "google":
-		forwardPath = fmt.Sprintf("/v1beta/models/%s:generateContent", routed.Model)
-		if req.Stream != nil && *req.Stream {
-			forwardPath = fmt.Sprintf("/v1beta/models/%s:streamGenerateContent?alt=sse", routed.Model)
-		}
-		p.logger.Debug("converting anthropic request", "direction", "anthropic->gemini", "target_path", forwardPath)
-		converted, convErr := ConvertAnthropicRequestToGemini(body, p.logger)
-		if convErr != nil {
-			WriteErrorResponse(w, &GatewayError{
-				Type:    "api_error",
-				Message: "failed to convert request to Gemini format: " + convErr.Error(),
-				Code:    "conversion_error",
-				Status:  http.StatusInternalServerError,
-			})
-			return
-		}
-		forwardBody = converted
-		p.logger.Info("cross-provider conversion", "direction", "anthropic->gemini", "model", routed.Model)
-	case "openai":
-		if routed.Mode == "responses" {
-			// Responses API route for Codex and similar models.
-			forwardPath = "/v1/responses"
-			p.logger.Debug("converting anthropic request", "direction", "anthropic->responses", "target_path", forwardPath)
-			converted, convErr := ConvertAnthropicRequestToResponses(body, p.logger)
-			if convErr != nil {
-				WriteErrorResponse(w, &GatewayError{
-					Type:    "api_error",
-					Message: "failed to convert request to Responses API format: " + convErr.Error(),
-					Code:    "conversion_error",
-					Status:  http.StatusInternalServerError,
-				})
-				return
-			}
-			forwardBody = converted
-			p.logger.Info("cross-provider conversion", "direction", "anthropic->responses", "model", routed.Model)
-		} else {
-			// Chat Completions API route (default).
-			forwardPath = "/v1/chat/completions"
-			p.logger.Debug("converting anthropic request", "direction", "anthropic->openai", "target_path", forwardPath)
-			converted, convErr := ConvertAnthropicRequestToOpenAI(body)
-			if convErr != nil {
-				WriteErrorResponse(w, &GatewayError{
-					Type:    "api_error",
-					Message: "failed to convert request to OpenAI format: " + convErr.Error(),
-					Code:    "conversion_error",
-					Status:  http.StatusInternalServerError,
-				})
-				return
-			}
-			forwardBody = converted
-			p.logger.Info("cross-provider conversion", "direction", "anthropic->openai", "model", routed.Model)
-		}
-	default:
-		WriteErrorResponse(w, &GatewayError{
-			Type:    "api_error",
-			Message: "cross-provider translation not supported for: " + routed.Provider,
-			Code:    "unsupported_translation",
-			Status:  http.StatusBadRequest,
-		})
-		return
-	}
-
-	bodyStr := string(body)
-	if len(bodyStr) > 10240 {
-		bodyStr = bodyStr[:10240] + "..."
-	}
-	p.logger.Trace("anthropic request body", "body", bodyStr)
-
-	fwdBodyStr := string(forwardBody)
-	if len(fwdBodyStr) > 10240 {
-		fwdBodyStr = fwdBodyStr[:10240] + "..."
-	}
-	p.logger.Trace("converted request body", "body", fwdBodyStr)
-
-	// Forward to upstream provider with retry.
-	fwd := newProviderForwarder()
-	retryCfg := p.buildRetryConfig()
-	resp, err := fwd.forwardWithRetry(r.Context(), routed.Provider, forwardPath, forwardBody, apiKey, r.Header, retryCfg, p.logger)
-	if err != nil {
-		if gwErr, ok := err.(*GatewayError); ok {
-			WriteErrorResponse(w, gwErr)
-		} else {
-			WriteErrorResponse(w, &GatewayError{
-				Type:    "api_error",
-				Message: "upstream request failed: " + err.Error(),
-				Code:    "upstream_error",
-				Status:  http.StatusBadGateway,
-			})
-		}
-		return
-	}
-	defer resp.Body.Close()
-
-	p.logger.Debug("upstream response received", "status", resp.StatusCode, "content_type", resp.Header.Get("Content-Type"))
-	p.logger.Trace("upstream response headers", "headers", fmt.Sprintf("%+v", resp.Header))
-
-	// Cross-provider response conversion (OpenAI -> Anthropic / Google -> Anthropic).
-	if resp.StatusCode == http.StatusOK && (routed.Provider == "openai" || routed.Provider == "google") {
-		if routed.Provider == "google" {
-			// Streaming: convert Gemini SSE -> Anthropic SSE
-			if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				w.Header().Set("Connection", "keep-alive")
-				w.WriteHeader(http.StatusOK)
-				if streamErr := ConvertGeminiStreamToAnthropic(resp.Body, w, routed.Model, p.logger); streamErr != nil {
-					p.logger.Error("gemini stream conversion error", "error", streamErr.Error(), "body_size", len(body), "model", routed.Model, "provider", routed.Provider)
-				}
-				return
-			}
-
-			// Non-streaming: convert full response
-			respBody, readErr := io.ReadAll(resp.Body)
-			if readErr != nil {
-				WriteErrorResponse(w, &GatewayError{
-					Type:    "api_error",
-					Message: "failed to read upstream response",
-					Code:    "upstream_read_error",
-					Status:  http.StatusBadGateway,
-				})
-				return
-			}
-			converted, convErr := ConvertGeminiResponseToAnthropic(respBody, routed.Model, p.logger)
-			if convErr != nil {
-				WriteErrorResponse(w, &GatewayError{
-					Type:    "api_error",
-					Message: "failed to convert response from Gemini format: " + convErr.Error(),
-					Code:    "conversion_error",
-					Status:  http.StatusInternalServerError,
-				})
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write(converted)
-			return
-		}
-
-		if routed.Mode == "responses" {
-			// Responses API response conversion.
-			if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				w.Header().Set("Connection", "keep-alive")
-				w.WriteHeader(http.StatusOK)
-				if streamErr := ConvertResponsesStreamToAnthropic(resp.Body, w, routed.Model, p.logger); streamErr != nil {
-					p.logger.Error("responses stream conversion error", "error", streamErr.Error(), "body_size", len(body), "model", routed.Model, "provider", routed.Provider)
-				}
-				return
-			}
-
-			respBody, readErr := io.ReadAll(resp.Body)
-			if readErr != nil {
-				WriteErrorResponse(w, &GatewayError{
-					Type:    "api_error",
-					Message: "failed to read upstream response",
-					Code:    "upstream_read_error",
-					Status:  http.StatusBadGateway,
-				})
-				return
-			}
-			converted, convErr := ConvertResponsesResponseToAnthropic(respBody, routed.Model, p.logger)
-			if convErr != nil {
-				WriteErrorResponse(w, &GatewayError{
-					Type:    "api_error",
-					Message: "failed to convert response from Responses API format: " + convErr.Error(),
-					Code:    "conversion_error",
-					Status:  http.StatusInternalServerError,
-				})
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write(converted)
-			return
-		}
-
-		// Chat Completions API response conversion (default).
-		// Streaming: convert OpenAI SSE -> Anthropic SSE
-		if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
-			w.WriteHeader(http.StatusOK)
-			if streamErr := ConvertOpenAIStreamToAnthropic(resp.Body, w, routed.Model, p.logger); streamErr != nil {
-				p.logger.Error("stream conversion error", "error", streamErr.Error(), "body_size", len(body), "model", routed.Model, "provider", routed.Provider)
-			}
-			return
-		}
-
-		// Non-streaming: convert full response
-		respBody, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			WriteErrorResponse(w, &GatewayError{
-				Type:    "api_error",
-				Message: "failed to read upstream response",
-				Code:    "upstream_read_error",
-				Status:  http.StatusBadGateway,
-			})
-			return
-		}
-		converted, convErr := ConvertOpenAIResponseToAnthropic(respBody, routed.Model)
-		if convErr != nil {
-			WriteErrorResponse(w, &GatewayError{
-				Type:    "api_error",
-				Message: "failed to convert response from OpenAI format: " + convErr.Error(),
-				Code:    "conversion_error",
-				Status:  http.StatusInternalServerError,
-			})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(converted)
-		return
-	}
-
-	// Apply ToolCallFallback if enabled (anthropic provider only).
-	if routed.ToolCallFallback && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-		respBody, err := io.ReadAll(resp.Body)
-		if err == nil {
-			rewritten, ok := TryFallbackAnthropicResponse(respBody)
-			if ok {
-				p.logger.Warn("tool call fallback applied", "model", routed.Model)
-				resp.Body = io.NopCloser(bytes.NewReader(rewritten))
-				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(rewritten)))
-			} else {
-				resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			}
-		}
-	}
-
-	proxyResponse(w, resp)
-}
