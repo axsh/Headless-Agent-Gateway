@@ -154,10 +154,15 @@ func parseE2ESSEEvents(t *testing.T, body *http.Response) ([]codingagent.StreamE
 // createE2ESession creates a session via the AgentService API.
 func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 	t.Helper()
+	sessionDir := filepath.Join(workDir, "sessions")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
 	body, _ := json.Marshal(map[string]string{
-		"agent":    agent,
-		"model":    e2eDefaultModel,
-		"work_dir": workDir,
+		"agent":       agent,
+		"model":       e2eDefaultModel,
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
 	})
 	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -180,9 +185,14 @@ func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 // This tests the DefaultModel fallback path (cawa-client equivalent).
 func createE2ESessionNoModel(t *testing.T, baseURL, agent, workDir string) string {
 	t.Helper()
+	sessionDir := filepath.Join(workDir, "sessions")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
 	body, _ := json.Marshal(map[string]string{
-		"agent":    agent,
-		"work_dir": workDir,
+		"agent":       agent,
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
 	})
 	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -205,10 +215,15 @@ func createE2ESessionNoModel(t *testing.T, baseURL, agent, workDir string) strin
 // Used by TC-006 (OpenAI) and TC-007 (Google) to test cross-provider routing.
 func createE2ESessionWithModel(t *testing.T, baseURL, agent, model, workDir string) string {
 	t.Helper()
+	sessionDir := filepath.Join(workDir, "sessions")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
 	body, _ := json.Marshal(map[string]string{
-		"agent":    agent,
-		"model":    model,
-		"work_dir": workDir,
+		"agent":       agent,
+		"model":       model,
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
 	})
 	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -569,33 +584,7 @@ func TestE2E_CodingAgentDefaultModel(t *testing.T) {
 	t.Logf("File created: %s (%d bytes)", filePath, len(content))
 }
 
-// --- Helper: createE2ESessionWithSessionDir ---
 
-// createE2ESessionWithSessionDir creates a session with session_dir specified.
-func createE2ESessionWithSessionDir(t *testing.T, baseURL, agent, workDir, sessionDir string) string {
-	t.Helper()
-	body, _ := json.Marshal(map[string]string{
-		"agent":       agent,
-		"model":       e2eDefaultModel,
-		"work_dir":    workDir,
-		"session_dir": sessionDir,
-	})
-	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create session: expected 201, got %d", resp.StatusCode)
-	}
-	var result map[string]string
-	json.NewDecoder(resp.Body).Decode(&result)
-	sid := result["session_id"]
-	if sid == "" {
-		t.Fatal("create session: empty session_id")
-	}
-	return sid
-}
 
 // --- TC: Session continuation E2E ---
 
@@ -608,11 +597,7 @@ func TestE2E_SessionContinuation(t *testing.T) {
 	workDir := t.TempDir()
 
 	// 1. Create session
-	sessionDir := filepath.Join(workDir, "sessions")
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		t.Fatalf("create session dir: %v", err)
-	}
-	sessionID := createE2ESessionWithSessionDir(t, baseURL, "claudecode", workDir, sessionDir)
+	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
 	t.Logf("Session created: %s", sessionID)
 
 	// 2. First message
@@ -673,7 +658,19 @@ func TestE2E_SessionDirFallback(t *testing.T) {
 	workDir := t.TempDir()
 
 	// Create session WITHOUT session_dir
-	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
+	body, _ := json.Marshal(map[string]string{
+		"agent":    "claudecode",
+		"model":    e2eDefaultModel,
+		"work_dir": workDir,
+	})
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer resp.Body.Close()
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	sessionID := result["session_id"]
 
 	// Get session and verify session_dir == work_dir
 	session := getE2ESession(t, baseURL, sessionID)
