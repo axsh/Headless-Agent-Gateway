@@ -25,7 +25,9 @@ func NewFileVaultBackend(filepath string) (*FileVaultBackend, error) {
 	// Resolve key
 	rawKey := os.Getenv("HAG_VAULT_KEY")
 	if rawKey == "" {
-		rawKey = "default-hag-vault-key-change-me"
+		return nil, fmt.Errorf(
+			"HAG_VAULT_KEY environment variable is required for file vault backend; " +
+				"set a strong random key (e.g. openssl rand -base64 32)")
 	}
 
 	// Derivate 32-byte key from raw key using SHA-256
