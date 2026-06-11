@@ -1,0 +1,101 @@
+package client
+
+import (
+	"io"
+	"strings"
+	"testing"
+)
+
+func TestStream_Output(t *testing.T) {
+	sseData := "data: {\"type\":\"text\",\"content\":\"Hello \"}\n\ndata: {\"type\":\"text\",\"content\":\"World\"}\n\ndata: [DONE]\n\n"
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var buf strings.Builder
+	err := stream.Output(&buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := buf.String(); got != "Hello World" {
+		t.Errorf("output = %q, want %q", got, "Hello World")
+	}
+}
+
+func TestStream_Output_Error(t *testing.T) {
+	sseData := "data: {\"type\":\"text\",\"content\":\"partial\"}\n\ndata: {\"type\":\"error\",\"content\":\"something went wrong\"}\n\ndata: [DONE]\n\n"
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var buf strings.Builder
+	err := stream.Output(&buf)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "something went wrong") {
+		t.Errorf("error = %v, want containing 'something went wrong'", err)
+	}
+	if got := buf.String(); got != "partial" {
+		t.Errorf("output = %q, want %q", got, "partial")
+	}
+}
+
+func TestStream_Output_ToolUse(t *testing.T) {
+	sseData := "data: {\"type\":\"tool_use\",\"tool_name\":\"write_file\"}\n\ndata: {\"type\":\"tool_result\",\"content\":\"file created\"}\n\ndata: [DONE]\n\n"
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var buf strings.Builder
+	err := stream.Output(&buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "[Tool: write_file]") {
+		t.Errorf("output missing tool use, got %q", got)
+	}
+	if !strings.Contains(got, "[Tool Result] file created") {
+		t.Errorf("output missing tool result, got %q", got)
+	}
+}
+
+func TestStream_Run_WithHandlers(t *testing.T) {
+	sseData := "data: {\"type\":\"text\",\"content\":\"hello\"}\n\ndata: {\"type\":\"result\",\"content\":\"done\"}\n\ndata: [DONE]\n\n"
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var texts []string
+	var gotResult bool
+	stream.OnText(func(text string) {
+		texts = append(texts, text)
+	}).OnResult(func(ev Event) {
+		gotResult = true
+	})
+
+	err := stream.Run()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(texts) != 1 || texts[0] != "hello" {
+		t.Errorf("texts = %v, want [\"hello\"]", texts)
+	}
+	if !gotResult {
+		t.Error("result handler was not called")
+	}
+}
+
+func TestStream_Events_Channel(t *testing.T) {
+	sseData := "data: {\"type\":\"text\",\"content\":\"a\"}\n\ndata: {\"type\":\"text\",\"content\":\"b\"}\n\ndata: [DONE]\n\n"
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var events []Event
+	for ev := range stream.Events() {
+		events = append(events, ev)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+	if events[0].Text != "a" || events[1].Text != "b" {
+		t.Errorf("events = %v, want a, b", events)
+	}
+}
