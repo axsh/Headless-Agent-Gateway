@@ -5,7 +5,7 @@ WORKDIR /build
 COPY go.work go.work.sum ./
 COPY shared/libs/go/ ./shared/libs/go/
 COPY examples/ ./examples/
-RUN cd shared/libs/go && go build -o /build/bin/hag-server ../../examples/standalone
+RUN cd shared/libs/go && go build -o /build/bin/hag-server ../../examples/cawa-server
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim

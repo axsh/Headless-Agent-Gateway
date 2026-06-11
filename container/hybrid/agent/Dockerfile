@@ -4,7 +4,7 @@ WORKDIR /build
 COPY go.work go.work.sum ./
 COPY shared/libs/go/ ./shared/libs/go/
 COPY examples/ ./examples/
-RUN cd shared/libs/go && go build -o /build/bin/hag-agent ../../examples/standalone
+RUN cd shared/libs/go && go build -o /build/bin/hag-agent ../../examples/cawa-server
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \

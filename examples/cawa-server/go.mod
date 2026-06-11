@@ -1,4 +1,4 @@
-module github.com/axsh/arctic-tern/examples/standalone
+module github.com/axsh/arctic-tern/examples/cawa-server
 
 go 1.26.4
 
