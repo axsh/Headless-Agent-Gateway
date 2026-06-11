@@ -1,16 +1,13 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"strings"
 
+	"github.com/axsh/arctic-tern/client"
 	"github.com/axsh/arctic-tern/logger"
 )
 
@@ -33,21 +30,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	c := client.New(serverURL)
+
 	switch args[0] {
 	case "health":
-		cmdHealth()
+		cmdHealth(c)
 	case "agents":
-		cmdAgents()
+		cmdAgents(c)
 	case "models":
-		cmdModels()
+		cmdModels(c)
 	case "run":
-		cmdRun(args[1:])
+		cmdRun(c, args[1:])
 	case "session":
-		cmdSession(args[1:])
-	case "logs":
-		cmdLogs(args[1:])
+		cmdSession(c, args[1:])
 	case "terminate":
-		cmdTerminate(args[1:])
+		cmdTerminate(c, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", args[0])
 		printUsage()
@@ -66,63 +63,27 @@ func printUsage() {
 	fmt.Println("      [--session-dir DIR]                Session storage directory")
 	fmt.Println("  run --resume ID --prompt MSG           Continue existing session")
 	fmt.Println("  session --id ID                        Get session status")
-	fmt.Println("  logs --id ID                           Stream session logs")
 	fmt.Println("  terminate --id ID                      Terminate session")
 }
 
-// cmdHealth calls GET /health and displays the result.
-func cmdHealth() {
-	log.Debug("sending health check request", "url", serverURL+"/health")
-	resp, err := http.Get(serverURL + "/health")
+func cmdHealth(c *client.Client) {
+	ctx := context.Background()
+	health, err := c.Health(ctx)
 	if err != nil {
-		log.Error("health check request failed", "error", err.Error())
+		log.Error("health check failed", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
-	log.Debug("health check response received", "status", resp.StatusCode)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("failed to read health response body", "error", err.Error())
-		os.Exit(1)
-	}
-	log.Trace("health check response body", "body", string(bodyBytes))
-
-	var health map[string]any
-	if err := json.Unmarshal(bodyBytes, &health); err == nil {
-		out, _ := json.MarshalIndent(health, "", "  ")
-		fmt.Println(string(out))
-	} else {
-		log.Error("failed to decode health response", "error", err.Error())
-	}
+	out, _ := json.MarshalIndent(health, "", "  ")
+	fmt.Println(string(out))
 }
 
-// cmdAgents calls GET /api/v1/agents and displays the result.
-func cmdAgents() {
-	log.Debug("fetching agents list", "url", serverURL+"/api/v1/agents")
-	resp, err := http.Get(serverURL + "/api/v1/agents")
+func cmdAgents(c *client.Client) {
+	ctx := context.Background()
+	agents, err := c.ListAgents(ctx)
 	if err != nil {
-		log.Error("failed to fetch agents list", "error", err.Error())
+		log.Error("failed to list agents", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-	log.Debug("agents list response received", "status", resp.StatusCode)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("failed to read agents response body", "error", err.Error())
-		os.Exit(1)
-	}
-	log.Trace("agents list response body", "body", string(bodyBytes))
-
-	var agents []struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(bodyBytes, &agents); err != nil {
-		log.Error("failed to decode agents response", "error", err.Error())
-		fmt.Fprintf(os.Stderr, "Error decoding agents: %v\n", err)
 		os.Exit(1)
 	}
 	for _, a := range agents {
@@ -130,50 +91,24 @@ func cmdAgents() {
 	}
 }
 
-// cmdModels calls GET /api/v1/models and displays available models.
-func cmdModels() {
-	log.Debug("fetching models list", "url", serverURL+"/api/v1/models")
-	resp, err := http.Get(serverURL + "/api/v1/models")
+func cmdModels(c *client.Client) {
+	ctx := context.Background()
+	models, err := c.ListModels(ctx)
 	if err != nil {
-		log.Error("failed to fetch models list", "error", err.Error())
+		log.Error("failed to list models", "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-	log.Debug("models list response received", "status", resp.StatusCode)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("failed to read models response body", "error", err.Error())
-		os.Exit(1)
-	}
-	log.Trace("models list response body", "body", string(bodyBytes))
-
-	var body struct {
-		Models []struct {
-			Provider string `json:"provider"`
-			Model    string `json:"model"`
-		} `json:"models"`
-		DefaultModel *struct {
-			Provider string `json:"provider"`
-			Model    string `json:"model"`
-		} `json:"default_model"`
-	}
-	if err := json.Unmarshal(bodyBytes, &body); err != nil {
-		log.Error("failed to decode models response", "error", err.Error())
-		fmt.Fprintf(os.Stderr, "Error decoding models: %v\n", err)
 		os.Exit(1)
 	}
 
 	defaultModelName := ""
-	if body.DefaultModel != nil {
-		defaultModelName = body.DefaultModel.Model
+	if models.DefaultModel != nil {
+		defaultModelName = models.DefaultModel.Model
 	}
 
 	// Group by provider.
 	byProvider := make(map[string][]string)
 	var providerOrder []string
-	for _, m := range body.Models {
+	for _, m := range models.Models {
 		if _, exists := byProvider[m.Provider]; !exists {
 			providerOrder = append(providerOrder, m.Provider)
 		}
@@ -182,9 +117,9 @@ func cmdModels() {
 
 	fmt.Println("Available models:")
 	for _, provider := range providerOrder {
-		models := byProvider[provider]
+		pmodels := byProvider[provider]
 		fmt.Printf("  %s:\n", provider)
-		for _, model := range models {
+		for _, model := range pmodels {
 			if model == defaultModelName {
 				fmt.Printf("    * %s (default)\n", model)
 			} else {
@@ -194,8 +129,7 @@ func cmdModels() {
 	}
 }
 
-// cmdRun creates a session (or continues an existing one), sends a message via SSE, and shows the result.
-func cmdRun(args []string) {
+func cmdRun(c *client.Client, args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	agent := fs.String("agent", "", "Agent name (required for new session)")
 	model := fs.String("model", "", "Model name")
@@ -211,130 +145,59 @@ func cmdRun(args []string) {
 		os.Exit(1)
 	}
 
-	var sid string
+	ctx := context.Background()
+	var session *client.Session
+	var err error
+
 	if *resumeSessionID != "" {
-		// Continuation mode: use existing session.
-		sid = *resumeSessionID
-		log.Debug("continuing session", "session_id", sid)
-		fmt.Printf("Continuing session: %s\n\n", sid)
+		// Continuation mode: wrap existing session ID.
+		session = client.ResumeSession(c, *resumeSessionID)
+		log.Debug("continuing session", "session_id", session.ID)
+		fmt.Printf("Continuing session: %s\n\n", session.ID)
 	} else {
-		// New session mode: --agent is required.
 		if *agent == "" {
 			fmt.Fprintf(os.Stderr, "Error: --agent is required for new sessions\n")
 			fs.Usage()
 			os.Exit(1)
 		}
-		sessionBody, _ := json.Marshal(map[string]string{
-			"agent": *agent, "model": *model,
-			"work_dir": *workDir, "session_dir": *sessionDir,
+		session, err = c.CreateSession(ctx, client.SessionRequest{
+			Agent:      *agent,
+			Model:      *model,
+			WorkDir:    *workDir,
+			SessionDir: *sessionDir,
 		})
-		log.Debug("creating new session", "agent", *agent, "model", *model, "work_dir", *workDir)
-		log.Trace("session request body", "body", string(sessionBody))
-
-		resp, err := http.Post(serverURL+"/api/v1/sessions",
-			"application/json", bytes.NewReader(sessionBody))
 		if err != nil {
 			log.Error("error creating session", "error", err.Error())
 			fmt.Fprintf(os.Stderr, "Error creating session: %v\n", err)
 			os.Exit(1)
 		}
-		defer resp.Body.Close()
-		respBytes, _ := io.ReadAll(resp.Body)
-
-		log.Debug("session response received", "status", resp.StatusCode)
-		log.Trace("session response body", "body", string(respBytes))
-
-		if resp.StatusCode != http.StatusCreated {
-			fmt.Fprintf(os.Stderr, "Error creating session (HTTP %d):\n%s\n", resp.StatusCode, string(respBytes))
-			os.Exit(1)
-		}
-
-		var created map[string]string
-		json.Unmarshal(respBytes, &created)
-		sid = created["session_id"]
-		fmt.Printf("Session created: %s\n\n", sid)
+		fmt.Printf("Session created: %s\n\n", session.ID)
 	}
 
-	// Send message with SSE.
-	msgBody, _ := json.Marshal(map[string]string{"message": *prompt})
-	req, _ := http.NewRequest("POST",
-		serverURL+"/api/v1/sessions/"+sid+"/messages",
-		bytes.NewReader(msgBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-
-	log.Debug("sending message to session", "session_id", sid)
-	log.Trace("message payload", "body", string(msgBody))
-
-	resp, err := http.DefaultClient.Do(req)
+	// Send message and stream output.
+	stream, err := session.SendMessage(ctx, *prompt)
 	if err != nil {
-		log.Error("error sending message", "error", err.Error(), "session_id", sid)
+		log.Error("error sending message", "error", err.Error(), "session_id", session.ID)
 		fmt.Fprintf(os.Stderr, "Error sending message: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
-	log.Debug("message response received", "status", resp.StatusCode)
 
-	// Stream SSE events.
-	streamErr := streamSSE(resp.Body)
+	streamErr := stream.Output(os.Stdout)
+	fmt.Println()
 
 	// Show final session status.
-	fmt.Println()
-	cmdSessionByID(sid)
+	details, err := c.GetSession(ctx, session.ID)
+	if err == nil {
+		out, _ := json.MarshalIndent(details, "", "  ")
+		fmt.Println(string(out))
+	}
 
 	if streamErr != nil {
 		os.Exit(1)
 	}
 }
 
-// streamSSE reads SSE data lines and prints events to stdout.
-// Returns error if an error event is received.
-func streamSSE(body io.Reader) error {
-	scanner := bufio.NewScanner(body)
-	var lastError error
-	for scanner.Scan() {
-		line := scanner.Text()
-		log.Trace("SSE raw line received", "line", line)
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			log.Debug("SSE stream completed with DONE signal")
-			fmt.Println("\n--- Stream completed ---")
-			return lastError
-		}
-		var ev struct {
-			Type     string `json:"type"`
-			Content  string `json:"content"`
-			ToolName string `json:"tool_name,omitempty"`
-		}
-		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			log.Warn("failed to unmarshal SSE event", "error", err.Error(), "data", data)
-			continue
-		}
-		switch ev.Type {
-		case "text":
-			fmt.Print(ev.Content)
-		case "tool_use":
-			fmt.Printf("\n[Tool: %s]\n", ev.ToolName)
-		case "tool_result":
-			fmt.Printf("[Tool Result] %s\n", ev.Content)
-		case "system":
-			fmt.Printf("[System] %s\n", ev.Content)
-		case "error":
-			log.Error("SSE error event received", "error", ev.Content)
-			fmt.Fprintf(os.Stderr, "\n[Error] %s\n", ev.Content)
-			lastError = fmt.Errorf("%s", ev.Content)
-		default:
-			fmt.Printf("[%s] %s\n", ev.Type, ev.Content)
-		}
-	}
-	return lastError
-}
-
-// cmdSession handles the session subcommand.
-func cmdSession(args []string) {
+func cmdSession(c *client.Client, args []string) {
 	fs := flag.NewFlagSet("session", flag.ExitOnError)
 	id := fs.String("id", "", "Session ID (required)")
 	fs.Parse(args)
@@ -342,74 +205,28 @@ func cmdSession(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: --id is required\n")
 		os.Exit(1)
 	}
-	cmdSessionByID(*id)
-}
 
-// cmdSessionByID fetches and displays a session by ID.
-func cmdSessionByID(id string) {
-	log.Debug("fetching session details", "session_id", id, "url", serverURL+"/api/v1/sessions/"+id)
-	resp, err := http.Get(serverURL + "/api/v1/sessions/" + id)
+	ctx := context.Background()
+	details, err := c.GetSession(ctx, *id)
 	if err != nil {
-		log.Error("failed to fetch session details", "session_id", id, "error", err.Error())
+		log.Error("failed to get session", "session_id", *id, "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
-	log.Debug("session details response received", "session_id", id, "status", resp.StatusCode)
+	out, _ := json.MarshalIndent(details, "", "  ")
+	fmt.Println(string(out))
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("failed to read session details response body", "session_id", id, "error", err.Error())
-		os.Exit(1)
-	}
-	log.Trace("session details response body", "session_id", id, "body", string(bodyBytes))
-
-	var session map[string]any
-	if err := json.Unmarshal(bodyBytes, &session); err == nil {
-		out, _ := json.MarshalIndent(session, "", "  ")
-		fmt.Println(string(out))
-		if status, ok := session["status"].(string); ok && status == "error" {
-			errMsg := "unknown error"
-			if msg, ok := session["error"].(string); ok && msg != "" {
-				errMsg = msg
-			}
-			fmt.Fprintf(os.Stderr, "Session failed with error: %s\n", errMsg)
-			os.Exit(1)
+	if status, ok := details["status"].(string); ok && status == "error" {
+		errMsg := "unknown error"
+		if msg, ok := details["error"].(string); ok && msg != "" {
+			errMsg = msg
 		}
-	} else {
-		log.Error("failed to decode session details response", "session_id", id, "error", err.Error())
-	}
-}
-
-// cmdLogs handles the logs subcommand (SSE log streaming).
-func cmdLogs(args []string) {
-	fs := flag.NewFlagSet("logs", flag.ExitOnError)
-	id := fs.String("id", "", "Session ID (required)")
-	fs.Parse(args)
-	if *id == "" {
-		fmt.Fprintf(os.Stderr, "Error: --id is required\n")
-		os.Exit(1)
-	}
-
-	log.Debug("requesting session logs stream", "session_id", *id, "url", serverURL+"/api/v1/sessions/"+*id+"/logs")
-	req, _ := http.NewRequest("GET",
-		serverURL+"/api/v1/sessions/"+*id+"/logs", nil)
-	req.Header.Set("Accept", "text/event-stream")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Error("failed to open session logs stream", "session_id", *id, "error", err.Error())
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	defer resp.Body.Close()
-	log.Debug("session logs stream connection established", "session_id", *id, "status", resp.StatusCode)
-	if err := streamSSE(resp.Body); err != nil {
+		fmt.Fprintf(os.Stderr, "Session failed with error: %s\n", errMsg)
 		os.Exit(1)
 	}
 }
 
-// cmdTerminate handles the terminate subcommand.
-func cmdTerminate(args []string) {
+func cmdTerminate(c *client.Client, args []string) {
 	fs := flag.NewFlagSet("terminate", flag.ExitOnError)
 	id := fs.String("id", "", "Session ID (required)")
 	fs.Parse(args)
@@ -418,24 +235,12 @@ func cmdTerminate(args []string) {
 		os.Exit(1)
 	}
 
-	log.Debug("requesting session termination", "session_id", *id, "url", serverURL+"/api/v1/sessions/"+*id+"/terminate")
-	resp, err := http.Post(
-		serverURL+"/api/v1/sessions/"+*id+"/terminate",
-		"application/json", nil)
-	if err != nil {
-		log.Error("failed to request session termination", "session_id", *id, "error", err.Error())
+	ctx := context.Background()
+	session := client.ResumeSession(c, *id)
+	if err := session.Terminate(ctx); err != nil {
+		log.Error("failed to terminate session", "session_id", *id, "error", err.Error())
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
-	log.Debug("session termination response received", "session_id", *id, "status", resp.StatusCode)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("failed to read session termination response body", "session_id", *id, "error", err.Error())
-		os.Exit(1)
-	}
-	log.Trace("session termination response body", "session_id", *id, "body", string(bodyBytes))
-	fmt.Print(string(bodyBytes))
-	fmt.Println()
+	fmt.Println("Session terminated")
 }

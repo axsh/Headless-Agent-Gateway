@@ -15,6 +15,12 @@ type Session struct {
 	client *Client
 }
 
+// ResumeSession creates a Session handle for an existing session ID.
+// No server call is made; this merely wraps the ID for subsequent operations.
+func ResumeSession(c *Client, sessionID string) *Session {
+	return &Session{ID: sessionID, client: c}
+}
+
 // SessionRequest is the request to create a session.
 type SessionRequest struct {
 	Agent      string `json:"agent"`
