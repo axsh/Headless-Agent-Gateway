@@ -214,8 +214,14 @@ func (pm *ProcessManager) Stop() error {
 
 	var err error
 	if runtime.GOOS == "windows" {
+		pid := pm.cmd.Process.Pid
+		pm.logger.Debug("killing process tree on Windows", "pid", pid)
+		killCmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
+		if killErr := killCmd.Run(); killErr != nil {
+			pm.logger.Debug("taskkill failed (process may have already exited)", "error", killErr)
+		}
 		pm.cancel()
-		err = pm.cmd.Wait()
+		err = nil
 	} else {
 		pm.cmd.Process.Signal(syscall.SIGTERM)
 		done := make(chan error, 1)
