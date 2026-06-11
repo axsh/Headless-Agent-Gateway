@@ -3,6 +3,7 @@ package llmgateway
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/axsh/arctic-tern/config"
 )
@@ -192,3 +193,96 @@ func TestModelRouter_ResolveModel_WithMode(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionMap_MaxSize(t *testing.T) {
+	profiles := testProfiles()
+	router := &ModelRouter{
+		profiles:      profiles,
+		sessionModels: make(map[string]*sessionEntry),
+		maxSessions:   3,
+		accessOrder:   make([]string, 0),
+	}
+
+	// Route 4 sessions
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-1")
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-2")
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-3")
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-4")
+
+	// session-1 should be evicted (oldest)
+	if _, exists := router.sessionModels["session-1"]; exists {
+		t.Error("expected session-1 to be evicted, but it still exists")
+	}
+
+	// session-2, 3, 4 should exist
+	for _, sid := range []string{"session-2", "session-3", "session-4"} {
+		if _, exists := router.sessionModels[sid]; !exists {
+			t.Errorf("expected %s to exist, but it was evicted", sid)
+		}
+	}
+}
+
+func TestSessionMap_TTL(t *testing.T) {
+	profiles := testProfiles()
+	router := &ModelRouter{
+		profiles:      profiles,
+		sessionModels: make(map[string]*sessionEntry),
+		sessionTTL:    50 * time.Millisecond,
+		accessOrder:   make([]string, 0),
+	}
+
+	// Route session-1
+	_, err := router.ResolveModel("claude-sonnet-4-20250514", "session-1")
+	if err != nil {
+		t.Fatalf("ResolveModel failed: %v", err)
+	}
+
+	// Resolve unknown model within TTL -> should succeed due to fallback
+	_, err = router.ResolveModel("unknown-model", "session-1")
+	if err != nil {
+		t.Errorf("expected fallback to succeed, got error: %v", err)
+	}
+
+	// Wait for TTL to expire
+	time.Sleep(60 * time.Millisecond)
+
+	// Resolve unknown model after TTL -> should fail since it's expired
+	_, err = router.ResolveModel("unknown-model", "session-1")
+	if err == nil {
+		t.Error("expected failure for expired session, got nil error")
+	}
+}
+
+func TestSessionMap_LRU(t *testing.T) {
+	profiles := testProfiles()
+	router := &ModelRouter{
+		profiles:      profiles,
+		sessionModels: make(map[string]*sessionEntry),
+		maxSessions:   3,
+		accessOrder:   make([]string, 0),
+	}
+
+	// Route session-1, 2, 3
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-1")
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-2")
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-3")
+
+	// Access session-1 to make it recently used
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-1")
+
+	// Route session-4 (should trigger eviction)
+	_, _ = router.ResolveModel("claude-sonnet-4-20250514", "session-4")
+
+	// session-2 should be evicted (session-1 was touched, so session-2 is now the oldest)
+	if _, exists := router.sessionModels["session-2"]; exists {
+		t.Error("expected session-2 to be evicted, but it still exists")
+	}
+
+	// session-1, 3, 4 should exist
+	for _, sid := range []string{"session-1", "session-3", "session-4"} {
+		if _, exists := router.sessionModels[sid]; !exists {
+			t.Errorf("expected %s to exist, but it was evicted", sid)
+		}
+	}
+}
+
