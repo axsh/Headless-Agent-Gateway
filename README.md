@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/resources/images/tern_logo_circle_transparent.png" alt="Tern Logo" width="200">
+</p>
+
 # Tern
 
 > Fly with the best agent. Anywhere. Anytime.
