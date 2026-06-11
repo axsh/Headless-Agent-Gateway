@@ -70,7 +70,11 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 		if sid == "" {
 			sid = "default"
 		}
-		env["ANTHROPIC_API_KEY"] = apiKey + ";fallback=" + fallbackStr + ";sid=" + sid
+		tokenPart := ""
+		if ac.GatewayToken != "" {
+			tokenPart = ";token=" + ac.GatewayToken
+		}
+		env["ANTHROPIC_API_KEY"] = apiKey + tokenPart + ";fallback=" + fallbackStr + ";sid=" + sid
 	}
 
 	if ac.DisableSandbox {

@@ -54,7 +54,12 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 	if sid == "" {
 		sid = "default"
 	}
-	env["OPENAI_API_KEY"] = apiKey + ";fallback=" + fallbackStr + ";sid=" + sid
+	tokenPart := ""
+	if ac.GatewayToken != "" {
+		tokenPart = ";token=" + ac.GatewayToken
+		env["TERN_GATEWAY_TOKEN"] = ac.GatewayToken
+	}
+	env["OPENAI_API_KEY"] = apiKey + tokenPart + ";fallback=" + fallbackStr + ";sid=" + sid
 
 	// Session data storage directory override.
 	if cfg.SessionDir != "" {

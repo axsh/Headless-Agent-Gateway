@@ -41,4 +41,8 @@ type AdapterConfig struct {
 	// Used by Codex to determine config.toml wire_api value.
 	// Empty string defaults to "chat".
 	ModelMode string
+
+	// GatewayToken is the internal authentication token for LLMGP.
+	// Injected by tern.Server on startup.
+	GatewayToken string
 }

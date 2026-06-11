@@ -233,3 +233,21 @@ func TestBuildEnv_APIKeyMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildEnv_GatewayToken(t *testing.T) {
+	ac := &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", GatewayToken: "my-secret-token"}
+	cfg := &codingagent.SessionConfig{}
+	env := claudecode.BuildEnv(ac, cfg)
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	apiKey := envMap["ANTHROPIC_API_KEY"]
+	want := "not-needed;token=my-secret-token;fallback=false;sid=default"
+	if apiKey != want {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want %q", apiKey, want)
+	}
+}

@@ -152,3 +152,33 @@ func TestCodexBuildEnv_NoGatewayRelatedVars(t *testing.T) {
 		t.Error("ANTHROPIC_BASE_URL should not be set for Codex (uses config.toml)")
 	}
 }
+
+func TestBuildEnv_CodexGatewayToken(t *testing.T) {
+	ac := &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000", GatewayToken: "codex-secret-token"}
+	cfg := &codingagent.SessionConfig{}
+	env := codex.BuildEnv(ac, cfg)
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	val, ok := envMap["OPENAI_API_KEY"]
+	if !ok {
+		t.Fatal("OPENAI_API_KEY not found in env")
+	}
+	want := "not-needed;token=codex-secret-token;fallback=false;sid=default"
+	if val != want {
+		t.Errorf("OPENAI_API_KEY = %q, want %q", val, want)
+	}
+
+	gToken, ok := envMap["TERN_GATEWAY_TOKEN"]
+	if !ok {
+		t.Fatal("TERN_GATEWAY_TOKEN not found in env")
+	}
+	if gToken != "codex-secret-token" {
+		t.Errorf("TERN_GATEWAY_TOKEN = %q, want %q", gToken, "codex-secret-token")
+	}
+}
