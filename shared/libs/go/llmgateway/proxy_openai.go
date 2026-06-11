@@ -263,6 +263,27 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 	bifrostReq.Provider = providerKey
 	bifrostReq.Model = routed.Model
 
+	// Sanitize ToolChoice for cross-provider requests.
+	// Codex CLI may send non-function tools (e.g. "container", "local_shell") with
+	// tool_choice:"auto". Gemini/Anthropic only support function-type tools, so if
+	// there are no function tools, ToolConfig/FunctionCallingConfig would be set
+	// without any function_declarations, causing the provider API to reject the request.
+	// Clear ToolChoice when no function tools are present.
+	if bifrostReq.Params != nil && bifrostReq.Params.ToolChoice != nil {
+		hasFunctionTool := false
+		for _, tool := range bifrostReq.Params.Tools {
+			if tool.Type == bifrostSchemas.ResponsesToolTypeFunction {
+				hasFunctionTool = true
+				break
+			}
+		}
+		if !hasFunctionTool {
+			p.logger.Debug("clearing ToolChoice: no function-type tools in request",
+				"tool_count", len(bifrostReq.Params.Tools))
+			bifrostReq.Params.ToolChoice = nil
+		}
+	}
+
 	p.logger.Debug("bifrost request constructed",
 		"provider", providerKey, "model", routed.Model,
 		"stream", isStreamRequest(body))
