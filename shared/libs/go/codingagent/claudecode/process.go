@@ -203,8 +203,14 @@ func (pm *ProcessManager) Stop() error {
 
 	// Windows: no SIGTERM, just kill
 	if runtime.GOOS == "windows" {
+		pid := pm.cmd.Process.Pid
+		pm.logger.Debug("killing process tree on Windows", "pid", pid)
+		killCmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
+		if killErr := killCmd.Run(); killErr != nil {
+			pm.logger.Debug("taskkill failed (process may have already exited)", "error", killErr)
+		}
 		pm.cancel()
-		return pm.cmd.Wait()
+		return nil
 	}
 
 	// Unix: send SIGTERM first
