@@ -76,6 +76,7 @@ websocket:
   port: %d
 agent_service:
   port: %d
+  disable_sandbox: true
 `, gwPort, filepath.ToSlash(modelProfilesSrc), wsPort, asPort)
 
 	if err := os.WriteFile(tmpConfig, []byte(configContent), 0644); err != nil {

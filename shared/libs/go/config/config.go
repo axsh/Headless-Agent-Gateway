@@ -166,4 +166,8 @@ type AgentServiceConfig struct {
 	// Port is the AgentService HTTP listen port.
 	// When 0, the OS assigns an ephemeral port.
 	Port int `yaml:"port"`
+	// DisableSandbox disables the CLI internal sandbox for coding agents.
+	// Useful for container/CI environments where the sandbox path mapping
+	// causes files to be created in different locations.
+	DisableSandbox bool `yaml:"disable_sandbox"`
 }
