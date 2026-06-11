@@ -36,3 +36,9 @@ providers:
           - name: gemini-2.5-flash
           - name: gemini-2.5-pro
           - name: gemini-3.5-flash
+  ollama:
+    keys:
+      - name: default
+        value: ""
+        models:
+          - name: llama3.2:1b
