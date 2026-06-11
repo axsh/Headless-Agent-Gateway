@@ -95,8 +95,9 @@ agent_service:
 	// ProxyURL must be called after Launch to get the actual port.
 	gwURL := srv.Gateway().ProxyURL()
 	adapter := claudecode.New(&codingagent.AdapterConfig{
-		GatewayURL:   gwURL,
-		DefaultModel: e2eDefaultModel,
+		GatewayURL:     gwURL,
+		DefaultModel:   e2eDefaultModel,
+		DisableSandbox: true,
 	})
 	srv.AgentService().RegisterAgent(adapter)
 
@@ -467,7 +468,8 @@ agent_service:
 	// This will cause the CLI to fail when trying to reach the LLM API.
 	bogusPort := freePort(t)
 	adapter := claudecode.New(&codingagent.AdapterConfig{
-		GatewayURL: fmt.Sprintf("http://localhost:%d", bogusPort),
+		GatewayURL:     fmt.Sprintf("http://localhost:%d", bogusPort),
+		DisableSandbox: true,
 	})
 	srv.AgentService().RegisterAgent(adapter)
 
@@ -606,7 +608,11 @@ func TestE2E_SessionContinuation(t *testing.T) {
 	workDir := t.TempDir()
 
 	// 1. Create session
-	sessionID := createE2ESession(t, baseURL, "claudecode", workDir)
+	sessionDir := filepath.Join(workDir, "sessions")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
+	sessionID := createE2ESessionWithSessionDir(t, baseURL, "claudecode", workDir, sessionDir)
 	t.Logf("Session created: %s", sessionID)
 
 	// 2. First message
