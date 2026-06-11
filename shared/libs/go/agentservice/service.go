@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/axsh/arctic-tern/codingagent"
 	"github.com/axsh/arctic-tern/config"
@@ -39,6 +40,8 @@ type Server struct {
 	httpServer     *http.Server
 	ln             net.Listener
 	port           int // actual listen port (set after Launch)
+	activeMu       sync.Mutex
+	activeSessions map[string]codingagent.Session
 }
 
 // ServerOption configures a Server.
@@ -68,8 +71,9 @@ func WithGatewayToken(token string) ServerOption {
 // New creates a new AgentService Server.
 func New(opts ...ServerOption) *Server {
 	s := &Server{
-		agents:   make(map[string]codingagent.CodingAgent),
-		sessions: NewMemorySessionStore(),
+		agents:         make(map[string]codingagent.CodingAgent),
+		sessions:       NewMemorySessionStore(),
+		activeSessions: make(map[string]codingagent.Session),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -83,8 +87,9 @@ func New(opts ...ServerOption) *Server {
 // NewWithStore creates a Server with a custom SessionStore (for testing).
 func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server {
 	s := &Server{
-		agents:   make(map[string]codingagent.CodingAgent),
-		sessions: store,
+		agents:         make(map[string]codingagent.CodingAgent),
+		sessions:       store,
+		activeSessions: make(map[string]codingagent.Session),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -151,7 +156,30 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			closer.Close()
 		}
 	}
+	// Close all active sessions.
+	s.activeMu.Lock()
+	for id, sess := range s.activeSessions {
+		if s.logger != nil {
+			s.logger.Debug("closing active session on shutdown", "session_id", id)
+		}
+		sess.Close()
+	}
+	s.activeSessions = make(map[string]codingagent.Session)
+	s.activeMu.Unlock()
+
 	return s.httpServer.Shutdown(ctx)
+}
+
+func (s *Server) RegisterActiveSession(id string, sess codingagent.Session) {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	s.activeSessions[id] = sess
+}
+
+func (s *Server) UnregisterActiveSession(id string) {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	delete(s.activeSessions, id)
 }
 
 // Port returns the actual port the server is listening on.

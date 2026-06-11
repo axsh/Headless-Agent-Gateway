@@ -1,6 +1,7 @@
 package agentservice
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -185,7 +186,11 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer session.Close()
+	s.RegisterActiveSession(sessionID, session)
+	defer func() {
+		session.Close()
+		s.UnregisterActiveSession(sessionID)
+	}()
 
 	ch, err := session.Send(r.Context(), req.Message)
 	if err != nil {
@@ -194,9 +199,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		s.streamSSE(w, ch, sessionID)
+		s.streamSSE(r.Context(), w, ch, sessionID)
 	} else {
-		s.respondJSON(w, ch, sessionID)
+		s.respondJSON(r.Context(), w, ch, sessionID)
 	}
 }
 
@@ -215,7 +220,7 @@ func generateLogID() string {
 }
 
 // streamSSE sends streaming events in SSE format.
-func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEvent, sessionID string) {
+func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan codingagent.StreamEvent, sessionID string) {
 	if s.logger != nil {
 		s.logger.Debug("starting SSE stream", "session_id", sessionID)
 	}
@@ -233,44 +238,56 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 	eventCount := 0
 	var hasError bool
 	var errorMsg string
-	for ev := range ch {
-		eventCount++
-		if ev.Type == codingagent.EventError {
-			hasError = true
-			errorMsg = ev.Content
-		}
-		if s.logger != nil {
-			contentPreview := ""
-			if ev.Content != "" {
-				if len(ev.Content) > 100 {
-					contentPreview = ev.Content[:100] + "..."
-				} else {
-					contentPreview = ev.Content
-				}
-			}
-			s.logger.Trace("SSE stream event", "type", ev.Type, "content_preview", contentPreview)
-		}
-
-		data, _ := json.Marshal(ev)
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-
-		// Record event to TaskLog (C1-1)
-		if s.taskLog != nil {
-			s.taskLog.Add(toAgentLogEntry(ev, sessionID))
-		}
-
-		// Extract AgentSessionID from EventSystem (C2-1)
-		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+	for {
+		select {
+		case <-ctx.Done():
 			if s.logger != nil {
-				s.logger.Debug("agent session ID extracted", "session_id", sessionID, "agent_session_id", ev.SessionID)
+				s.logger.Debug("client disconnected, stopping SSE stream", "session_id", sessionID)
 			}
-			if record, err := s.sessions.Get(sessionID); err == nil {
-				record.AgentSessionID = ev.SessionID
-				s.sessions.Update(record)
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				goto done
+			}
+			eventCount++
+			if ev.Type == codingagent.EventError {
+				hasError = true
+				errorMsg = ev.Content
+			}
+			if s.logger != nil {
+				contentPreview := ""
+				if ev.Content != "" {
+					if len(ev.Content) > 100 {
+						contentPreview = ev.Content[:100] + "..."
+					} else {
+						contentPreview = ev.Content
+					}
+				}
+				s.logger.Trace("SSE stream event", "type", ev.Type, "content_preview", contentPreview)
+			}
+
+			data, _ := json.Marshal(ev)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+
+			// Record event to TaskLog (C1-1)
+			if s.taskLog != nil {
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+			}
+
+			// Extract AgentSessionID from EventSystem (C2-1)
+			if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+				if s.logger != nil {
+					s.logger.Debug("agent session ID extracted", "session_id", sessionID, "agent_session_id", ev.SessionID)
+				}
+				if record, err := s.sessions.Get(sessionID); err == nil {
+					record.AgentSessionID = ev.SessionID
+					s.sessions.Update(record)
+				}
 			}
 		}
 	}
+done:
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 
@@ -294,33 +311,45 @@ func (s *Server) streamSSE(w http.ResponseWriter, ch <-chan codingagent.StreamEv
 }
 
 // respondJSON sends all events as a JSON array.
-func (s *Server) respondJSON(w http.ResponseWriter, ch <-chan codingagent.StreamEvent, sessionID string) {
+func (s *Server) respondJSON(ctx context.Context, w http.ResponseWriter, ch <-chan codingagent.StreamEvent, sessionID string) {
 	var events []codingagent.StreamEvent
 	var hasError bool
 	var errorMsg string
-	for ev := range ch {
-		events = append(events, ev)
-		if ev.Type == codingagent.EventError {
-			hasError = true
-			errorMsg = ev.Content
-		}
-
-		// Record event to TaskLog (C1-4)
-		if s.taskLog != nil {
-			s.taskLog.Add(toAgentLogEntry(ev, sessionID))
-		}
-
-		// Extract AgentSessionID from EventSystem (C2-1)
-		if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+	for {
+		select {
+		case <-ctx.Done():
 			if s.logger != nil {
-				s.logger.Debug("agent session ID extracted", "session_id", sessionID, "agent_session_id", ev.SessionID)
+				s.logger.Debug("client disconnected, stopping JSON response", "session_id", sessionID)
 			}
-			if record, err := s.sessions.Get(sessionID); err == nil {
-				record.AgentSessionID = ev.SessionID
-				s.sessions.Update(record)
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				goto done
+			}
+			events = append(events, ev)
+			if ev.Type == codingagent.EventError {
+				hasError = true
+				errorMsg = ev.Content
+			}
+
+			// Record event to TaskLog (C1-4)
+			if s.taskLog != nil {
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+			}
+
+			// Extract AgentSessionID from EventSystem (C2-1)
+			if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+				if s.logger != nil {
+					s.logger.Debug("agent session ID extracted", "session_id", sessionID, "agent_session_id", ev.SessionID)
+				}
+				if record, err := s.sessions.Get(sessionID); err == nil {
+					record.AgentSessionID = ev.SessionID
+					s.sessions.Update(record)
+				}
 			}
 		}
 	}
+done:
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(events)
 
