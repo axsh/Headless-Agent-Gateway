@@ -87,6 +87,12 @@ func (a *CodexAdapter) Close() error {
 	return nil
 }
 
+// SetGatewayToken sets the gateway token in the adapter config.
+func (a *CodexAdapter) SetGatewayToken(token string) {
+	a.config.GatewayToken = token
+}
+
+
 // codexSession is a Codex Session implementation.
 type codexSession struct {
 	id string

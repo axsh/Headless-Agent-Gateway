@@ -147,5 +147,19 @@ func (d *BifrostDriver) ProxyURL() string {
 	return d.proxy.ProxyURL()
 }
 
+// SetAuthToken sets the authentication token on the underlying proxy.
+func (d *BifrostDriver) SetAuthToken(token string) {
+	if d.proxy != nil {
+		d.proxy.SetAuthToken(token)
+	}
+}
+
+// SetTLSCertManager sets the TLS certificate manager on the underlying proxy.
+func (d *BifrostDriver) SetTLSCertManager(mgr *TLSCertManager) {
+	if d.proxy != nil {
+		d.proxy.SetTLSCertManager(mgr)
+	}
+}
+
 // Compile-time check that BifrostDriver implements LLMGatewayBackend.
 var _ LLMGatewayBackend = (*BifrostDriver)(nil)

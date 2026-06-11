@@ -379,3 +379,87 @@ func TestServer_WebSocketURL(t *testing.T) {
 		t.Errorf("WebSocketURL() = %q, want ws:// prefix", url)
 	}
 }
+
+func TestServer_AutoGenerateToken(t *testing.T) {
+	cfg := &config.AppConfig{}
+	srv, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	token := srv.GatewayToken()
+	if len(token) != 64 { // 32 bytes hex = 64 characters
+		t.Errorf("expected 64-char token, got %q (len=%d)", token, len(token))
+	}
+}
+
+func TestServer_StaticToken(t *testing.T) {
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			AuthToken: "my-static-token-abc-123",
+		},
+	}
+	srv, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	token := srv.GatewayToken()
+	if token != "my-static-token-abc-123" {
+		t.Errorf("GatewayToken() = %q, want %q", token, "my-static-token-abc-123")
+	}
+}
+
+func TestServer_TLS_AutoMode(t *testing.T) {
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Port: 0,
+			TLS: config.TLSConfig{
+				Enabled: true,
+				Mode:    "auto",
+			},
+		},
+	}
+	srv, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// ProxyURL should start with https
+	url := srv.Gateway().ProxyURL()
+	if !strings.HasPrefix(url, "https://") {
+		t.Errorf("ProxyURL() = %q, want https:// prefix", url)
+	}
+
+	// CA cert path should be resolved and file should exist
+	caPath := srv.TLSCACertPath()
+	if caPath == "" {
+		t.Error("expected non-empty TLSCACertPath")
+	}
+	if _, err := os.Stat(caPath); os.IsNotExist(err) {
+		t.Errorf("CA cert file does not exist: %s", caPath)
+	}
+}
+
+func TestServer_TLS_Disabled(t *testing.T) {
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Port: 0,
+			TLS: config.TLSConfig{
+				Enabled: false,
+			},
+		},
+	}
+	srv, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	url := srv.Gateway().ProxyURL()
+	if !strings.HasPrefix(url, "http://") {
+		t.Errorf("ProxyURL() = %q, want http:// prefix", url)
+	}
+
+	if path := srv.TLSCACertPath(); path != "" {
+		t.Errorf("expected empty TLSCACertPath when TLS disabled, got %q", path)
+	}
+}
+

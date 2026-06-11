@@ -31,6 +31,7 @@ type Server struct {
 	logger         logger.Logger
 	taskLog        *tasklog.TaskLog
 	gatewayURL     string
+	gatewayToken   string
 	cliVersions    map[string]string        // cached at init
 	gatewayModels  []llmgateway.ModelInfo   // cached model list from LLMGP
 	gatewayDefault *llmgateway.ModelInfo    // cached default model from LLMGP
@@ -57,6 +58,12 @@ func WithTaskLog(tl *tasklog.TaskLog) ServerOption {
 func WithGatewayURL(url string) ServerOption {
 	return func(s *Server) { s.gatewayURL = url }
 }
+
+// WithGatewayToken sets the LLM Gateway Proxy authentication token.
+func WithGatewayToken(token string) ServerOption {
+	return func(s *Server) { s.gatewayToken = token }
+}
+
 
 // New creates a new AgentService Server.
 func New(opts ...ServerOption) *Server {
@@ -90,11 +97,17 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 
 // RegisterAgent registers a CodingAgent with the server.
 func (s *Server) RegisterAgent(agent codingagent.CodingAgent) {
+	if s.gatewayToken != "" {
+		if inj, ok := agent.(interface{ SetGatewayToken(string) }); ok {
+			inj.SetGatewayToken(s.gatewayToken)
+		}
+	}
 	s.agents[agent.Name()] = agent
 	if s.logger != nil {
 		s.logger.Debug("agent registered", "agent_name", agent.Name())
 	}
 }
+
 
 // Launch starts the AgentService HTTP server on the given port.
 // port=0 uses OS-assigned ephemeral port. Non-blocking.

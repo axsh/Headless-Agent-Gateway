@@ -5,8 +5,12 @@ package tern
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/axsh/arctic-tern/agentservice"
 	"github.com/axsh/arctic-tern/config"
@@ -27,6 +31,8 @@ type Server struct {
 	agentService *agentservice.Server
 	wsServer     *wsserver.Server
 	taskLog      *tasklog.TaskLog
+	gatewayToken string                     // R4: generated or configured auth token
+	tlsMgr       *llmgateway.TLSCertManager // R1: TLS manager
 }
 
 // New creates a new tern Server with the given options.
@@ -80,15 +86,63 @@ func New(opts ...Option) (*Server, error) {
 		return nil, fmt.Errorf("tern: %w", err)
 	}
 
+	// Step 6: Resolve Auth Token (R4)
+	gatewayToken := cfg.LLMGateway.AuthToken
+	if gatewayToken == "" {
+		tokenBytes := make([]byte, 32)
+		if _, err := crypto_rand.Read(tokenBytes); err != nil {
+			return nil, fmt.Errorf("tern: generate auth token: %w", err)
+		}
+		gatewayToken = hex.EncodeToString(tokenBytes)
+		if log != nil {
+			log.Debug("gateway auth token auto-generated")
+		}
+	}
+	// Inject token into gateway
+	if ps, ok := gw.(*llmgateway.ProxyServer); ok {
+		ps.SetAuthToken(gatewayToken)
+	} else if bd, ok := gw.(*llmgateway.BifrostDriver); ok {
+		bd.SetAuthToken(gatewayToken)
+	}
+
+	// Step 7: Resolve TLS (R1)
+	var tlsMgr *llmgateway.TLSCertManager
+	if cfg.LLMGateway.TLS.Enabled {
+		tlsMgr = llmgateway.NewTLSCertManager(cfg.LLMGateway.TLS, log)
+		if cfg.LLMGateway.TLS.Mode == "auto" {
+			if err := tlsMgr.GenerateAndLoad(); err != nil {
+				return nil, fmt.Errorf("tern: generate TLS cert: %w", err)
+			}
+			if _, err := tlsMgr.WriteCACertFile(); err != nil {
+				return nil, fmt.Errorf("tern: write CA cert: %w", err)
+			}
+		}
+		if ps, ok := gw.(*llmgateway.ProxyServer); ok {
+			ps.SetTLSCertManager(tlsMgr)
+		} else if bd, ok := gw.(*llmgateway.BifrostDriver); ok {
+			bd.SetTLSCertManager(tlsMgr)
+		}
+	}
+
 	tl := tasklog.New()
 
 	// Build gateway URL from port for health check cascading.
 	gatewayURL := ""
 	if cfg.LLMGateway.Port > 0 {
-		gatewayURL = fmt.Sprintf("http://localhost:%d", cfg.LLMGateway.Port)
+		scheme := "http"
+		if tlsMgr != nil {
+			scheme = "https"
+		}
+		gatewayURL = fmt.Sprintf("%s://localhost:%d", scheme, cfg.LLMGateway.Port)
 	}
 
-	as := resolveAgentService(o, log, tl, gatewayURL)
+	// Inject TLS CA cert path to agentservice environment if TLS is enabled
+	caCertPath := ""
+	if tlsMgr != nil {
+		caCertPath = tlsMgr.CACertFilePath()
+	}
+
+	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath)
 
 	wsPort := cfg.WebSocket.Port
 	ws := wsserver.New(wsPort, tl, log)
@@ -101,6 +155,8 @@ func New(opts ...Option) (*Server, error) {
 		agentService: as,
 		wsServer:     ws,
 		taskLog:      tl,
+		gatewayToken: gatewayToken,
+		tlsMgr:       tlsMgr,
 	}, nil
 }
 
@@ -163,6 +219,21 @@ func (s *Server) Gateway() llmgateway.LLMGatewayBackend {
 func (s *Server) AgentService() *agentservice.Server {
 	return s.agentService
 }
+
+// GatewayToken returns the internal gateway auth token.
+func (s *Server) GatewayToken() string {
+	return s.gatewayToken
+}
+
+// TLSCACertPath returns the CA certificate file path (for agent CLI).
+// Empty if TLS is disabled.
+func (s *Server) TLSCACertPath() string {
+	if s.tlsMgr != nil {
+		return s.tlsMgr.CACertFilePath()
+	}
+	return ""
+}
+
 
 // TaskLog returns the TaskLog instance.
 // Callers can use TaskLog().Add() to inject log entries.
@@ -275,14 +346,23 @@ func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log 
 }
 
 // resolveAgentService returns the externally provided AgentService or builds one.
-func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string) *agentservice.Server {
+func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string) *agentservice.Server {
 	if o.agentService != nil {
 		return o.agentService
 	}
+
+	if strings.HasPrefix(gatewayURL, "https://") && caCertPath != "" {
+		os.Setenv("NODE_EXTRA_CA_CERTS", caCertPath)
+		if log != nil {
+			log.Debug("set NODE_EXTRA_CA_CERTS env var", "path", caCertPath)
+		}
+	}
+
 	return agentservice.New(
 		agentservice.WithLogger(log),
 		agentservice.WithTaskLog(tl),
 		agentservice.WithGatewayURL(gatewayURL),
+		agentservice.WithGatewayToken(gatewayToken),
 	)
 }
 

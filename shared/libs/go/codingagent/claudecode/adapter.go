@@ -70,6 +70,12 @@ func (a *ClaudeCodeAdapter) Close() error {
 	return nil
 }
 
+// SetGatewayToken sets the gateway token in the adapter config.
+func (a *ClaudeCodeAdapter) SetGatewayToken(token string) {
+	a.config.GatewayToken = token
+}
+
+
 // claudeSession is a Claude Code Session implementation.
 type claudeSession struct {
 	id string

@@ -108,7 +108,7 @@ func TestModelRouter_ResolveModel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := NewModelRouter(tt.profiles, nil)
+			router := NewModelRouter(tt.profiles, nil, nil)
 			got, err := router.ResolveModel(tt.modelName, "")
 
 			if tt.wantErr != nil {
@@ -142,7 +142,7 @@ func TestModelRouter_ResolveModel(t *testing.T) {
 
 func TestModelRouter_SessionFallback(t *testing.T) {
 	profiles := testProfiles()
-	router := NewModelRouter(profiles, nil)
+	router := NewModelRouter(profiles, nil, nil)
 
 	// 1. Resolve first model in session "session-1" -> should succeed and record it.
 	got1, err := router.ResolveModel("claude-sonnet-4-20250514", "session-1")
@@ -182,7 +182,7 @@ func TestModelRouter_ResolveModel_WithMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router := NewModelRouter(testProfiles(), nil)
+			router := NewModelRouter(testProfiles(), nil, nil)
 			got, err := router.ResolveModel(tt.modelName, "")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
