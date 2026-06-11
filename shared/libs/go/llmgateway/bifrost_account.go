@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/vault"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 )
 
-// providerNameMap maps HAG provider names to Bifrost ModelProvider constants.
+// providerNameMap maps tern provider names to Bifrost ModelProvider constants.
 var providerNameMap = map[string]bifrostSchemas.ModelProvider{
 	"anthropic": bifrostSchemas.Anthropic,
 	"openai":    bifrostSchemas.OpenAI,
@@ -19,7 +19,7 @@ var providerNameMap = map[string]bifrostSchemas.ModelProvider{
 	"azure":     bifrostSchemas.Azure,
 	"cohere":    bifrostSchemas.Cohere,
 	"gemini":    bifrostSchemas.Gemini,
-	"google":    bifrostSchemas.Gemini, // HAG uses "google" in model_profiles.yaml
+	"google":    bifrostSchemas.Gemini, // tern uses "google" in model_profiles.yaml
 }
 
 // BifrostAccount implements bifrost schemas.Account interface

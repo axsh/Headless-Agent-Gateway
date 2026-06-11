@@ -3,7 +3,7 @@ package codingagent_test
 import (
 	"testing"
 
-	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/arctic-tern/codingagent"
 )
 
 func TestSessionOptionFunctions(t *testing.T) {

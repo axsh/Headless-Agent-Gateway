@@ -1,6 +1,6 @@
 package codingagent
 
-import "github.com/axsh/hag/logger"
+import "github.com/axsh/arctic-tern/logger"
 
 // AdapterConfig is the common configuration for all coding agent adapters.
 type AdapterConfig struct {

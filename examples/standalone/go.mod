@@ -1,8 +1,8 @@
-module github.com/axsh/hag/examples/standalone
+module github.com/axsh/arctic-tern/examples/standalone
 
 go 1.26.4
 
-require github.com/axsh/hag v0.0.0
+require github.com/axsh/arctic-tern v0.0.0
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
@@ -75,4 +75,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/axsh/hag => ../../shared/libs/go
+replace github.com/axsh/arctic-tern => ../../shared/libs/go

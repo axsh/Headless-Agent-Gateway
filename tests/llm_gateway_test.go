@@ -20,12 +20,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/hag"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/vault"
 )
 
-// testServer starts a hag.Server with KeyringVaultBackend and returns
+// testServer starts a tern.Server with KeyringVaultBackend and returns
 // the base URL and a cleanup function.
 func testServer(t *testing.T) (string, func()) {
 	t.Helper()
@@ -42,12 +42,12 @@ func testServer(t *testing.T) (string, func()) {
 		},
 	}
 
-	srv, err := hag.New(
-		hag.WithConfig(cfg),
-		hag.WithKeyringVault(),
+	srv, err := tern.New(
+		tern.WithConfig(cfg),
+		tern.WithKeyringVault(),
 	)
 	if err != nil {
-		t.Fatalf("hag.New: %v", err)
+		t.Fatalf("tern.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {

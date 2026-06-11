@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/codingagent/claudecode"
 )
 
 func TestBuildArgs(t *testing.T) {

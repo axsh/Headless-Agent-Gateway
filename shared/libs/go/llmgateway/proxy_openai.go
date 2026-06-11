@@ -11,7 +11,7 @@ import (
 	bifrostOpenAI "github.com/maximhq/bifrost/core/providers/openai"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 // openaiRequest represents the minimal fields we parse from OpenAI Chat Completions API.
@@ -519,7 +519,7 @@ func isStreamRequest(body []byte) bool {
 	return raw.Stream != nil && *raw.Stream
 }
 
-// toBifrostProvider converts HAG provider name to Bifrost ModelProvider.
+// toBifrostProvider converts tern provider name to Bifrost ModelProvider.
 // Uses the providerNameMap defined in bifrost_account.go.
 func toBifrostProvider(provider string) bifrostSchemas.ModelProvider {
 	if mp, ok := providerNameMap[provider]; ok {

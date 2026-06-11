@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/hag/config"
+	"github.com/axsh/arctic-tern/config"
 )
 
 func TestHandleOpenAIChatCompletions_UnknownModel(t *testing.T) {

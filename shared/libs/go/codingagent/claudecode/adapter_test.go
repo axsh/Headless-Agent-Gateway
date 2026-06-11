@@ -3,8 +3,8 @@ package claudecode_test
 import (
 	"testing"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/codingagent/claudecode"
 )
 
 func TestClaudeCodeAdapterImplementsCodingAgent(t *testing.T) {

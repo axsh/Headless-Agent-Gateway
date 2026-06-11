@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/vault"
 	"github.com/zalando/go-keyring"
 )
 

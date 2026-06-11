@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/logger"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/logger"
 )
 
 // ClaudeCodeAdapter is a CodingAgent implementation using the Claude Code CLI.

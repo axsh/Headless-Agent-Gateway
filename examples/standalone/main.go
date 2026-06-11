@@ -11,20 +11,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/codingagent/claudecode"
-	"github.com/axsh/hag/codingagent/codex"
-	"github.com/axsh/hag/hag"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/codingagent/codex"
+	"github.com/axsh/arctic-tern/tern"
 )
 
 func main() {
-	configPath := flag.String("config", "config.yaml", "path to HAG configuration file")
+	configPath := flag.String("config", "config.yaml", "path to tern configuration file")
 	flag.Parse()
 
-	// Initialize HAG Server using WithConfigPath
-	srv, err := hag.New(hag.WithConfigPath(*configPath))
+	// Initialize tern Server using WithConfigPath
+	srv, err := tern.New(tern.WithConfigPath(*configPath))
 	if err != nil {
-		log.Fatalf("failed to initialize HAG server: %v", err)
+		log.Fatalf("failed to initialize tern server: %v", err)
 	}
 
 	// Register coding agents before Launch (so HTTPHandler has agents available).
@@ -34,7 +34,7 @@ func main() {
 
 	// Launch server (starts Gateway HTTP, AgentService, WebSocket).
 	if err := srv.Launch(ctx); err != nil {
-		log.Fatalf("failed to launch HAG server: %v", err)
+		log.Fatalf("failed to launch tern server: %v", err)
 	}
 
 	// Fetch and cache model list AFTER Launch (Gateway must be serving).
@@ -42,7 +42,7 @@ func main() {
 		fmt.Printf("Warning: failed to fetch models from gateway: %v\n", err)
 	}
 
-	fmt.Println("HAG server started and running...")
+	fmt.Println("tern server started and running...")
 
 	// Listen for OS signals
 	sigChan := make(chan os.Signal, 1)
@@ -59,12 +59,12 @@ func main() {
 		log.Fatalf("graceful shutdown failed: %v", err)
 	}
 
-	fmt.Println("HAG server stopped.")
+	fmt.Println("tern server stopped.")
 }
 
 // registerCodingAgents registers coding agent adapters with the AgentService.
 // Agents are only registered if their CLI tool is available on PATH.
-func registerCodingAgents(srv *hag.Server) {
+func registerCodingAgents(srv *tern.Server) {
 	if _, err := exec.LookPath("claude"); err == nil {
 		gwURL := srv.Gateway().ProxyURL()
 

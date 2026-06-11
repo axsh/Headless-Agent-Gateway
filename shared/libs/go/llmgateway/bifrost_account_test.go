@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/vault"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 )
 

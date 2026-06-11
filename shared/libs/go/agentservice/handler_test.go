@@ -8,10 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/axsh/hag/agentservice"
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/llmgateway"
+	"github.com/axsh/arctic-tern/agentservice"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/llmgateway"
 )
 
 // mockCodingAgent implements CodingAgent for testing.

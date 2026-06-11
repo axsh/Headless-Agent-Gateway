@@ -7,8 +7,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/tasklog"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/tasklog"
 )
 
 func TestServer_LaunchShutdown(t *testing.T) {

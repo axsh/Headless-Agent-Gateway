@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/codingagent/claudecode"
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/hag"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 // getFreePort listens on an ephemeral port and returns it.
@@ -66,11 +66,11 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 		},
 	}
 
-	srv, err := hag.New(
-		hag.WithConfig(cfg),
+	srv, err := tern.New(
+		tern.WithConfig(cfg),
 	)
 	if err != nil {
-		t.Fatalf("hag.New: %v", err)
+		t.Fatalf("tern.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {
@@ -151,11 +151,11 @@ func TestGeminiE2E_Stream(t *testing.T) {
 		},
 	}
 
-	srv, err := hag.New(
-		hag.WithConfig(cfg),
+	srv, err := tern.New(
+		tern.WithConfig(cfg),
 	)
 	if err != nil {
-		t.Fatalf("hag.New: %v", err)
+		t.Fatalf("tern.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {
@@ -236,12 +236,12 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 		},
 	}
 
-	// Launch HAG
-	srv, err := hag.New(
-		hag.WithConfig(cfg),
+	// Launch tern
+	srv, err := tern.New(
+		tern.WithConfig(cfg),
 	)
 	if err != nil {
-		t.Fatalf("hag.New: %v", err)
+		t.Fatalf("tern.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {

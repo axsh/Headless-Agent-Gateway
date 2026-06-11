@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/arctic-tern/codingagent"
 )
 
 // mockAgent implements CodingAgent for compile-time check.

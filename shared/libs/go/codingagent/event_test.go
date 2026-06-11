@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/arctic-tern/codingagent"
 )
 
 func TestStreamEventJSONMarshal(t *testing.T) {

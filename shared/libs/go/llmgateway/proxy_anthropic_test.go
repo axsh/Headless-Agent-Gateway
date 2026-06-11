@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/hag/config"
+	"github.com/axsh/arctic-tern/config"
 )
 
 func newTestProxyWithDriver(t *testing.T) *ProxyServer {

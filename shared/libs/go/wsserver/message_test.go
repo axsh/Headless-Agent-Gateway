@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/axsh/hag/tasklog"
+	"github.com/axsh/arctic-tern/tasklog"
 )
 
 func TestNewLogMessage(t *testing.T) {

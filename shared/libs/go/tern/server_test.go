@@ -1,4 +1,4 @@
-package hag
+package tern
 
 import (
 	"context"
@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/llmgateway"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/tasklog"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 func TestNew_DefaultConfig(t *testing.T) {
@@ -231,7 +231,7 @@ func (f *failingGateway) Launch(_ context.Context) error {
 	return f.err
 }
 
-// TC-P2-07: hag.Server end-to-end lifecycle with real ProxyServer.
+// TC-P2-07: tern.Server end-to-end lifecycle with real ProxyServer.
 func TestServer_EndToEnd_WithProxyServer(t *testing.T) {
 	// Use port=0 for ephemeral port. No WithGateway -> auto-creates ProxyServer.
 	cfg := &config.AppConfig{

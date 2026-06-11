@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 // ProxyServer implements LLMGatewayBackend with an HTTP proxy server.

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/axsh/hag/logger"
+	"github.com/axsh/arctic-tern/logger"
 )
 
 // providerBaseURLs maps provider names to their API base URLs.

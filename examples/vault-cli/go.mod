@@ -1,9 +1,9 @@
-module github.com/axsh/hag/examples/vault-cli
+module github.com/axsh/arctic-tern/examples/vault-cli
 
 go 1.26.4
 
 require (
-	github.com/axsh/hag v0.0.0
+	github.com/axsh/arctic-tern v0.0.0
 	github.com/zalando/go-keyring v0.2.8
 )
 
@@ -13,4 +13,4 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 )
 
-replace github.com/axsh/hag => ../../shared/libs/go
+replace github.com/axsh/arctic-tern => ../../shared/libs/go

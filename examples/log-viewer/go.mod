@@ -1,9 +1,9 @@
-module github.com/axsh/hag/log-viewer
+module github.com/axsh/arctic-tern/log-viewer
 
 go 1.26.4
 
 require (
-	github.com/axsh/hag v0.0.0
+	github.com/axsh/arctic-tern v0.0.0
 	github.com/gorilla/websocket v1.5.3
 )
 
@@ -77,4 +77,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/axsh/hag => ../../shared/libs/go
+replace github.com/axsh/arctic-tern => ../../shared/libs/go

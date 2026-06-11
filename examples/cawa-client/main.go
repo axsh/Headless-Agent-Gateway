@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/axsh/hag/logger"
+	"github.com/axsh/arctic-tern/logger"
 )
 
 var (

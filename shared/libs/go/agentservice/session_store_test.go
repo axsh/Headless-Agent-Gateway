@@ -3,8 +3,8 @@ package agentservice_test
 import (
 	"testing"
 
-	"github.com/axsh/hag/agentservice"
-	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/arctic-tern/agentservice"
+	"github.com/axsh/arctic-tern/codingagent"
 )
 
 func TestMemorySessionStore_Create(t *testing.T) {

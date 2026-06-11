@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/axsh/hag/config"
+	"github.com/axsh/arctic-tern/config"
 )
 
 // testProfiles returns a ModelProfilesConfig with anthropic and openai providers.

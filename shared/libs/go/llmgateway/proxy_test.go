@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/axsh/hag/config"
+	"github.com/axsh/arctic-tern/config"
 )
 
 // Compile-time check: ProxyServer implements LLMGatewayBackend.

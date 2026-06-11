@@ -3,7 +3,7 @@ package llm_test
 import (
 	"testing"
 
-	"github.com/axsh/hag/tasklog"
+	"github.com/axsh/arctic-tern/tasklog"
 )
 
 func TestIntegration_HierarchicalLogStreaming(t *testing.T) {

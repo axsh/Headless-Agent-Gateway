@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/axsh/hag/config"
+	"github.com/axsh/arctic-tern/config"
 )
 
 func TestBifrostDriver_New(t *testing.T) {

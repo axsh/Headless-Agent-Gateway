@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/axsh/hag/logger"
+	"github.com/axsh/arctic-tern/logger"
 )
 
 // OpenAIStreamChunk represents a single chunk in OpenAI's streaming response.

@@ -1,4 +1,4 @@
-// vault-cli is a CLI tool for managing secrets in the HAG Vault.
+// vault-cli is a CLI tool for managing secrets in the tern Vault.
 // It directly accesses the OS Keyring via KeyringVaultBackend.
 //
 // Usage:
@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 const (
@@ -273,7 +273,7 @@ func parseDeleteArgs(args []string) deleteOptions {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, `%s v%s — HAG Vault Secret Management CLI
+	fmt.Fprintf(os.Stderr, `%s v%s — tern Vault Secret Management CLI
 
 Usage:
   %s <command> [options]

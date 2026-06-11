@@ -1,8 +1,8 @@
 package config
 
-import "github.com/axsh/hag/logger"
+import "github.com/axsh/arctic-tern/logger"
 
-// AppConfig is the root configuration for HAG.
+// AppConfig is the root configuration for tern.
 type AppConfig struct {
 	// LLMGateway holds LLM Gateway Proxy settings.
 	LLMGateway LLMGatewayConfig `yaml:"llm_gateway"`

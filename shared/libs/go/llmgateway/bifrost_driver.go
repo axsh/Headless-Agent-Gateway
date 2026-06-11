@@ -7,9 +7,9 @@ import (
 	bifrost "github.com/maximhq/bifrost/core"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 // BifrostDriver implements LLMGatewayBackend using Bifrost SDK.
@@ -79,7 +79,7 @@ func initBifrostSDK(account *BifrostAccount, log logger.Logger) (*bifrost.Bifros
 	bifrostCfg := bifrostSchemas.BifrostConfig{
 		Account:         account,
 		Logger:          nil, // use Bifrost default logger
-		InitialPoolSize: 10,  // small pool — HAG has low concurrency
+		InitialPoolSize: 10,  // small pool — tern has low concurrency
 	}
 	bi, err := bifrost.Init(context.Background(), bifrostCfg)
 	if err != nil {

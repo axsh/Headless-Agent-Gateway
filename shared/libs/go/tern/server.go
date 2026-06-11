@@ -1,24 +1,24 @@
-// Package hag provides the HAG (Headless-Agent-Gateway) core facade.
-// Users interact with HAG through the Server type, which orchestrates
+// Package tern provides the tern (arctic-tern) core facade.
+// Users interact with tern through the Server type, which orchestrates
 // all components (LLM Gateway, Config, Vault, Logger).
-package hag
+package tern
 
 import (
 	"context"
 	"fmt"
 	"path/filepath"
 
-	"github.com/axsh/hag/agentservice"
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/llmgateway"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/tasklog"
-	"github.com/axsh/hag/vault"
-	"github.com/axsh/hag/wsserver"
+	"github.com/axsh/arctic-tern/agentservice"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/wsserver"
 )
 
-// Server is the HAG core facade that orchestrates all components.
-// Users interact with HAG through this type.
+// Server is the tern core facade that orchestrates all components.
+// Users interact with tern through this type.
 type Server struct {
 	cfg          *config.AppConfig
 	logger       logger.Logger
@@ -29,7 +29,7 @@ type Server struct {
 	taskLog      *tasklog.TaskLog
 }
 
-// New creates a new HAG Server with the given options.
+// New creates a new tern Server with the given options.
 // No goroutines are started; no network listeners are opened.
 //
 // Initialization order (per 000-Architecture R3-3):
@@ -47,7 +47,7 @@ func New(opts ...Option) (*Server, error) {
 	// Step 2: Resolve Config.
 	cfg, configDir, err := resolveConfig(o)
 	if err != nil {
-		return nil, fmt.Errorf("hag: %w", err)
+		return nil, fmt.Errorf("tern: %w", err)
 	}
 
 	// Step 3: Resolve Logger.
@@ -77,7 +77,7 @@ func New(opts ...Option) (*Server, error) {
 	}
 	gw, err := resolveGateway(o, cfg, vs, log, configDir)
 	if err != nil {
-		return nil, fmt.Errorf("hag: %w", err)
+		return nil, fmt.Errorf("tern: %w", err)
 	}
 
 	tl := tasklog.New()
@@ -107,15 +107,15 @@ func New(opts ...Option) (*Server, error) {
 // Launch starts all components. Non-blocking.
 // Start order: Gateway -> WebSocket -> AgentService.
 func (s *Server) Launch(ctx context.Context) error {
-	s.logger.Info("starting HAG server")
+	s.logger.Info("starting tern server")
 
 	if err := s.gateway.Launch(ctx); err != nil {
-		return fmt.Errorf("hag: gateway launch: %w", err)
+		return fmt.Errorf("tern: gateway launch: %w", err)
 	}
 	s.logger.Debug("gateway launched", "port", s.cfg.LLMGateway.Port)
 
 	if err := s.wsServer.Launch(ctx); err != nil {
-		return fmt.Errorf("hag: wsserver launch: %w", err)
+		return fmt.Errorf("tern: wsserver launch: %w", err)
 	}
 	s.logger.Debug("websocket server launched", "port", s.cfg.WebSocket.Port)
 
@@ -125,32 +125,32 @@ func (s *Server) Launch(ctx context.Context) error {
 		agentPort = 3100 // default port
 	}
 	if err := s.agentService.Launch(ctx, agentPort); err != nil {
-		return fmt.Errorf("hag: agentservice launch: %w", err)
+		return fmt.Errorf("tern: agentservice launch: %w", err)
 	}
 	s.logger.Debug("agent service launched", "port", s.agentService.Port())
 
-	s.logger.Info("HAG server started")
+	s.logger.Info("tern server started")
 	return nil
 }
 
 // Shutdown gracefully stops all components in reverse launch order.
 // Stop order: AgentService -> WebSocket -> Gateway.
 func (s *Server) Shutdown(ctx context.Context) error {
-	s.logger.Info("shutting down HAG server")
+	s.logger.Info("shutting down tern server")
 
 	if err := s.agentService.Shutdown(ctx); err != nil {
-		return fmt.Errorf("hag: agentservice shutdown: %w", err)
+		return fmt.Errorf("tern: agentservice shutdown: %w", err)
 	}
 
 	if err := s.wsServer.Shutdown(ctx); err != nil {
-		return fmt.Errorf("hag: wsserver shutdown: %w", err)
+		return fmt.Errorf("tern: wsserver shutdown: %w", err)
 	}
 
 	if err := s.gateway.Shutdown(ctx); err != nil {
-		return fmt.Errorf("hag: gateway shutdown: %w", err)
+		return fmt.Errorf("tern: gateway shutdown: %w", err)
 	}
 
-	s.logger.Info("HAG server stopped")
+	s.logger.Info("tern server stopped")
 	return nil
 }
 

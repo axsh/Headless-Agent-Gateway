@@ -20,13 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/hag/agentservice"
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/hag"
-	"github.com/axsh/hag/llmgateway"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/tasklog"
+	"github.com/axsh/arctic-tern/agentservice"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/tasklog"
 )
 
 // integrationMockAgent implements codingagent.CodingAgent for integration tests.
@@ -436,18 +436,18 @@ func TestAgentServiceLaunchShutdown(t *testing.T) {
 }
 
 // TestAgentServiceConfigPort verifies AgentService reads port from config
-// via hag.Server integration.
+// via tern.Server integration.
 func TestAgentServiceConfigPort(t *testing.T) {
 	cfg := &config.AppConfig{
 		AgentService: config.AgentServiceConfig{Port: 0}, // ephemeral
 	}
 	stub := llmgateway.NewStubGateway()
-	srv, err := hag.New(
-		hag.WithConfig(cfg),
-		hag.WithGateway(stub),
+	srv, err := tern.New(
+		tern.WithConfig(cfg),
+		tern.WithGateway(stub),
 	)
 	if err != nil {
-		t.Fatalf("hag.New failed: %v", err)
+		t.Fatalf("tern.New failed: %v", err)
 	}
 
 	ctx := context.Background()

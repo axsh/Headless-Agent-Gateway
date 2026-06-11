@@ -1,4 +1,4 @@
-module github.com/axsh/hag
+module github.com/axsh/arctic-tern
 
 go 1.26.4
 

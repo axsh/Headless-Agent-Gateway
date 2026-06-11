@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/llmgateway"
-	"github.com/axsh/hag/tasklog"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/tasklog"
 )
 
 // handleListAgents handles GET /api/v1/agents.

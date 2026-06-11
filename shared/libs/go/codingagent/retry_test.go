@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/arctic-tern/codingagent"
 )
 
 func TestIsRetryableError(t *testing.T) {

@@ -22,9 +22,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/codingagent/claudecode"
-	"github.com/axsh/hag/hag"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/tern"
 )
 
 // e2eDefaultModel is the model used for E2E tests.
@@ -43,7 +43,7 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-// startE2EServer starts a real HAG server with LLM Gateway and claudecode agent.
+// startE2EServer starts a real tern server with LLM Gateway and claudecode agent.
 // It uses the standalone model_profiles.yaml and dynamically-assigned ports.
 // Returns the AgentService base URL and a cleanup function.
 func startE2EServer(t *testing.T) (string, func()) {
@@ -81,9 +81,9 @@ agent_service:
 		t.Fatalf("write temp config: %v", err)
 	}
 
-	srv, err := hag.New(hag.WithConfigPath(tmpConfig))
+	srv, err := tern.New(tern.WithConfigPath(tmpConfig))
 	if err != nil {
-		t.Fatalf("hag.New failed: %v", err)
+		t.Fatalf("tern.New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -448,9 +448,9 @@ agent_service:
 
 	os.WriteFile(tmpConfig, []byte(configContent), 0644)
 
-	srv, err := hag.New(hag.WithConfigPath(tmpConfig))
+	srv, err := tern.New(tern.WithConfigPath(tmpConfig))
 	if err != nil {
-		t.Fatalf("hag.New: %v", err)
+		t.Fatalf("tern.New: %v", err)
 	}
 
 	ctx := context.Background()

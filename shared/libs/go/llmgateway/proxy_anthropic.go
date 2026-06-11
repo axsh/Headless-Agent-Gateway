@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 // anthropicRequest represents the minimal fields we parse from Anthropic Messages API.

@@ -12,11 +12,11 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/llmgateway"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/tasklog"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/tasklog"
 )
 
 // AgentService is the interface for the Coding Agent API service.

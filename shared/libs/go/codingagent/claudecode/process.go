@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/axsh/hag/codingagent"
-	"github.com/axsh/hag/logger"
+	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/logger"
 )
 
 const gracefulShutdownTimeout = 5 * time.Second

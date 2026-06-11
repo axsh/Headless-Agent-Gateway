@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/arctic-tern/codingagent"
 )
 
 // ErrNotFound is returned when a session is not found.

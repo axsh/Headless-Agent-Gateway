@@ -1,11 +1,11 @@
-package hag
+package tern
 
 import (
-	"github.com/axsh/hag/agentservice"
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/llmgateway"
-	"github.com/axsh/hag/logger"
-	"github.com/axsh/hag/vault"
+	"github.com/axsh/arctic-tern/agentservice"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/vault"
 )
 
 // Option configures a Server.

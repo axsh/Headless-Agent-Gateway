@@ -3,7 +3,7 @@ package codex
 import (
 	"encoding/json"
 
-	"github.com/axsh/hag/codingagent"
+	"github.com/axsh/arctic-tern/codingagent"
 )
 
 // ExecEvent represents a JSONL event from "codex exec --json" output.

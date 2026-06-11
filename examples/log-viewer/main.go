@@ -1,9 +1,9 @@
-// Package main implements a CLI log viewer and simulator for HAG WebSocket
+// Package main implements a CLI log viewer and simulator for tern WebSocket
 // log streaming. It supports two modes:
 //
 //   - Viewer mode (default): connects to a WebSocket server and displays
 //     hierarchical agent logs with color coding and indentation.
-//   - Simulator mode (--simulate): starts a HAG server with a WebSocket
+//   - Simulator mode (--simulate): starts a tern server with a WebSocket
 //     endpoint and generates simulated hierarchical logs for demonstration.
 package main
 
@@ -21,11 +21,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/hag"
-	"github.com/axsh/hag/llmgateway"
-	"github.com/axsh/hag/tasklog"
-	"github.com/axsh/hag/wsserver"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/wsserver"
 )
 
 // ANSI color codes.
@@ -154,18 +154,18 @@ func truncate(s string, max int) string {
 	return s[:max] + "..."
 }
 
-// runSimulator starts a HAG server and generates simulated logs.
+// runSimulator starts a tern server and generates simulated logs.
 func runSimulator(port int) {
 	cfg := &config.AppConfig{
 		WebSocket: config.WebSocketConfig{Port: port},
 	}
 	stub := llmgateway.NewStubGateway()
-	srv, err := hag.New(
-		hag.WithConfig(cfg),
-		hag.WithGateway(stub),
+	srv, err := tern.New(
+		tern.WithConfig(cfg),
+		tern.WithGateway(stub),
 	)
 	if err != nil {
-		log.Fatalf("hag.New: %v", err)
+		log.Fatalf("tern.New: %v", err)
 	}
 
 	ctx := context.Background()

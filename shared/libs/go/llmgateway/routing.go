@@ -3,8 +3,8 @@ package llmgateway
 import (
 	"sync"
 
-	"github.com/axsh/hag/config"
-	"github.com/axsh/hag/logger"
+	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/logger"
 )
 
 // RoutedModel holds the resolved provider, key value, and model name.
