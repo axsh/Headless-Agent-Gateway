@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/axsh/arctic-tern/agentservice"
+	"github.com/axsh/arctic-tern/codingagent"
 	"github.com/axsh/arctic-tern/config"
 	"github.com/axsh/arctic-tern/llmgateway"
 	"github.com/axsh/arctic-tern/logger"
@@ -142,7 +143,7 @@ func New(opts ...Option) (*Server, error) {
 		caCertPath = tlsMgr.CACertFilePath()
 	}
 
-	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath)
+	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw)
 
 	wsPort := cfg.WebSocket.Port
 	ws := wsserver.New(wsPort, tl, log)
@@ -346,7 +347,9 @@ func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log 
 }
 
 // resolveAgentService returns the externally provided AgentService or builds one.
-func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string) *agentservice.Server {
+// When building internally, it also auto-registers all coding agents that
+// self-registered via init() in the codingagent global registry.
+func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend) *agentservice.Server {
 	if o.agentService != nil {
 		return o.agentService
 	}
@@ -358,11 +361,38 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		}
 	}
 
-	return agentservice.New(
+	as := agentservice.New(
 		agentservice.WithLogger(log),
 		agentservice.WithTaskLog(tl),
 		agentservice.WithGatewayURL(gatewayURL),
 		agentservice.WithGatewayToken(gatewayToken),
 	)
+
+	// Auto-register coding agents from the global registry.
+	defaultModel := ""
+	toolCallFallback := false
+	if gw != nil {
+		if dm := gw.DefaultModel(); dm != nil {
+			defaultModel = dm.Model
+			toolCallFallback = dm.ToolCallFallback
+		}
+	}
+
+	adapterCfg := &codingagent.AdapterConfig{
+		GatewayURL:       gatewayURL,
+		GatewayToken:     gatewayToken,
+		Logger:           log,
+		DefaultModel:     defaultModel,
+		ToolCallFallback: toolCallFallback,
+	}
+
+	for _, agent := range codingagent.CreateAll(adapterCfg) {
+		as.RegisterAgent(agent)
+		if log != nil {
+			log.Debug("auto-registered coding agent", "agent", agent.Name())
+		}
+	}
+
+	return as
 }
 

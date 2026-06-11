@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/axsh/arctic-tern/agentservice"
 	"github.com/axsh/arctic-tern/config"
 	"github.com/axsh/arctic-tern/llmgateway"
 	"github.com/axsh/arctic-tern/logger"
@@ -460,6 +461,48 @@ func TestServer_TLS_Disabled(t *testing.T) {
 
 	if path := srv.TLSCACertPath(); path != "" {
 		t.Errorf("expected empty TLSCACertPath when TLS disabled, got %q", path)
+	}
+}
+
+// Test resolveAgentService with nil gateway (no agents registered since
+// CLIs are not on PATH in test environment, but the function should not panic).
+func TestResolveAgentService_NilGateway(t *testing.T) {
+	o := &options{}
+	log := logger.NewDefault(logger.LevelDebug)
+	tl := tasklog.New()
+
+	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", nil)
+	if as == nil {
+		t.Fatal("resolveAgentService returned nil")
+	}
+}
+
+// Test resolveAgentService with a stub gateway that provides DefaultModel.
+// Verifies the function does not panic and returns a valid server.
+func TestResolveAgentService_WithStubGateway(t *testing.T) {
+	o := &options{}
+	log := logger.NewDefault(logger.LevelDebug)
+	tl := tasklog.New()
+	stub := llmgateway.NewStubGateway()
+
+	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub)
+	if as == nil {
+		t.Fatal("resolveAgentService returned nil")
+	}
+}
+
+// Test resolveAgentService with externally provided AgentService (bypass auto-registration).
+func TestResolveAgentService_ExternalBypass(t *testing.T) {
+	externalAS := agentservice.New()
+	o := &options{agentService: externalAS}
+	log := logger.NewDefault(logger.LevelDebug)
+	tl := tasklog.New()
+	stub := llmgateway.NewStubGateway()
+
+	// When o.agentService is set, resolveAgentService should return it directly.
+	got := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub)
+	if got != externalAS {
+		t.Error("expected externally provided AgentService to be returned directly")
 	}
 }
 
