@@ -35,7 +35,7 @@ func TestOllama_NonStream(t *testing.T) {
 	defer cleanup()
 
 	body := map[string]any{
-		"model":      "llama3.2:1b",
+		"model":      "gemma3:4b",
 		"max_tokens": 50,
 		"messages": []map[string]string{
 			{"role": "user", "content": "Say exactly: hello ollama test"},
@@ -79,7 +79,7 @@ func TestOllama_Stream(t *testing.T) {
 	defer cleanup()
 
 	body := map[string]any{
-		"model":      "llama3.2:1b",
+		"model":      "gemma3:4b",
 		"max_tokens": 50,
 		"stream":     true,
 		"messages": []map[string]string{

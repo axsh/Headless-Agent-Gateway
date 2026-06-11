@@ -126,13 +126,26 @@ func (a *BifrostAccount) GetKeysForProvider(ctx context.Context, providerKey bif
 			weight = 1.0
 		}
 
-		keys = append(keys, bifrostSchemas.Key{
+		key := bifrostSchemas.Key{
 			ID:     fmt.Sprintf("%s-%d", keyCfg.Name, i),
 			Name:   keyCfg.Name,
 			Value:  bifrostSchemas.EnvVar{Val: keyValue},
 			Models: modelNames,
 			Weight: weight,
-		})
+		}
+
+		// Ollama requires OllamaKeyConfig with the server URL.
+		if providerKey == bifrostSchemas.Ollama {
+			baseURL := "http://localhost:11434"
+			if p, ok := GetProvider("ollama"); ok {
+				baseURL = p.BaseURL()
+			}
+			key.OllamaKeyConfig = &bifrostSchemas.OllamaKeyConfig{
+				URL: bifrostSchemas.EnvVar{Val: baseURL},
+			}
+		}
+
+		keys = append(keys, key)
 	}
 
 	return keys, nil
