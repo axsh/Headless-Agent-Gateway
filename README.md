@@ -65,105 +65,42 @@ Developers should be free to choose between hosted services, private deployments
 
 The `examples/` directory contains working samples that demonstrate Tern's core concepts.
 
-### Server (`examples/minimal-server`)
+### Server ([examples/minimal-server](examples/minimal-server/main.go))
 
-Start a tern server. All built-in coding agents and LLM providers are auto-registered by the `tern` package:
+All built-in coding agents and LLM providers are auto-registered by the `tern` package.
+Starting a server requires only a config path:
 
 ```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"log"
-	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/axsh/arctic-tern/tern"
-)
-
-func main() {
-	srv, err := tern.New(tern.WithConfigPath("config.yaml"))
-	if err != nil {
-		log.Fatalf("failed to initialize: %v", err)
-	}
-
-	ctx := context.Background()
-	if err := srv.Launch(ctx); err != nil {
-		log.Fatalf("failed to launch: %v", err)
-	}
-	defer srv.Shutdown(ctx)
-
-	fmt.Printf("tern server running on http://localhost:%d\n", srv.AgentService().Port())
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
-
-	fmt.Println("shutting down...")
-}
+srv, err := tern.New(tern.WithConfigPath("config.yaml"))
+srv.Launch(ctx)
+defer srv.Shutdown(ctx)
 ```
 
-### Client (`examples/minimal-client`)
+### Client ([examples/minimal-client](examples/minimal-client/main.go))
 
-Connect to a running tern server, create a session, and stream the response:
+Create a session, send a message, and stream the response:
 
 ```go
-package main
+c := client.New("http://localhost:3100")
 
-import (
-	"context"
-	"log"
-	"os"
+session, _ := c.CreateSession(ctx, client.SessionRequest{
+    Agent:   "claudecode",
+    WorkDir: ".",
+})
+defer session.Terminate(ctx)
 
-	"github.com/axsh/arctic-tern/client"
-)
-
-func main() {
-	serverURL := "http://localhost:3100"
-	if len(os.Args) > 1 {
-		serverURL = os.Args[1]
-	}
-
-	ctx := context.Background()
-	c := client.New(serverURL)
-
-	session, err := c.CreateSession(ctx, client.SessionRequest{
-		Agent:   "claudecode",
-		Model:   "sonnet",
-		WorkDir: ".",
-	})
-	if err != nil {
-		log.Fatalf("create session: %v", err)
-	}
-	defer session.Terminate(ctx)
-	log.Printf("Session: %s", session.ID)
-
-	stream, err := session.SendMessage(ctx, "Create a file called hello.txt with the content 'Hello, World!'")
-	if err != nil {
-		log.Fatalf("send message: %v", err)
-	}
-
-	if err := stream.Output(os.Stdout); err != nil {
-		log.Fatalf("stream output: %v", err)
-	}
-}
+stream, _ := session.SendMessage(ctx, "Create hello.txt with 'Hello, World!'")
+stream.Output(os.Stdout)
 ```
 
 ### Agent and Model Interoperability
 
-The same client code works regardless of the underlying agent or model. Switching is a matter of changing the session parameters:
+Switching agents or models is a matter of changing session parameters. The surrounding application remains unchanged:
 
 ```go
-// Use Claude Code with Sonnet
-client.SessionRequest{Agent: "claudecode", Model: "sonnet"}
-
-// Use Codex with GPT-5
-client.SessionRequest{Agent: "codex", Model: "gpt-5.5"}
+client.SessionRequest{Agent: "claudecode", Model: "sonnet"}   // Claude Code
+client.SessionRequest{Agent: "codex",      Model: "gpt-5.5"}  // Codex
 ```
-
-The surrounding application remains unchanged.
 
 ---
 
