@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
 
 // ParentMessage is a simplified message from the parent session used for hint generation.
@@ -24,11 +22,11 @@ type Hints struct {
 
 // HintGenerator creates hints from parent context.
 type HintGenerator struct {
-	llm wayfinder.LLMClient
+	llm LLMClient
 }
 
 // NewHintGenerator creates a new HintGenerator.
-func NewHintGenerator(llm wayfinder.LLMClient) *HintGenerator {
+func NewHintGenerator(llm LLMClient) *HintGenerator {
 	return &HintGenerator{llm: llm}
 }
 
@@ -49,7 +47,7 @@ func (h *HintGenerator) GenerateHints(
 ) (*Hints, error) {
 	hintPrompt := buildHintExtractionPrompt(parentMessages, toolName, toolInput)
 
-	messages := []wayfinder.ChatMessage{
+	messages := []ChatMessage{
 		{Role: "system", Content: hintSystemPrompt},
 		{Role: "user", Content: hintPrompt},
 	}

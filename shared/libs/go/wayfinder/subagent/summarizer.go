@@ -3,8 +3,6 @@ package subagent
 import (
 	"context"
 	"fmt"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
 
 const summarySystemPrompt = `You are a result summarizer for a coding agent.
@@ -23,11 +21,11 @@ const maxRawOutputLen = 50000
 
 // Summarizer produces concise summaries for parent consumption.
 type Summarizer struct {
-	llm wayfinder.LLMClient
+	llm LLMClient
 }
 
 // NewSummarizer creates a new Summarizer.
-func NewSummarizer(llm wayfinder.LLMClient) *Summarizer {
+func NewSummarizer(llm LLMClient) *Summarizer {
 	return &Summarizer{llm: llm}
 }
 
@@ -45,7 +43,7 @@ func (s *Summarizer) SummarizeForParent(ctx context.Context, hints *Hints, rawOu
 		hints.Objective, hints.Context, truncatedOutput,
 	)
 
-	messages := []wayfinder.ChatMessage{
+	messages := []ChatMessage{
 		{Role: "system", Content: summarySystemPrompt},
 		{Role: "user", Content: prompt},
 	}

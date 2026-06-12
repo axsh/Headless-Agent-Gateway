@@ -15,6 +15,12 @@ const (
 	maxIterations = 25
 )
 
+// SubagentRunner is the interface for subagent execution.
+// This breaks the cyclic dependency between wayfinder and wayfinder/subagent.
+type SubagentRunner interface {
+	Execute(ctx context.Context, parentMessages []ChatMessage, toolName string, toolInput map[string]any) (string, error)
+}
+
 // AgentCore drives the main LLM tool-calling loop.
 type AgentCore struct {
 	llm            LLMClient
@@ -26,6 +32,7 @@ type AgentCore struct {
 	store          *session.Store
 	sessionID      string
 	compactionCfg  *session.CompactionConfig
+	subagent       SubagentRunner // nil if subagent is disabled
 }
 
 // NewAgentCore creates a new AgentCore.
@@ -292,9 +299,26 @@ func (ac *AgentCore) SessionID() string {
 	return ac.sessionID
 }
 
+// SetSubagentExecutor configures the subagent executor for delegating heavy tool calls.
+func (ac *AgentCore) SetSubagentExecutor(exec SubagentRunner) {
+	ac.subagent = exec
+}
+
 // executeTool runs a single tool call and returns the result string.
 func (ac *AgentCore) executeTool(ctx context.Context, tc ToolCall) string {
 	ac.logger.Debug("executing tool", "tool", tc.Name, "id", tc.ID)
+
+	// Delegate execute_command to subagent if configured.
+	if tc.Name == "execute_command" && ac.subagent != nil {
+		ac.logger.Debug("delegating to subagent", "tool", tc.Name)
+		result, err := ac.subagent.Execute(ctx, ac.messages, tc.Name, tc.Input)
+		if err != nil {
+			ac.logger.Debug("subagent execution failed", "tool", tc.Name, "error", err.Error())
+			return fmt.Sprintf("Error: %v", err)
+		}
+		ac.logger.Debug("subagent execution completed", "tool", tc.Name, "result_len", len(result))
+		return result
+	}
 
 	tool, ok := ac.registry.Get(tc.Name)
 	if !ok {

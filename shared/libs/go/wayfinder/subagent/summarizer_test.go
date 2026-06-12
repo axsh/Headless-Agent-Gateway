@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
 
 func TestSummarizeForParent_Success(t *testing.T) {
 	mock := &mockLLM{
-		responses: []*wayfinder.LLMResponse{
+		responses: []*LLMResponse{
 			{Content: "Status: SUCCESS\nSummary: Build completed with no errors.\nKey Findings: None"},
 		},
 	}
@@ -31,7 +29,7 @@ func TestSummarizeForParent_Success(t *testing.T) {
 
 func TestSummarizeForParent_WarningFocus(t *testing.T) {
 	mock := &mockLLM{
-		responses: []*wayfinder.LLMResponse{
+		responses: []*LLMResponse{
 			{Content: "Status: SUCCESS\nSummary: Build passed with 3 warnings.\nKey Findings: Deprecated API usage in auth.go:42"},
 		},
 	}
@@ -62,13 +60,12 @@ func TestSummarizeForParent_LLMError(t *testing.T) {
 
 func TestSummarizeForParent_TruncatesLongOutput(t *testing.T) {
 	mock := &mockLLM{
-		responses: []*wayfinder.LLMResponse{
+		responses: []*LLMResponse{
 			{Content: "Status: SUCCESS\nSummary: Processed large output."},
 		},
 	}
 	s := NewSummarizer(mock)
 
-	// Generate a very long output.
 	longOutput := ""
 	for range 2000 {
 		longOutput += "line of output that is quite long and repetitive\n"
@@ -82,8 +79,6 @@ func TestSummarizeForParent_TruncatesLongOutput(t *testing.T) {
 	if result == "" {
 		t.Error("expected non-empty summary")
 	}
-
-	// Verify that the prompt sent to LLM was truncated.
 	if mock.callCount != 1 {
 		t.Errorf("callCount = %d, want 1", mock.callCount)
 	}

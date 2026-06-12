@@ -4,18 +4,16 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
 
 // mockLLM is a test helper LLM client for the subagent package.
 type mockLLM struct {
-	responses []*wayfinder.LLMResponse
+	responses []*LLMResponse
 	err       error
 	callCount int
 }
 
-func (m *mockLLM) GenerateMessage(_ context.Context, _ string, _ []wayfinder.ChatMessage, _ []wayfinder.ToolDefinition) (*wayfinder.LLMResponse, error) {
+func (m *mockLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition) (*LLMResponse, error) {
 	m.callCount++
 	if m.err != nil {
 		return nil, m.err
@@ -23,12 +21,12 @@ func (m *mockLLM) GenerateMessage(_ context.Context, _ string, _ []wayfinder.Cha
 	if m.callCount <= len(m.responses) {
 		return m.responses[m.callCount-1], nil
 	}
-	return &wayfinder.LLMResponse{Content: ""}, nil
+	return &LLMResponse{Content: ""}, nil
 }
 
 func TestGenerateHints_ExtractsObjective(t *testing.T) {
 	mock := &mockLLM{
-		responses: []*wayfinder.LLMResponse{
+		responses: []*LLMResponse{
 			{Content: `{"objective":"Check build output","context":"User asked to verify compilation","constraints":"Focus on errors"}`},
 		},
 	}
@@ -50,13 +48,12 @@ func TestGenerateHints_ExtractsObjective(t *testing.T) {
 
 func TestGenerateHints_ContextFromRecentMessages(t *testing.T) {
 	mock := &mockLLM{
-		responses: []*wayfinder.LLMResponse{
+		responses: []*LLMResponse{
 			{Content: `{"objective":"Run tests","context":"Recent conversation about testing","constraints":""}`},
 		},
 	}
 	gen := NewHintGenerator(mock)
 
-	// Create 10 messages; only last 5 should be used.
 	messages := make([]ParentMessage, 10)
 	for i := range 10 {
 		messages[i] = ParentMessage{Role: "user", Content: "msg"}
@@ -90,7 +87,7 @@ func TestGenerateHints_LLMError(t *testing.T) {
 
 func TestGenerateHints_InvalidJSON(t *testing.T) {
 	mock := &mockLLM{
-		responses: []*wayfinder.LLMResponse{
+		responses: []*LLMResponse{
 			{Content: "This is not valid JSON at all"},
 		},
 	}
@@ -106,4 +103,3 @@ func TestGenerateHints_InvalidJSON(t *testing.T) {
 		t.Error("Objective should have a fallback value")
 	}
 }
-

@@ -7,13 +7,61 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/wayfinder"
 )
+
+// LLMClient is the interface for LLM communication.
+// Defined locally to avoid cyclic import with the wayfinder root package.
+type LLMClient interface {
+	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error)
+}
+
+// ChatMessage is a message in the LLM conversation.
+type ChatMessage struct {
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+// ToolCall represents a tool invocation from LLM response.
+type ToolCall struct {
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input"`
+}
+
+// ToolDefinition describes a tool available to the LLM.
+type ToolDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	InputSchema any    `json:"input_schema"`
+}
+
+// LLMResponse is the response from an LLM call.
+type LLMResponse struct {
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
+// AgentRunnerConfig is a simplified config for creating child sessions.
+type AgentRunnerConfig struct {
+	WorkDir             string
+	SessionDir          string
+	LogicalModel        string
+	AllowedPathPatterns []string
+}
+
+// AgentRunner creates and runs child AgentCore instances.
+// Injected by the caller to avoid cyclic import.
+type AgentRunner interface {
+	RunChild(ctx context.Context, cfg *AgentRunnerConfig, sessionID string, llm LLMClient, log logger.Logger, prompt string) (string, error)
+}
 
 // SubagentExecutor manages child session lifecycle.
 type SubagentExecutor struct {
-	parentConfig *wayfinder.AgentConfig
-	llm          wayfinder.LLMClient
+	parentConfig *AgentRunnerConfig
+	llm          LLMClient
+	runner       AgentRunner
 	hints        *HintGenerator
 	summarizer   *Summarizer
 	logger       logger.Logger
@@ -22,8 +70,9 @@ type SubagentExecutor struct {
 // NewSubagentExecutor creates a new SubagentExecutor.
 // If log is nil, a default no-op logger is used.
 func NewSubagentExecutor(
-	parentCfg *wayfinder.AgentConfig,
-	llm wayfinder.LLMClient,
+	parentCfg *AgentRunnerConfig,
+	llm LLMClient,
+	runner AgentRunner,
 	log logger.Logger,
 ) *SubagentExecutor {
 	if log == nil {
@@ -32,6 +81,7 @@ func NewSubagentExecutor(
 	return &SubagentExecutor{
 		parentConfig: parentCfg,
 		llm:          llm,
+		runner:       runner,
 		hints:        NewHintGenerator(llm),
 		summarizer:   NewSummarizer(llm),
 		logger:       log,
@@ -56,7 +106,7 @@ func (e *SubagentExecutor) Execute(
 
 	// 2. Create child session config (inherit WorkDir and SessionDir).
 	childSessionID := uuid.New().String()
-	childConfig := &wayfinder.AgentConfig{
+	childConfig := &AgentRunnerConfig{
 		WorkDir:             e.parentConfig.WorkDir,
 		SessionDir:          e.parentConfig.SessionDir,
 		LogicalModel:        e.parentConfig.LogicalModel,
@@ -65,11 +115,7 @@ func (e *SubagentExecutor) Execute(
 
 	e.logger.Debug("child session created", "child_id", childSessionID, "parent_work_dir", childConfig.WorkDir)
 
-	// 3. Create child AgentCore.
-	childCore := wayfinder.NewAgentCore(e.llm, childConfig, e.logger)
-	childCore.SetSessionID(childSessionID)
-
-	// 4. Build child prompt with hints and tool execution instruction.
+	// 3. Build child prompt with hints and tool execution instruction.
 	childPrompt := fmt.Sprintf(
 		"[SUBAGENT TASK]\nObjective: %s\nContext: %s\n\n"+
 			"Execute the following tool and provide a summary of the results:\n"+
@@ -77,15 +123,15 @@ func (e *SubagentExecutor) Execute(
 		hints.Objective, hints.Context, toolName, toolInput,
 	)
 
-	// 5. Run child AgentCore (recursive call).
-	childResult, err := childCore.Run(ctx, childPrompt)
+	// 4. Run child via injected runner (avoids direct wayfinder import).
+	childResult, err := e.runner.RunChild(ctx, childConfig, childSessionID, e.llm, e.logger, childPrompt)
 	if err != nil {
 		return "", fmt.Errorf("child session %s failed: %w", childSessionID, err)
 	}
 
 	e.logger.Debug("child session completed", "child_id", childSessionID, "result_len", len(childResult))
 
-	// 6. Summarize child result for parent consumption.
+	// 5. Summarize child result for parent consumption.
 	summary, err := e.summarizer.SummarizeForParent(ctx, hints, childResult)
 	if err != nil {
 		e.logger.Warn("summarization failed, returning raw result", "error", err.Error())
