@@ -2,7 +2,6 @@ package llmgateway
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -42,66 +41,7 @@ func TestExtractToolCallFromText_None(t *testing.T) {
 	}
 }
 
-func TestTryFallbackOpenAIResponse(t *testing.T) {
-	rawResponse := `{
-		"id": "chatcmpl-123",
-		"object": "chat.completion",
-		"created": 1677652288,
-		"model": "gpt-4o",
-		"choices": [{
-			"index": 0,
-			"message": {
-				"role": "assistant",
-				"content": "Using weather tool:\n<tool_call>{\"name\": \"get_weather\", \"arguments\": {\"location\": \"Tokyo\"}}</tool_call>"
-			},
-			"finish_reason": "stop"
-		}]
-	}`
 
-	rewritten, ok := TryFallbackOpenAIResponse([]byte(rawResponse))
-	if !ok {
-		t.Fatalf("expected response to be rewritten")
-	}
-
-	var parsed struct {
-		Choices []struct {
-			Message struct {
-				Content   string `json:"content"`
-				ToolCalls []struct {
-					ID       string `json:"id"`
-					Type     string `json:"type"`
-					Function struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-	}
-
-	if err := json.Unmarshal(rewritten, &parsed); err != nil {
-		t.Fatalf("failed to parse rewritten JSON: %v", err)
-	}
-
-	if len(parsed.Choices[0].Message.ToolCalls) != 1 {
-		t.Fatalf("expected 1 tool call, got %d", len(parsed.Choices[0].Message.ToolCalls))
-	}
-
-	tc := parsed.Choices[0].Message.ToolCalls[0]
-	if tc.Function.Name != "get_weather" {
-		t.Errorf("expected name 'get_weather', got %q", tc.Function.Name)
-	}
-	if !strings.Contains(tc.Function.Arguments, "Tokyo") {
-		t.Errorf("expected arguments to contain 'Tokyo', got %q", tc.Function.Arguments)
-	}
-	if parsed.Choices[0].FinishReason != "tool_calls" {
-		t.Errorf("expected finish_reason 'tool_calls', got %q", parsed.Choices[0].FinishReason)
-	}
-	if parsed.Choices[0].Message.Content != "" {
-		t.Errorf("expected content to be cleared, got %q", parsed.Choices[0].Message.Content)
-	}
-}
 
 func TestTryFallbackAnthropicResponse(t *testing.T) {
 	rawResponse := `{

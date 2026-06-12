@@ -48,16 +48,7 @@ func GetProvider(name string) (Provider, bool) {
 	return p, ok
 }
 
-// AllProviders returns all registered providers.
-func AllProviders() []Provider {
-	providerMu.RLock()
-	defer providerMu.RUnlock()
-	providers := make([]Provider, 0, len(providerRegistry))
-	for _, p := range providerRegistry {
-		providers = append(providers, p)
-	}
-	return providers
-}
+
 
 // resetProviderRegistry clears the registry (for testing only).
 func resetProviderRegistry() {
