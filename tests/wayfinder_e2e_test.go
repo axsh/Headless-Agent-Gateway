@@ -160,9 +160,9 @@ func sendWayfinderMessage(t *testing.T, baseURL, sessionID, message string, time
 
 // extractPIDFromOutput extracts a PID number from output text.
 func extractPIDFromOutput(output string) (int, error) {
-	// Try multiple patterns: "PID: 1234", "PID 1234", "pid=1234", "PID: 1234"
+	// Try multiple patterns: "PID: 1234", "PID 1234", "pid=1234", "PID is: 1234"
 	patterns := []string{
-		`(?i)PID\s*[:=]?\s*(\d+)`,
+		`(?i)PID\s*(?:is\s*)?[:=]?\s*(\d+)`,
 		`(?i)process\s+(?:id\s+)?(\d+)`,
 		`(?i)started.*?(\d{3,})`,
 	}
