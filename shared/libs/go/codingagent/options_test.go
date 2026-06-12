@@ -225,4 +225,77 @@ func TestApplyDefaults(t *testing.T) {
 			t.Errorf("SessionDir = %v, want /default/sessions", cfg.SessionDir)
 		}
 	})
+
+	t.Run("relative WorkDir is resolved to absolute path", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithWorkDir("relative/path"),
+		)
+		ac := &codingagent.AdapterConfig{}
+		codingagent.ApplyDefaults(cfg, ac)
+
+		if !filepath.IsAbs(cfg.WorkDir) {
+			t.Errorf("WorkDir should be absolute, got %q", cfg.WorkDir)
+		}
+		wantWorkDir, _ := filepath.Abs("relative/path")
+		if cfg.WorkDir != wantWorkDir {
+			t.Errorf("WorkDir = %q, want %q", cfg.WorkDir, wantWorkDir)
+		}
+	})
+
+	t.Run("relative SessionDir is resolved to absolute path", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithSessionDir("rel/session"),
+		)
+		ac := &codingagent.AdapterConfig{}
+		codingagent.ApplyDefaults(cfg, ac)
+
+		if !filepath.IsAbs(cfg.SessionDir) {
+			t.Errorf("SessionDir should be absolute, got %q", cfg.SessionDir)
+		}
+		wantSessionDir, _ := filepath.Abs("rel/session")
+		if cfg.SessionDir != wantSessionDir {
+			t.Errorf("SessionDir = %q, want %q", cfg.SessionDir, wantSessionDir)
+		}
+	})
+
+	t.Run("SessionDir fallback with relative WorkDir produces absolute path", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithWorkDir("tmp"),
+		)
+		ac := &codingagent.AdapterConfig{
+			AgentName: "claudecode",
+		}
+		codingagent.ApplyDefaults(cfg, ac)
+
+		// Both WorkDir and SessionDir should be absolute.
+		if !filepath.IsAbs(cfg.WorkDir) {
+			t.Errorf("WorkDir should be absolute, got %q", cfg.WorkDir)
+		}
+		if !filepath.IsAbs(cfg.SessionDir) {
+			t.Errorf("SessionDir should be absolute, got %q", cfg.SessionDir)
+		}
+		absWorkDir, _ := filepath.Abs("tmp")
+		wantSessionDir := filepath.Join(absWorkDir, ".claudecode")
+		if cfg.SessionDir != wantSessionDir {
+			t.Errorf("SessionDir = %q, want %q", cfg.SessionDir, wantSessionDir)
+		}
+	})
+
+	t.Run("absolute WorkDir and SessionDir are not modified", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithWorkDir("/absolute/work"),
+			codingagent.WithSessionDir("/absolute/session"),
+		)
+		ac := &codingagent.AdapterConfig{
+			AgentName: "claudecode",
+		}
+		codingagent.ApplyDefaults(cfg, ac)
+
+		if cfg.WorkDir != "/absolute/work" {
+			t.Errorf("WorkDir = %q, want /absolute/work", cfg.WorkDir)
+		}
+		if cfg.SessionDir != "/absolute/session" {
+			t.Errorf("SessionDir = %q, want /absolute/session", cfg.SessionDir)
+		}
+	})
 }
