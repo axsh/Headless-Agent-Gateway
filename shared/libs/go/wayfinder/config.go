@@ -24,6 +24,10 @@ type AgentConfig struct {
 
 	// SystemPrompt is an optional system prompt prepended to conversations.
 	SystemPrompt string
+
+	// EnableSubagent enables subagent delegation for heavy tool calls
+	// and child session creation for WBS node execution.
+	EnableSubagent bool
 }
 
 // InitConfig resolves paths and applies defaults.

@@ -9,6 +9,7 @@ import (
 	"github.com/axsh/arctic-tern/logger"
 	"github.com/axsh/arctic-tern/wayfinder/planning"
 	"github.com/axsh/arctic-tern/wayfinder/session"
+	"github.com/axsh/arctic-tern/wayfinder/subagent"
 	"github.com/axsh/arctic-tern/wayfinder/tools"
 )
 
@@ -20,7 +21,7 @@ const (
 // SubagentRunner is the interface for subagent execution.
 // This breaks the cyclic dependency between wayfinder and wayfinder/subagent.
 type SubagentRunner interface {
-	Execute(ctx context.Context, parentMessages []ChatMessage, toolName string, toolInput map[string]any) (string, error)
+	Execute(ctx context.Context, parentMessages []subagent.ParentMessage, toolName string, toolInput map[string]any) (string, error)
 }
 
 // AgentCore drives the main LLM tool-calling loop.
@@ -37,6 +38,8 @@ type AgentCore struct {
 	subagent       SubagentRunner     // nil if subagent is disabled
 	router         *ExecutionRouter   // nil if routing is disabled
 	planner        *planning.WBSPlanner // nil if planning is disabled
+	runner         subagent.AgentRunner // Runner for creating child sessions (WBS)
+	subagentLLM    subagent.LLMClient   // LLM client for subagent summarization
 }
 
 // NewAgentCore creates a new AgentCore.
@@ -335,10 +338,20 @@ func (ac *AgentCore) SetSubagentExecutor(exec SubagentRunner) {
 func (ac *AgentCore) executeTool(ctx context.Context, tc ToolCall) string {
 	ac.logger.Debug("executing tool", "tool", tc.Name, "id", tc.ID)
 
-	// Delegate execute_command to subagent if configured.
-	if tc.Name == "execute_command" && ac.subagent != nil {
+	// Delegate execute_command to subagent if configured and enabled.
+	if tc.Name == "execute_command" && ac.subagent != nil && ac.config.EnableSubagent {
 		ac.logger.Debug("delegating to subagent", "tool", tc.Name)
-		result, err := ac.subagent.Execute(ctx, ac.messages, tc.Name, tc.Input)
+
+		// Convert ChatMessage to ParentMessage for subagent.
+		parentMsgs := make([]subagent.ParentMessage, 0, len(ac.messages))
+		for _, m := range ac.messages {
+			parentMsgs = append(parentMsgs, subagent.ParentMessage{
+				Role:    m.Role,
+				Content: m.Content,
+			})
+		}
+
+		result, err := ac.subagent.Execute(ctx, parentMsgs, tc.Name, tc.Input)
 		if err != nil {
 			ac.logger.Debug("subagent execution failed", "tool", tc.Name, "error", err.Error())
 			return fmt.Sprintf("Error: %v", err)
@@ -389,6 +402,16 @@ func (ac *AgentCore) SetPlanner(planner *planning.WBSPlanner) {
 	ac.planner = planner
 }
 
+// SetRunner configures the AgentRunner for child session creation.
+func (ac *AgentCore) SetRunner(runner subagent.AgentRunner) {
+	ac.runner = runner
+}
+
+// SetSubagentLLM configures the LLM client for subagent operations.
+func (ac *AgentCore) SetSubagentLLM(llm subagent.LLMClient) {
+	ac.subagentLLM = llm
+}
+
 // runWithPlanning generates a WBS and orchestrates execution.
 func (ac *AgentCore) runWithPlanning(ctx context.Context, prompt string) (string, error) {
 	ac.logger.Info("generating WBS plan")
@@ -405,10 +428,30 @@ func (ac *AgentCore) runWithPlanning(ctx context.Context, prompt string) (string
 
 // runWithWBSTree orchestrates execution of a WBS tree.
 func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree) (string, error) {
-	// Create a node executor that delegates to the simple run loop.
-	nodeExec := &agentNodeExecutor{core: ac}
-	persister := &agentWBSPersister{core: ac}
+	var nodeExec planning.NodeExecutor
 
+	if ac.runner != nil && ac.subagentLLM != nil && ac.config.EnableSubagent {
+		// Child session mode: each WBS node runs in an independent child session.
+		childCfg := &subagent.AgentRunnerConfig{
+			WorkDir:             ac.config.WorkDir,
+			SessionDir:          ac.config.SessionDir,
+			LogicalModel:        ac.config.LogicalModel,
+			AllowedPathPatterns: ac.config.AllowedPathPatterns,
+		}
+		nodeExec = &agentNodeExecutor{
+			parentSessionID: ac.sessionID,
+			childConfig:     childCfg,
+			runner:          ac.runner,
+			llm:             ac.subagentLLM,
+			summarizer:      subagent.NewSummarizer(ac.subagentLLM),
+			logger:          ac.logger,
+		}
+	} else {
+		// Fallback: run in parent AgentCore (existing behavior).
+		nodeExec = &agentNodeExecutorSimple{core: ac}
+	}
+
+	persister := &agentWBSPersister{core: ac}
 	orch := planning.NewWBSOrchestrator(nodeExec, persister, ac.logger)
 	if err := orch.Execute(ctx, tree); err != nil {
 		return "", fmt.Errorf("WBS orchestration failed: %w", err)
@@ -437,12 +480,44 @@ func (ac *AgentCore) loadWBSFromSession() *planning.WBSTree {
 	return &tree
 }
 
-// agentNodeExecutor implements planning.NodeExecutor using AgentCore.runSimple.
+// agentNodeExecutor executes WBS nodes in child sessions via AgentRunner.
 type agentNodeExecutor struct {
-	core *AgentCore
+	parentSessionID string
+	childConfig     *subagent.AgentRunnerConfig
+	runner          subagent.AgentRunner
+	llm             subagent.LLMClient
+	summarizer      *subagent.Summarizer
+	logger          logger.Logger
 }
 
 func (e *agentNodeExecutor) ExecuteNode(ctx context.Context, node planning.WBSNode) (string, error) {
+	prompt := fmt.Sprintf("[WBS Step %s: %s]\n%s", node.ID, node.Name, node.Description)
+	childSessionID := fmt.Sprintf("%s-wbs-%s", e.parentSessionID, node.ID)
+
+	e.logger.Debug("executing WBS node in child session",
+		"node_id", node.ID, "child_session", childSessionID)
+
+	childResult, err := e.runner.RunChild(ctx, e.childConfig, childSessionID, e.llm, e.logger, prompt)
+	if err != nil {
+		return "", err
+	}
+
+	// Summarize child result for parent.
+	hints := &subagent.Hints{Objective: node.Name, Context: node.Description}
+	summary, err := e.summarizer.SummarizeForParent(ctx, hints, childResult)
+	if err != nil {
+		e.logger.Warn("WBS node summarization failed, using raw result", "error", err.Error())
+		return childResult, nil
+	}
+	return summary, nil
+}
+
+// agentNodeExecutorSimple is the fallback executor using parent AgentCore.
+type agentNodeExecutorSimple struct {
+	core *AgentCore
+}
+
+func (e *agentNodeExecutorSimple) ExecuteNode(ctx context.Context, node planning.WBSNode) (string, error) {
 	prompt := fmt.Sprintf("[WBS Step %s: %s]\n%s", node.ID, node.Name, node.Description)
 	return e.core.runSimple(ctx, prompt)
 }
