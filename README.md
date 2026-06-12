@@ -85,7 +85,7 @@ c := client.New("http://localhost:3100")
 
 session, _ := c.CreateSession(ctx, client.SessionRequest{
     Agent:   "claudecode",        // Use Claude Code as the coding agent
-    Model:   "devstral",           // ...but route LLM calls to a local model via Ollama
+    Model:   "devstral",          // ...but route LLM calls to a local model via Ollama
     WorkDir: ".",
 })
 defer session.Terminate(ctx)
