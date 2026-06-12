@@ -10,8 +10,19 @@ import (
 // Execute removes dead code from source files.
 // Returns the number of symbols removed.
 func Execute(result *AnalysisResult) (int, error) {
+	removed := 0
+
+	// 1. Delete dead files first (all symbols in these files are dead).
+	for _, df := range result.DeadFiles {
+		if err := os.Remove(df.File); err != nil {
+			return removed, fmt.Errorf("remove dead file %s: %w", df.File, err)
+		}
+		removed += len(df.Symbols)
+	}
+
+	// 2. Remove individual dead symbols from remaining files.
 	if len(result.DeadSymbols) == 0 {
-		return 0, nil
+		return removed, nil
 	}
 
 	// Group dead symbols by file.
@@ -20,7 +31,6 @@ func Execute(result *AnalysisResult) (int, error) {
 		fileSymbols[def.File] = append(fileSymbols[def.File], def)
 	}
 
-	removed := 0
 	for filePath, defs := range fileSymbols {
 		source, err := os.ReadFile(filePath)
 		if err != nil {

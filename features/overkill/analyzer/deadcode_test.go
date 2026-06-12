@@ -192,6 +192,12 @@ func TestAnalyze_IgnoredSymbol(t *testing.T) {
 func Ignored() {}
 
 func NotIgnored() {}
+
+func Used() string { return "hi" }
+`,
+		"user.go": `package lib
+
+func Caller() string { return Used() }
 `,
 	})
 
