@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -701,4 +702,69 @@ func TestE2E_SessionDirFallback(t *testing.T) {
 		t.Errorf("work_dir should be absolute, got %q", sessionWorkDir)
 	}
 	t.Logf("session_dir fallback verified: %s", sessionDir)
+}
+
+// --- TC-CC-007: Real ternctl command execution with Claude Code ---
+
+// TestE2E_ClaudeCode_TernctlRealCommand starts a tern server via Go API
+// and runs ternctl as a real subprocess with --agent claudecode, verifying
+// that tool use/result events appear in ternctl's stdout output.
+func TestE2E_ClaudeCode_TernctlRealCommand(t *testing.T) {
+	// Resolve ternctl binary path (handles Windows .exe extension)
+	ternctlName := "../bin/ternctl"
+	if runtime.GOOS == "windows" {
+		// On Windows, exec.Command requires .exe extension.
+		if _, err := os.Stat(ternctlName + ".exe"); err == nil {
+			ternctlName = ternctlName + ".exe"
+		}
+	}
+	ternctlBin, err := filepath.Abs(ternctlName)
+	if err != nil {
+		t.Fatalf("resolve ternctl path: %v", err)
+	}
+	if _, err := os.Stat(ternctlBin); err != nil {
+		t.Fatalf("ternctl binary not found at %s: %v", ternctlBin, err)
+	}
+
+	// Phase 1: Start tern server via Go API (startE2EServer checks for claude CLI)
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	// Phase 2: Run ternctl as subprocess
+	tmpDir := t.TempDir()
+	workDir := filepath.Join(tmpDir, "work")
+	os.MkdirAll(workDir, 0755)
+	// Claude Code requires a git repository
+	initGitRepo(t, workDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	ternctlCmd := exec.CommandContext(ctx, ternctlBin,
+		"--server", baseURL,
+		"run",
+		"--agent", "claudecode",
+		"--prompt", "please run 'echo hello' command and report the result.",
+		"--work-dir", workDir,
+	)
+	output, err := ternctlCmd.CombinedOutput()
+	outputStr := string(output)
+	t.Logf("ternctl output:\n%s", outputStr)
+
+	// Phase 3: Verify stdout content
+	if err != nil {
+		t.Fatalf("ternctl exited with error: %v\noutput: %s", err, outputStr)
+	}
+	if !strings.Contains(outputStr, "Session created:") {
+		t.Error("expected 'Session created:' in output")
+	}
+	if !strings.Contains(outputStr, "[Tool:") {
+		t.Error("expected '[Tool: ...]' in output (tool use event)")
+	}
+	if !strings.Contains(outputStr, "[Tool Result]") {
+		t.Error("expected '[Tool Result] ...' in output (tool result event)")
+	}
+	if !strings.Contains(outputStr, `"status": "completed"`) {
+		t.Error("expected session status 'completed' in output")
+	}
 }
