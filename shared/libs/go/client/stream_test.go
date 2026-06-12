@@ -99,3 +99,49 @@ func TestStream_Events_Channel(t *testing.T) {
 		t.Errorf("events = %v, want a, b", events)
 	}
 }
+
+func TestStream_Output_NodeEvents(t *testing.T) {
+	sseData := `data: {"type":"node_start","content":"1: Setup"}
+data: {"type":"node_complete","content":"1: Setup"}
+data: {"type":"progress","content":"1/3"}
+data: {"type":"node_failed","content":"2: Build - compile error"}
+data: [DONE]
+`
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var buf strings.Builder
+	err := stream.Output(&buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "[Node Start: 1: Setup]") {
+		t.Errorf("missing node_start, got %q", got)
+	}
+	if !strings.Contains(got, "[Node Complete: 1: Setup]") {
+		t.Errorf("missing node_complete, got %q", got)
+	}
+	if !strings.Contains(got, "[WBS 1/3]") {
+		t.Errorf("missing progress, got %q", got)
+	}
+	if !strings.Contains(got, "[Node Failed: 2: Build - compile error]") {
+		t.Errorf("missing node_failed, got %q", got)
+	}
+}
+
+func TestStream_Output_KeepAliveIgnored(t *testing.T) {
+	// Keepalive lines are SSE comments (starting with ':') and should be ignored.
+	sseData := ": keepalive\n\ndata: {\"type\":\"text\",\"content\":\"hello\"}\n\n: keepalive\n\ndata: [DONE]\n\n"
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var buf strings.Builder
+	err := stream.Output(&buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := buf.String(); got != "hello" {
+		t.Errorf("output = %q, want %q (keepalive should be ignored)", got, "hello")
+	}
+}
