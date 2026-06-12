@@ -93,6 +93,14 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = ac.DefaultWorkDir
 	}
+	// R2: Resolve WorkDir to absolute path.
+	// Relative paths cause issues when used as base for SessionDir
+	// or as cmd.Dir for subprocess execution.
+	if cfg.WorkDir != "" {
+		if abs, err := filepath.Abs(cfg.WorkDir); err == nil {
+			cfg.WorkDir = abs
+		}
+	}
 	if cfg.Model == "" {
 		cfg.Model = ac.DefaultModel
 	}
@@ -112,4 +120,13 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 			cfg.SessionDir = cfg.WorkDir
 		}
 	}
+	// R1: Resolve SessionDir to absolute path.
+	// CLI tools (claude, codex) resolve CLAUDE_CONFIG_DIR / CODEX_HOME
+	// relative to their CWD, not the caller's CWD, causing path duplication.
+	if cfg.SessionDir != "" {
+		if abs, err := filepath.Abs(cfg.SessionDir); err == nil {
+			cfg.SessionDir = abs
+		}
+	}
 }
+

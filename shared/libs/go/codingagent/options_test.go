@@ -126,8 +126,9 @@ func TestApplyDefaults(t *testing.T) {
 		}
 		codingagent.ApplyDefaults(cfg, ac)
 
-		if cfg.WorkDir != "/default/work" {
-			t.Errorf("WorkDir = %v, want /default/work", cfg.WorkDir)
+		wantWorkDir, _ := filepath.Abs("/default/work")
+		if cfg.WorkDir != wantWorkDir {
+			t.Errorf("WorkDir = %v, want %v", cfg.WorkDir, wantWorkDir)
 		}
 		if cfg.Model != "default-model" {
 			t.Errorf("Model = %v, want default-model", cfg.Model)
@@ -151,8 +152,9 @@ func TestApplyDefaults(t *testing.T) {
 		if cfg.Model != "explicit-model" {
 			t.Errorf("Model = %v, want explicit-model", cfg.Model)
 		}
-		if cfg.WorkDir != "/explicit/dir" {
-			t.Errorf("WorkDir = %v, want /explicit/dir", cfg.WorkDir)
+		wantWorkDir, _ := filepath.Abs("/explicit/dir")
+		if cfg.WorkDir != wantWorkDir {
+			t.Errorf("WorkDir = %v, want %v", cfg.WorkDir, wantWorkDir)
 		}
 	})
 
@@ -179,8 +181,9 @@ func TestApplyDefaults(t *testing.T) {
 		)
 		ac := &codingagent.AdapterConfig{}
 		codingagent.ApplyDefaults(cfg, ac)
-		if cfg.SessionDir != "/workspace/project" {
-			t.Errorf("SessionDir = %v, want /workspace/project", cfg.SessionDir)
+		wantDir, _ := filepath.Abs("/workspace/project")
+		if cfg.SessionDir != wantDir {
+			t.Errorf("SessionDir = %v, want %v", cfg.SessionDir, wantDir)
 		}
 	})
 
@@ -192,7 +195,8 @@ func TestApplyDefaults(t *testing.T) {
 			AgentName: "claudecode",
 		}
 		codingagent.ApplyDefaults(cfg, ac)
-		want := filepath.Join("/workspace/project", ".claudecode")
+		absWorkDir, _ := filepath.Abs("/workspace/project")
+		want := filepath.Join(absWorkDir, ".claudecode")
 		if cfg.SessionDir != want {
 			t.Errorf("SessionDir = %v, want %v", cfg.SessionDir, want)
 		}
@@ -207,8 +211,9 @@ func TestApplyDefaults(t *testing.T) {
 			AgentName: "claudecode",
 		}
 		codingagent.ApplyDefaults(cfg, ac)
-		if cfg.SessionDir != "/data/sessions" {
-			t.Errorf("SessionDir = %v, want /data/sessions", cfg.SessionDir)
+		wantDir, _ := filepath.Abs("/data/sessions")
+		if cfg.SessionDir != wantDir {
+			t.Errorf("SessionDir = %v, want %v", cfg.SessionDir, wantDir)
 		}
 	})
 
@@ -221,8 +226,9 @@ func TestApplyDefaults(t *testing.T) {
 			AgentName:         "claudecode",
 		}
 		codingagent.ApplyDefaults(cfg, ac)
-		if cfg.SessionDir != "/default/sessions" {
-			t.Errorf("SessionDir = %v, want /default/sessions", cfg.SessionDir)
+		wantDir, _ := filepath.Abs("/default/sessions")
+		if cfg.SessionDir != wantDir {
+			t.Errorf("SessionDir = %v, want %v", cfg.SessionDir, wantDir)
 		}
 	})
 
@@ -282,20 +288,25 @@ func TestApplyDefaults(t *testing.T) {
 	})
 
 	t.Run("absolute WorkDir and SessionDir are not modified", func(t *testing.T) {
+		// Use filepath.Abs to get platform-appropriate absolute paths.
+		// On Unix /absolute/work is already absolute; on Windows it gets
+		// a drive letter prefix, but the key property is that Abs(Abs(x)) == Abs(x).
+		wantWork, _ := filepath.Abs("/absolute/work")
+		wantSession, _ := filepath.Abs("/absolute/session")
 		cfg := codingagent.NewSessionConfig(
-			codingagent.WithWorkDir("/absolute/work"),
-			codingagent.WithSessionDir("/absolute/session"),
+			codingagent.WithWorkDir(wantWork),
+			codingagent.WithSessionDir(wantSession),
 		)
 		ac := &codingagent.AdapterConfig{
 			AgentName: "claudecode",
 		}
 		codingagent.ApplyDefaults(cfg, ac)
 
-		if cfg.WorkDir != "/absolute/work" {
-			t.Errorf("WorkDir = %q, want /absolute/work", cfg.WorkDir)
+		if cfg.WorkDir != wantWork {
+			t.Errorf("WorkDir = %q, want %q", cfg.WorkDir, wantWork)
 		}
-		if cfg.SessionDir != "/absolute/session" {
-			t.Errorf("SessionDir = %q, want /absolute/session", cfg.SessionDir)
+		if cfg.SessionDir != wantSession {
+			t.Errorf("SessionDir = %q, want %q", cfg.SessionDir, wantSession)
 		}
 	})
 }
