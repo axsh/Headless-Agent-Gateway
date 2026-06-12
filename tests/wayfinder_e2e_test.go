@@ -413,5 +413,5 @@ func TestE2E_Wayfinder_FullScenario_Gemini(t *testing.T) {
 
 func TestE2E_Wayfinder_FullScenario_Ollama(t *testing.T) {
 	checkOllamaAvailable(t)
-	runFullScenario(t, "qwen3:8b")
+	runFullScenario(t, "qwen2.5-coder:7b")
 }
