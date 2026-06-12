@@ -1,6 +1,9 @@
 package session
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Session status constants.
 const (
@@ -49,6 +52,7 @@ type SessionState struct {
 	Messages         []Message        `json:"messages"`
 	CreatedFiles     []TrackedFile    `json:"created_files"`
 	RunningProcesses []TrackedProcess `json:"running_processes"`
+	WBSTreeJSON      json.RawMessage  `json:"wbs_tree,omitempty"` // Serialized planning.WBSTree
 	CreatedAt        time.Time        `json:"created_at"`
 	LastActivityAt   time.Time        `json:"last_activity_at"`
 }
