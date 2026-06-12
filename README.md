@@ -235,11 +235,22 @@ Contributors, reviewers, and early adopters are welcome.
 
 ### Prerequisites
 
-* Go 1.26 or later
-* A supported Coding Agent CLI installed and available on PATH:
-  * [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
-  * [Codex](https://github.com/openai/codex) (`codex`)
-* API keys for at least one LLM provider (OpenAI, Anthropic, or Google)
+| Requirement | Version | Notes |
+| --- | --- | --- |
+| Go | 1.26 or later | `go.mod` specifies `go 1.26.3` |
+| Git | 2.x or later | Used for submodule checkout |
+| Docker / Docker Compose | Docker 20.10+ / Compose v2+ | Only required for container deployment |
+| Claude Code CLI | 2.1.x or later | Update with `claude update` |
+| Codex CLI | Latest | Optional, for Codex agent support |
+| OS | Windows / macOS / Linux | Cross-platform |
+
+> **Note**: On Windows, Git Bash is recommended. Build scripts are written in bash.
+
+> **Important**: Claude Code CLI v2.0.x ignores the `ANTHROPIC_BASE_URL` environment variable,
+> which prevents Gateway-proxied requests from working. Make sure to update to v2.1.x or later
+> by running `claude update`.
+
+You will also need API keys for at least one LLM provider (OpenAI, Anthropic, or Google).
 
 ### Build from Source
 
@@ -267,6 +278,8 @@ Built binaries are placed in the `bin/` directory:
 
 ### 1. Store API keys in the vault
 
+**Option A: OS Keyring** (recommended for local development)
+
 ```bash
 # Store an API key using the provider shorthand
 # (--provider anthropic expands to vault key: providers/anthropic/default)
@@ -279,6 +292,22 @@ $ ./bin/vault-cli set --key providers/openai/team-a
 # Check which providers have keys registered
 $ ./bin/vault-cli status
 ```
+
+**Option B: Environment Variables** (recommended for Docker / CI)
+
+Set `vault.backend: "env"` in your `config.yaml`, then export API keys as environment variables.
+Vault references in `model_profiles.yaml` are mapped to environment variable names automatically:
+
+```bash
+# vault://providers/openai/default    -> TERN_VAULT_OPENAI_DEFAULT
+# vault://providers/anthropic/primary -> TERN_VAULT_ANTHROPIC_PRIMARY
+export TERN_VAULT_OPENAI_DEFAULT="sk-proj-your-openai-api-key"
+export TERN_VAULT_ANTHROPIC_PRIMARY="sk-ant-your-anthropic-api-key"
+
+$ ./bin/tern --config config.yaml
+```
+
+The mapping rule is: `vault://providers/{provider}/{key}` becomes `TERN_VAULT_{PROVIDER}_{KEY}` (uppercased, hyphens replaced with underscores).
 
 ### 2. Configure the server
 
@@ -428,6 +457,22 @@ Tern is built around two core protocols:
 * **LLMGP (LLM Gateway Protocol)** -- A reverse-proxy layer that routes LLM requests to configured providers (OpenAI, Anthropic, Google, Ollama). API keys are managed through a secure vault with support for keyring, environment variables, and encrypted storage.
 
 Full protocol specifications are being developed and will be published as the project matures.
+
+---
+
+## Testing
+
+```bash
+# Full build + unit tests
+./scripts/process/build.sh
+
+# Integration tests
+./scripts/process/integration_test.sh
+
+# Unit tests for shared libraries only
+cd shared/libs/go
+go test ./... -v
+```
 
 ---
 
