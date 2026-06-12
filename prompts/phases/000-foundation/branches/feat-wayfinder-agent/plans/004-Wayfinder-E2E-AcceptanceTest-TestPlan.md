@@ -570,8 +570,11 @@ func TestE2E_Wayfinder_FullScenario_Ollama(t *testing.T) {
 10. **ビルドとテスト実行**:
     - [x] ビルド実行 (build.sh PASS)
     - [x] TC-001 (ヘルスチェック) PASS
-    - [/] 統合テスト実行（VaultにAPIキー登録待ち）
-    - [ ] 全テスト結果の確認と記録
+    - [x] TC-100 Claude Sonnet PASS (28s, 全5ステップ成功)
+    - [x] TC-101 GPT Codex PASS (24s, 全5ステップ成功)
+    - [x] TC-102 Gemini Flash PASS (17s, 全5ステップ成功)
+    - [x] TC-103 Ollama SKIP (小型モデルは構造化ツールコール非対応)
+    - [x] 全テスト結果の確認と記録完了
 
 ---
 
