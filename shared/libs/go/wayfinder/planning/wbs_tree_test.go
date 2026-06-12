@@ -214,3 +214,66 @@ func TestWBSTree_NestedSubSteps(t *testing.T) {
 		t.Errorf("expected next executable = [1.1.1], got %v", nodes)
 	}
 }
+
+func TestWBSTree_Progress(t *testing.T) {
+	tests := []struct {
+		name          string
+		tree          *WBSTree
+		wantCompleted int
+		wantTotal     int
+	}{
+		{
+			name: "all pending",
+			tree: &WBSTree{
+				RootNodes: []WBSNode{
+					{ID: "1", Status: StatusPending},
+					{ID: "2", Status: StatusPending},
+					{ID: "3", Status: StatusPending},
+				},
+			},
+			wantCompleted: 0,
+			wantTotal:     3,
+		},
+		{
+			name: "partial completion",
+			tree: &WBSTree{
+				RootNodes: []WBSNode{
+					{ID: "1", Status: StatusCompleted},
+					{ID: "2", Status: StatusRunning},
+					{ID: "3", Status: StatusPending},
+				},
+			},
+			wantCompleted: 1,
+			wantTotal:     3,
+		},
+		{
+			name: "all completed",
+			tree: &WBSTree{
+				RootNodes: []WBSNode{
+					{ID: "1", Status: StatusCompleted},
+					{ID: "2", Status: StatusCompleted},
+				},
+			},
+			wantCompleted: 2,
+			wantTotal:     2,
+		},
+		{
+			name:          "empty tree",
+			tree:          &WBSTree{},
+			wantCompleted: 0,
+			wantTotal:     0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			completed, total := tt.tree.Progress()
+			if completed != tt.wantCompleted {
+				t.Errorf("completed = %d, want %d", completed, tt.wantCompleted)
+			}
+			if total != tt.wantTotal {
+				t.Errorf("total = %d, want %d", total, tt.wantTotal)
+			}
+		})
+	}
+}

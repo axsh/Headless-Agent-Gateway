@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/axsh/arctic-tern/codingagent"
 	"github.com/axsh/arctic-tern/logger"
 	"github.com/axsh/arctic-tern/wayfinder/planning"
 	"github.com/axsh/arctic-tern/wayfinder/session"
@@ -40,6 +41,7 @@ type AgentCore struct {
 	planner        *planning.WBSPlanner // nil if planning is disabled
 	runner         subagent.AgentRunner // Runner for creating child sessions (WBS)
 	subagentLLM    subagent.LLMClient   // LLM client for subagent summarization
+	emitter        *EventEmitter        // Streaming event emitter (nil = no-op)
 }
 
 // NewAgentCore creates a new AgentCore.
@@ -156,6 +158,10 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		// If no tool calls, return the text response.
 		if len(resp.ToolCalls) == 0 {
 			ac.logger.Debug("agent core completed", "iteration", iteration, "response_len", len(resp.Content))
+			ac.emitter.Emit(codingagent.StreamEvent{
+				Type:    codingagent.EventText,
+				Content: resp.Content,
+			})
 			ac.messages = append(ac.messages, ChatMessage{
 				Role:    "assistant",
 				Content: resp.Content,
@@ -173,7 +179,17 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 
 		// Process each tool call.
 		for _, tc := range resp.ToolCalls {
+			ac.emitter.Emit(codingagent.StreamEvent{
+				Type:     codingagent.EventToolUse,
+				Content:  tc.Name,
+				ToolName: tc.Name,
+				ToolInput: tc.Input,
+			})
 			result := ac.executeTool(ctx, tc)
+			ac.emitter.Emit(codingagent.StreamEvent{
+				Type:    codingagent.EventToolResult,
+				Content: result,
+			})
 			ac.messages = append(ac.messages, ChatMessage{
 				Role:       "tool",
 				Content:    result,
@@ -329,6 +345,11 @@ func (ac *AgentCore) SessionID() string {
 	return ac.sessionID
 }
 
+// SetEmitter configures the event emitter for streaming.
+func (ac *AgentCore) SetEmitter(emitter *EventEmitter) {
+	ac.emitter = emitter
+}
+
 // SetSubagentExecutor configures the subagent executor for delegating heavy tool calls.
 func (ac *AgentCore) SetSubagentExecutor(exec SubagentRunner) {
 	ac.subagent = exec
@@ -452,7 +473,20 @@ func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree)
 	}
 
 	persister := &agentWBSPersister{core: ac}
-	orch := planning.NewWBSOrchestrator(nodeExec, persister, ac.logger)
+
+	// Bridge emitter to planning.EventEmitFunc callback.
+	var orchOpts []planning.OrchestratorOption
+	if ac.emitter != nil {
+		emitFn := func(eventType string, content string) {
+			ac.emitter.Emit(codingagent.StreamEvent{
+				Type:    codingagent.EventType(eventType),
+				Content: content,
+			})
+		}
+		orchOpts = append(orchOpts, planning.WithEventEmitter(emitFn))
+	}
+
+	orch := planning.NewWBSOrchestrator(nodeExec, persister, ac.logger, orchOpts...)
 	if err := orch.Execute(ctx, tree); err != nil {
 		return "", fmt.Errorf("WBS orchestration failed: %w", err)
 	}

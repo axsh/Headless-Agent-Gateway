@@ -93,6 +93,18 @@ func (t *WBSTree) UpdateNodeStatus(nodeID, status, resultSummary string) bool {
 	return found
 }
 
+// Progress returns (completed, total) counts for root-level nodes.
+func (t *WBSTree) Progress() (int, int) {
+	completed, total := 0, 0
+	for _, node := range t.RootNodes {
+		total++
+		if node.Status == StatusCompleted {
+			completed++
+		}
+	}
+	return completed, total
+}
+
 // buildStatusMap creates a flat map of nodeID -> status for dependency checking.
 func (t *WBSTree) buildStatusMap() map[string]string {
 	m := make(map[string]string)

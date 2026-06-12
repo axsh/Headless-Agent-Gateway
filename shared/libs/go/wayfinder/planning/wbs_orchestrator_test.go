@@ -194,3 +194,100 @@ func TestWBSOrchestrator_PersistAfterEachNode(t *testing.T) {
 		t.Errorf("persist count = %d, want 4 (running+completed per node)", persister.saveCount)
 	}
 }
+
+func TestWBSOrchestrator_EmitsNodeEvents(t *testing.T) {
+	tree := &WBSTree{
+		RootNodes: []WBSNode{
+			{ID: "1", Name: "Setup", Status: StatusPending},
+			{ID: "2", Name: "Build", Status: StatusPending, Dependencies: []string{"1"}},
+		},
+	}
+
+	executor := &mockNodeExecutor{
+		results: map[string]string{"1": "setup done", "2": "build done"},
+	}
+
+	type emittedEvent struct {
+		eventType string
+		content   string
+	}
+	var events []emittedEvent
+	emitFn := func(eventType string, content string) {
+		events = append(events, emittedEvent{eventType, content})
+	}
+
+	orch := NewWBSOrchestrator(executor, &mockPersister{}, nil, WithEventEmitter(emitFn))
+	err := orch.Execute(context.Background(), tree)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Expected events: node_start(1), node_complete(1), progress(1/2),
+	//                   node_start(2), node_complete(2), progress(2/2)
+	if len(events) != 6 {
+		t.Fatalf("expected 6 events, got %d: %+v", len(events), events)
+	}
+	if events[0].eventType != "node_start" {
+		t.Errorf("events[0].type = %q, want node_start", events[0].eventType)
+	}
+	if events[1].eventType != "node_complete" {
+		t.Errorf("events[1].type = %q, want node_complete", events[1].eventType)
+	}
+	if events[2].eventType != "progress" || events[2].content != "1/2" {
+		t.Errorf("events[2] = %+v, want progress 1/2", events[2])
+	}
+}
+
+func TestWBSOrchestrator_EmitsNodeFailedEvent(t *testing.T) {
+	tree := &WBSTree{
+		RootNodes: []WBSNode{
+			{ID: "1", Name: "Broken", Status: StatusPending},
+		},
+	}
+
+	executor := &mockNodeExecutor{
+		errors: map[string]error{"1": fmt.Errorf("compile error")},
+	}
+
+	type emittedEvent struct {
+		eventType string
+		content   string
+	}
+	var events []emittedEvent
+	emitFn := func(eventType string, content string) {
+		events = append(events, emittedEvent{eventType, content})
+	}
+
+	orch := NewWBSOrchestrator(executor, &mockPersister{}, nil, WithEventEmitter(emitFn))
+	_ = orch.Execute(context.Background(), tree)
+
+	// Expected: node_start(1), node_failed(1)
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d: %+v", len(events), events)
+	}
+	if events[0].eventType != "node_start" {
+		t.Errorf("events[0].type = %q, want node_start", events[0].eventType)
+	}
+	if events[1].eventType != "node_failed" {
+		t.Errorf("events[1].type = %q, want node_failed", events[1].eventType)
+	}
+}
+
+func TestWBSOrchestrator_NoEmitterNoPanic(t *testing.T) {
+	tree := &WBSTree{
+		RootNodes: []WBSNode{
+			{ID: "1", Name: "Step", Status: StatusPending},
+		},
+	}
+
+	executor := &mockNodeExecutor{
+		results: map[string]string{"1": "done"},
+	}
+
+	// No emitter configured - should not panic.
+	orch := NewWBSOrchestrator(executor, &mockPersister{}, nil)
+	err := orch.Execute(context.Background(), tree)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+}

@@ -143,11 +143,16 @@ func (s *wayfinderSession) ID() string {
 }
 
 // Send sends a message to the agent and returns a streaming event channel.
+// Events are emitted in real-time via the EventEmitter injected into AgentCore.
 func (s *wayfinderSession) Send(ctx context.Context, message string) (<-chan codingagent.StreamEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	ch := make(chan codingagent.StreamEvent, 64)
+
+	// Inject EventEmitter so AgentCore streams events in real-time.
+	emitter := NewEventEmitter(ch)
+	s.core.SetEmitter(emitter)
 
 	prompt := message
 	if prompt == "" {
@@ -156,6 +161,7 @@ func (s *wayfinderSession) Send(ctx context.Context, message string) (<-chan cod
 
 	go func() {
 		defer close(ch)
+		defer s.core.SetEmitter(nil) // Clean up emitter reference.
 
 		// Send initial system event.
 		ch <- codingagent.StreamEvent{
@@ -163,7 +169,7 @@ func (s *wayfinderSession) Send(ctx context.Context, message string) (<-chan cod
 			SessionID: s.id,
 		}
 
-		result, err := s.core.Run(ctx, prompt)
+		_, err := s.core.Run(ctx, prompt)
 		if err != nil {
 			ch <- codingagent.StreamEvent{
 				Type:  codingagent.EventError,
@@ -172,15 +178,9 @@ func (s *wayfinderSession) Send(ctx context.Context, message string) (<-chan cod
 			return
 		}
 
-		// Send the text result.
-		if result != "" {
-			ch <- codingagent.StreamEvent{
-				Type:    codingagent.EventText,
-				Content: result,
-			}
-		}
-
 		// Send completion event.
+		// Note: Text and tool events are already emitted via the EventEmitter
+		// during Run(), so we only need the final result marker here.
 		ch <- codingagent.StreamEvent{
 			Type: codingagent.EventResult,
 		}

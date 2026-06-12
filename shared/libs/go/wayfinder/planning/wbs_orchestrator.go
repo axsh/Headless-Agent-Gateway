@@ -20,27 +20,45 @@ type StatePersister interface {
 	PersistWBS(tree *WBSTree)
 }
 
+// EventEmitFunc is a callback for streaming events.
+// Using a function type avoids importing the wayfinder package (cyclic import prevention).
+type EventEmitFunc func(eventType string, content string)
+
 // WBSOrchestrator drives WBS execution with node-level delegation.
 type WBSOrchestrator struct {
 	executor  NodeExecutor
 	persister StatePersister
+	emitEvent EventEmitFunc // nil = no-op
 	logger    logger.Logger
 }
+
+// OrchestratorOption configures optional WBSOrchestrator behavior.
+type OrchestratorOption func(*WBSOrchestrator)
 
 // NewWBSOrchestrator creates a new WBSOrchestrator.
 func NewWBSOrchestrator(
 	executor NodeExecutor,
 	persister StatePersister,
 	log logger.Logger,
+	opts ...OrchestratorOption,
 ) *WBSOrchestrator {
 	if log == nil {
 		log = &noopLogger{}
 	}
-	return &WBSOrchestrator{
+	o := &WBSOrchestrator{
 		executor:  executor,
 		persister: persister,
 		logger:    log,
 	}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return o
+}
+
+// WithEventEmitter sets the event emit callback for streaming progress.
+func WithEventEmitter(fn EventEmitFunc) OrchestratorOption {
+	return func(o *WBSOrchestrator) { o.emitEvent = fn }
 }
 
 // Execute drives the WBS execution loop.
@@ -77,6 +95,9 @@ func (o *WBSOrchestrator) Execute(ctx context.Context, tree *WBSTree) error {
 			o.persist(tree)
 			o.logger.Debug("executing WBS node", "node_id", node.ID, "node_name", node.Name)
 
+			// Emit node start event.
+			o.emit("node_start", fmt.Sprintf("%s: %s", node.ID, node.Name))
+
 			// Execute via injected executor.
 			result, err := o.executor.ExecuteNode(ctx, node)
 			if err != nil {
@@ -84,6 +105,7 @@ func (o *WBSOrchestrator) Execute(ctx context.Context, tree *WBSTree) error {
 				tree.UpdateNodeStatus(node.ID, StatusFailed, fmt.Sprintf("Error: %v", err))
 				o.persist(tree)
 				o.logger.Error("WBS node failed", "node_id", node.ID, "error", err.Error())
+				o.emit("node_failed", fmt.Sprintf("%s: %s - %v", node.ID, node.Name, err))
 				return o.handleFailure(tree)
 			}
 
@@ -91,6 +113,11 @@ func (o *WBSOrchestrator) Execute(ctx context.Context, tree *WBSTree) error {
 			tree.UpdateNodeStatus(node.ID, StatusCompleted, result)
 			o.persist(tree)
 			o.logger.Debug("WBS node completed", "node_id", node.ID, "result_len", len(result))
+			o.emit("node_complete", fmt.Sprintf("%s: %s", node.ID, node.Name))
+
+			// Emit progress.
+			completed, total := tree.Progress()
+			o.emit("progress", fmt.Sprintf("%d/%d", completed, total))
 		}
 	}
 }
@@ -121,6 +148,13 @@ func (o *WBSOrchestrator) handleFailure(tree *WBSTree) error {
 func (o *WBSOrchestrator) persist(tree *WBSTree) {
 	if o.persister != nil {
 		o.persister.PersistWBS(tree)
+	}
+}
+
+// emit sends an event via the emit callback, if configured.
+func (o *WBSOrchestrator) emit(eventType string, content string) {
+	if o.emitEvent != nil {
+		o.emitEvent(eventType, content)
 	}
 }
 
