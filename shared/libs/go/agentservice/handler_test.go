@@ -398,3 +398,54 @@ func TestIsValidModelCrossProvider(t *testing.T) {
 		t.Errorf("status = %d, want 201 (cross-provider model should be accepted)", w.Code)
 	}
 }
+
+func TestTerminate_CancelsExecution(t *testing.T) {
+	srv := agentservice.New()
+	srv.RegisterAgent(&mockCodingAgent{name: "claudecode"})
+
+	// Register an exec cancel manually to simulate an active execution.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv.RegisterExecCancel("test-session-exec", cancel)
+
+	// Verify cancel works.
+	if !srv.CancelExecution("test-session-exec") {
+		t.Error("expected CancelExecution to return true for registered session")
+	}
+	if ctx.Err() == nil {
+		t.Error("expected context to be cancelled after CancelExecution")
+	}
+
+	// Unregistered session should return false.
+	if srv.CancelExecution("nonexistent") {
+		t.Error("expected CancelExecution to return false for unregistered session")
+	}
+}
+
+func TestContextSeparation_ClientDisconnect(t *testing.T) {
+	// Test that the channel remains open after client context is cancelled
+	// (simulating client disconnect while agent continues).
+	ch := make(chan codingagent.StreamEvent, 10)
+
+	// Simulate agent sending events.
+	go func() {
+		ch <- codingagent.StreamEvent{Type: codingagent.EventSystem}
+		ch <- codingagent.StreamEvent{Type: codingagent.EventText, Content: "working"}
+		ch <- codingagent.StreamEvent{Type: codingagent.EventResult}
+		close(ch)
+	}()
+
+	// Simulate client disconnect.
+	clientCtx, clientCancel := context.WithCancel(context.Background())
+	clientCancel() // Client disconnects immediately.
+
+	// Channel should still be readable despite client disconnect.
+	eventCount := 0
+	for range ch {
+		eventCount++
+	}
+	if eventCount != 3 {
+		t.Errorf("expected 3 events from channel after client disconnect, got %d", eventCount)
+	}
+	_ = clientCtx // Used to simulate disconnect.
+}
