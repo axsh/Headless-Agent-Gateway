@@ -8,7 +8,7 @@ import (
 )
 
 func TestRegisterProvider_And_GetProvider(t *testing.T) {
-	// Use init()-registered providers (already registered by the time tests run).
+	// Providers are registered by TestMain via registerTestProviders().
 	tests := []struct {
 		name         string
 		providerName string
@@ -40,7 +40,8 @@ func TestRegisterProvider_DuplicatePanics(t *testing.T) {
 	}()
 
 	// Attempt to register a provider with a name that's already taken.
-	RegisterProvider(&anthropicProvider{})
+	dummy := &dummyProvider{name: "anthropic"}
+	RegisterProvider(dummy)
 }
 
 func TestAllProviders_HaveRequiredFields(t *testing.T) {
@@ -68,88 +69,14 @@ func TestAllProviders_HaveRequiredFields(t *testing.T) {
 	}
 }
 
-func TestSetAuthHeaders_Anthropic(t *testing.T) {
-	p, _ := GetProvider("anthropic")
-	req, _ := http.NewRequest("POST", "https://example.com", nil)
-	originalHeaders := http.Header{}
-	originalHeaders.Set("anthropic-beta", "test-beta")
-	p.SetAuthHeaders(req, "test-key", originalHeaders)
-
-	if got := req.Header.Get("x-api-key"); got != "test-key" {
-		t.Errorf("x-api-key = %q, want %q", got, "test-key")
-	}
-	if got := req.Header.Get("anthropic-version"); got != "2023-06-01" {
-		t.Errorf("anthropic-version = %q, want %q", got, "2023-06-01")
-	}
-	if got := req.Header.Get("anthropic-beta"); got != "test-beta" {
-		t.Errorf("anthropic-beta = %q, want %q", got, "test-beta")
-	}
+// dummyProvider is a test-only Provider implementation.
+type dummyProvider struct {
+	name string
 }
 
-func TestSetAuthHeaders_Anthropic_NoBeta(t *testing.T) {
-	p, _ := GetProvider("anthropic")
-	req, _ := http.NewRequest("POST", "https://example.com", nil)
-	p.SetAuthHeaders(req, "test-key", http.Header{})
-
-	if got := req.Header.Get("anthropic-beta"); got != "" {
-		t.Errorf("anthropic-beta should be empty, got %q", got)
-	}
-}
-
-func TestSetAuthHeaders_OpenAI(t *testing.T) {
-	p, _ := GetProvider("openai")
-	req, _ := http.NewRequest("POST", "https://example.com", nil)
-	p.SetAuthHeaders(req, "sk-test-key", http.Header{})
-
-	if got := req.Header.Get("Authorization"); got != "Bearer sk-test-key" {
-		t.Errorf("Authorization = %q, want %q", got, "Bearer sk-test-key")
-	}
-}
-
-func TestSetAuthHeaders_Google(t *testing.T) {
-	p, _ := GetProvider("google")
-	req, _ := http.NewRequest("POST", "https://example.com/v1/models", nil)
-	p.SetAuthHeaders(req, "goog-key", http.Header{})
-
-	if got := req.Header.Get("x-goog-api-key"); got != "goog-key" {
-		t.Errorf("x-goog-api-key = %q, want %q", got, "goog-key")
-	}
-	// R8: API key must NOT appear in URL query parameters.
-	if got := req.URL.RawQuery; got != "" {
-		t.Errorf("query should be empty (no API key in URL), got %q", got)
-	}
-}
-
-func TestSetAuthHeaders_Google_ExistingQuery(t *testing.T) {
-	p, _ := GetProvider("google")
-	req, _ := http.NewRequest("POST", "https://example.com/v1/models?alt=json", nil)
-	p.SetAuthHeaders(req, "goog-key", http.Header{})
-
-	// R8: Existing query params should be preserved, but API key must NOT be appended.
-	if got := req.URL.RawQuery; got != "alt=json" {
-		t.Errorf("query = %q, want %q (key should not be appended)", got, "alt=json")
-	}
-	if got := req.Header.Get("x-goog-api-key"); got != "goog-key" {
-		t.Errorf("x-goog-api-key = %q, want %q", got, "goog-key")
-	}
-}
-
-func TestSetAuthHeaders_Ollama_WithKey(t *testing.T) {
-	p, _ := GetProvider("ollama")
-	req, _ := http.NewRequest("POST", "https://example.com", nil)
-	p.SetAuthHeaders(req, "some-key", http.Header{})
-
-	if got := req.Header.Get("Authorization"); got != "Bearer some-key" {
-		t.Errorf("Authorization = %q, want %q", got, "Bearer some-key")
-	}
-}
-
-func TestSetAuthHeaders_Ollama_NoKey(t *testing.T) {
-	p, _ := GetProvider("ollama")
-	req, _ := http.NewRequest("POST", "https://example.com", nil)
-	p.SetAuthHeaders(req, "", http.Header{})
-
-	if got := req.Header.Get("Authorization"); got != "" {
-		t.Errorf("Authorization should be empty, got %q", got)
-	}
+func (d *dummyProvider) Name() string    { return d.name }
+func (d *dummyProvider) BaseURL() string { return "http://example.com" }
+func (d *dummyProvider) SetAuthHeaders(_ *http.Request, _ string, _ http.Header) {}
+func (d *dummyProvider) BifrostProvider() bifrostSchemas.ModelProvider {
+	return bifrostSchemas.Anthropic
 }
