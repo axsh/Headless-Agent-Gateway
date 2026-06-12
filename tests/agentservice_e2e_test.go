@@ -28,7 +28,7 @@ import (
 )
 
 // e2eDefaultModel is the model used for E2E tests.
-// Must match a model registered in examples/cawa-server/model_profiles.yaml.
+// Must match a model registered in features/tern/model_profiles.yaml.
 const e2eDefaultModel = "claude-sonnet-4-20250514"
 
 // freePort returns a free TCP port by briefly listening on :0.
@@ -44,7 +44,7 @@ func freePort(t *testing.T) int {
 }
 
 // startE2EServer starts a real tern server with LLM Gateway and claudecode agent.
-// It uses the cawa-server model_profiles.yaml and dynamically-assigned ports.
+// It uses the tern model_profiles.yaml and dynamically-assigned ports.
 // Agents are auto-registered via codingagent.CreateAll() in tern.New().
 // Returns the AgentService base URL and a cleanup function.
 func startE2EServer(t *testing.T) (string, func()) {
@@ -55,7 +55,7 @@ func startE2EServer(t *testing.T) (string, func()) {
 		t.Fatalf("E2E test requires claude CLI on PATH: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../examples/cawa-server/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
 
 	// Discover free ports for all services.
 	gwPort := freePort(t)
@@ -191,7 +191,7 @@ func createE2ESession(t *testing.T, baseURL, agent, workDir string) string {
 }
 
 // createE2ESessionNoModel creates a session without specifying a model.
-// This tests the DefaultModel fallback path (cawa-client equivalent).
+// This tests the DefaultModel fallback path (ternctl equivalent).
 func createE2ESessionNoModel(t *testing.T, baseURL, agent, workDir string) string {
 	t.Helper()
 	initGitRepo(t, workDir)
@@ -334,7 +334,7 @@ func TestE2E_StandaloneHealth(t *testing.T) {
 
 // --- TC-002: E2E streaming + file generation ---
 
-// TestE2E_CodingAgentStreaming verifies the complete cawa-client run flow:
+// TestE2E_CodingAgentStreaming verifies the complete ternctl run flow:
 // session creation, SSE streaming with real claude CLI, file generation,
 // and session completion.
 func TestE2E_CodingAgentStreaming(t *testing.T) {
@@ -451,7 +451,7 @@ func TestE2E_CodingAgentError(t *testing.T) {
 		t.Fatalf("E2E test requires claude CLI on PATH: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../examples/cawa-server/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
 
 	gwPort := freePort(t)
 	wsPort := freePort(t)
@@ -536,17 +536,17 @@ agent_service:
 	}
 }
 
-// --- TC-005b: DefaultModel E2E (cawa-client equivalent, no model specified) ---
+// --- TC-005b: DefaultModel E2E (ternctl equivalent, no model specified) ---
 
 // TestE2E_CodingAgentDefaultModel verifies that when no model is specified
 // in the session creation request, the AdapterConfig.DefaultModel is used
-// and the CLI responds successfully. This is the cawa-client equivalent test.
+// and the CLI responds successfully. This is the ternctl equivalent test.
 func TestE2E_CodingAgentDefaultModel(t *testing.T) {
 	baseURL, cleanup := startE2EServer(t)
 	defer cleanup()
 	workDir := t.TempDir()
 
-	// Create session WITHOUT specifying model (cawa-client equivalent).
+	// Create session WITHOUT specifying model (ternctl equivalent).
 	sessionID := createE2ESessionNoModel(t, baseURL, "claudecode", workDir)
 	t.Logf("Session created (no model): %s", sessionID)
 

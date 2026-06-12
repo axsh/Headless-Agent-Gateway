@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/axsh/arctic-tern/examples/cawa-server/cmd"
+	"github.com/axsh/arctic-tern/features/tern/cmd"
 )
 
 func main() {

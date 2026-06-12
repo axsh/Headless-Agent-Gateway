@@ -17,7 +17,7 @@ import (
 	"github.com/axsh/arctic-tern/tern"
 )
 
-// runServer is the main entry point for the cawa-server command.
+// runServer is the main entry point for the tern command.
 func runServer(cmd *cobra.Command, args []string) error {
 	srv, err := tern.New(tern.WithConfigPath(cfgFile))
 	if err != nil {

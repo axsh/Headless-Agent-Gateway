@@ -12,11 +12,11 @@ var (
 	logLevel string
 )
 
-// rootCmd is the base command for cawa-server.
+// rootCmd is the base command for tern.
 var rootCmd = &cobra.Command{
-	Use:   "cawa-server",
+	Use:   "tern",
 	Short: "Arctic-tern Coding Agent Web Application Server",
-	Long: `cawa-server starts the tern server which manages coding agent sessions
+	Long: `tern starts the tern server which manages coding agent sessions
 and provides an LLM gateway for model routing.`,
 	RunE: runServer,
 }

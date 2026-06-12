@@ -12,7 +12,7 @@ log:
     - type: "syslog"
       network: "udp"
       address: "localhost:514"
-      tag: "hag"
+      tag: "tern"
 vault:
   backend: "keyring"
 websocket:

@@ -36,7 +36,7 @@ func startCodexE2EServer(t *testing.T) (string, func()) {
 		t.Skipf("codex CLI not found on PATH, skipping: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../examples/cawa-server/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
 
 	// Discover free ports for all services.
 	gwPort := freePort(t)
@@ -236,7 +236,7 @@ func TestCodexE2E_ErrorPropagation(t *testing.T) {
 		t.Skipf("codex CLI not found on PATH, skipping: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../examples/cawa-server/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
 
 	gwPort := freePort(t)
 	wsPort := freePort(t)

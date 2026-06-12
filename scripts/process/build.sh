@@ -126,7 +126,7 @@ build_go() {
 
         # --- Build ---
         info "Building $feature_name..."
-        if go build -o "$PROJECT_ROOT/bin/$feature_name" ./...; then
+        if go build -o "$PROJECT_ROOT/bin/$feature_name" .; then
             success "Build succeeded for $feature_name → bin/$feature_name"
         else
             fail "Build failed for $feature_name."

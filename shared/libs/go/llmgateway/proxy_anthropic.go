@@ -150,6 +150,9 @@ func (p *ProxyServer) handleAnthropicMessagesViaBifrost(
 
 	providerKey := toBifrostProvider(routed.Provider)
 
+	reqMessagesJSON, _ := json.Marshal(fullReq.Messages)
+	p.logger.Debug("raw anthropic request messages", "json", string(reqMessagesJSON))
+
 	// Convert Anthropic -> Bifrost
 	bifrostReq, err := ConvertAnthropicToBifrost(&fullReq, providerKey)
 	if err != nil {
@@ -166,6 +169,9 @@ func (p *ProxyServer) handleAnthropicMessagesViaBifrost(
 
 	// Override model with routing result
 	bifrostReq.Model = routed.Model
+
+	bReqJSON, _ := json.Marshal(bifrostReq)
+	p.logger.Debug("converted bifrost request", "json", string(bReqJSON))
 
 	// Sanitize tools for cross-provider requests
 	sanitizeToolsForProvider(bifrostReq, providerKey, p.logger)
@@ -312,6 +318,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 	blockIndex := 0
 	chunkCount := 0
 	textStarted := false
+	stopReason := "end_turn"
 	var totalOutputTokens int
 
 	for chunk := range ch {
@@ -374,6 +381,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 
 			case bifrostSchemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone:
 				// Function call done
+				stopReason = "tool_use"
 				emitSSEJSON(w, flusher, "content_block_stop", map[string]any{
 					"type":  "content_block_stop",
 					"index": blockIndex,
@@ -384,6 +392,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 				// New output item -> may need content_block_start for tool_use
 				if streamResp.Item != nil && streamResp.Item.Type != nil &&
 					*streamResp.Item.Type == bifrostSchemas.ResponsesMessageTypeFunctionCall {
+					stopReason = "tool_use"
 					toolName := ""
 					toolID := ""
 					if streamResp.Item.ResponsesToolMessage != nil {
@@ -421,7 +430,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 	// Emit message_delta with stop_reason
 	emitSSEJSON(w, flusher, "message_delta", map[string]any{
 		"type":  "message_delta",
-		"delta": map[string]any{"stop_reason": "end_turn"},
+		"delta": map[string]any{"stop_reason": stopReason},
 		"usage": map[string]any{"output_tokens": totalOutputTokens},
 	})
 

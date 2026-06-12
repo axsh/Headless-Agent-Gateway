@@ -179,16 +179,22 @@ Additional architectural details will be documented separately.
 
 ### Phase 1
 
-* [ ] CAWA specification draft
-* [ ] Claude Code adapter
-* [ ] Codex adapter
-* [ ] Gemini CLI adapter
-* [ ] OpenAI backend
-* [ ] Anthropic backend
-* [ ] Ollama backend
+* [x] CAWA API specification v1
+* [x] Key Vault support
+* [x] Claude Code CLI adapter
+* [x] Codex CLI adapter
+* [ ] Gemini CLI adapter: Antigravity SDKに変わった？
+* [x] OpenAI LLM backend
+* [x] Anthropic LLM backend
+* [x] Google LLM backend
+* [x] Ollama LLM backend
 
 ### Phase 2
 
+* [ ] エージェントとの対話プロトコル
+* [ ] MCP support
+* [ ] Tern CLI
+* [ ] Tern SDK
 * [ ] Session portability
 * [ ] Context export/import
 * [ ] Agent switching
@@ -199,6 +205,8 @@ Additional architectural details will be documented separately.
 * [ ] Context-preserving agent migration
 * [ ] Live agent handoff
 * [ ] Multi-agent orchestration
+* [ ] Scale-out deployment
+* [ ] Statistic / Prometheus
 
 ---
 

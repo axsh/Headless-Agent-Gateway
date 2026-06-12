@@ -3,7 +3,7 @@
 // and streams the response to stdout.
 //
 // Prerequisites:
-//   - A running tern server (e.g., via minimal-server or cawa-server)
+//   - A running tern server (e.g., via minimal-server or tern)
 //   - Claude CLI on PATH (for the claudecode agent)
 //
 // Usage:

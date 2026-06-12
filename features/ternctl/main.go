@@ -17,12 +17,12 @@ var (
 )
 
 func main() {
-	logLevel := flag.String("log-level", "info", "cawa-client log level (trace, debug, info, warn, error)")
+	logLevel := flag.String("log-level", "info", "ternctl log level (trace, debug, info, warn, error)")
 	flag.StringVar(&serverURL, "server", "http://localhost:3100", "CAWA server URL")
 	flag.Parse()
 
 	lvl := logger.ParseLevel(*logLevel)
-	log = logger.NewDefault(lvl).WithComponent("cawa-client")
+	log = logger.NewDefault(lvl).WithComponent("ternctl")
 
 	args := flag.Args()
 	if len(args) == 0 {
@@ -53,7 +53,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Usage: cawa-client [--server URL] [--log-level LEVEL] <command> [args...]")
+	fmt.Println("Usage: ternctl [--server URL] [--log-level LEVEL] <command> [args...]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  health                                Check server health")

@@ -633,26 +633,26 @@ func TestAgentServiceSSEErrorPropagation(t *testing.T) {
 	}
 }
 
-// TestCawaClientErrorPropagation verifies that cawa-client detects SSE errors
+// TestCawaClientErrorPropagation verifies that ternctl detects SSE errors
 // and exits with status 1.
 func TestCawaClientErrorPropagation(t *testing.T) {
-	// 1. Build cawa-client binary
+	// 1. Build ternctl binary
 	projectRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatalf("project root path: %v", err)
 	}
 
-	cawaClientBin := "cawa-client"
+	ternctlBin := "ternctl"
 	if os.PathSeparator == '\\' {
-		cawaClientBin = "cawa-client.exe"
+		ternctlBin = "ternctl.exe"
 	}
-	cawaClientPath := filepath.Join(projectRoot, "bin", cawaClientBin)
+	ternctlPath := filepath.Join(projectRoot, "bin", ternctlBin)
 
-	cawaClientDir := filepath.Join(projectRoot, "examples", "cawa-client")
-	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", cawaClientBin), ".")
-	buildCmd.Dir = cawaClientDir
+	ternctlDir := filepath.Join(projectRoot, "examples", "ternctl")
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", ternctlBin), ".")
+	buildCmd.Dir = ternctlDir
 	if output, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("failed to build cawa-client: %v\noutput: %s", err, string(output))
+		t.Fatalf("failed to build ternctl: %v\noutput: %s", err, string(output))
 	}
 
 	// 2. Setup server with errorMockAgent
@@ -662,9 +662,9 @@ func TestCawaClientErrorPropagation(t *testing.T) {
 	ts := httptest.NewServer(srv.HTTPHandler())
 	defer ts.Close()
 
-	// 3. Run cawa-client run
+	// 3. Run ternctl run
 	workDir := t.TempDir()
-	cmd := exec.Command(cawaClientPath,
+	cmd := exec.Command(ternctlPath,
 		"--server", ts.URL,
 		"--log-level", "debug",
 		"run",
@@ -678,12 +678,12 @@ func TestCawaClientErrorPropagation(t *testing.T) {
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
-	t.Logf("cawa-client stdout:\n%s", stdout.String())
-	t.Logf("cawa-client stderr:\n%s", stderr.String())
+	t.Logf("ternctl stdout:\n%s", stdout.String())
+	t.Logf("ternctl stderr:\n%s", stderr.String())
 
 	// We expect the command to fail (exit code 1) because of the error event
 	if err == nil {
-		t.Fatal("expected cawa-client to exit with error, but got success")
+		t.Fatal("expected ternctl to exit with error, but got success")
 	}
 
 	// Verify error output contains the mocked error
@@ -692,7 +692,7 @@ func TestCawaClientErrorPropagation(t *testing.T) {
 		t.Errorf("stderr does not contain expected error message, got: %s", stderrStr)
 	}
 
-	// 4. Run cawa-client session to check status is error
+	// 4. Run ternctl session to check status is error
 	stdoutStr := stdout.String()
 	var sessionID string
 	for _, line := range strings.Split(stdoutStr, "\n") {
@@ -702,10 +702,10 @@ func TestCawaClientErrorPropagation(t *testing.T) {
 		}
 	}
 	if sessionID == "" {
-		t.Fatal("could not find session ID in cawa-client output")
+		t.Fatal("could not find session ID in ternctl output")
 	}
 
-	cmdSession := exec.Command(cawaClientPath,
+	cmdSession := exec.Command(ternctlPath,
 		"--server", ts.URL,
 		"session",
 		"--id", sessionID,
@@ -715,17 +715,17 @@ func TestCawaClientErrorPropagation(t *testing.T) {
 	cmdSession.Stderr = &sessStderr
 
 	err = cmdSession.Run()
-	t.Logf("cawa-client session stdout:\n%s", sessStdout.String())
-	t.Logf("cawa-client session stderr:\n%s", sessStderr.String())
+	t.Logf("ternctl session stdout:\n%s", sessStdout.String())
+	t.Logf("ternctl session stderr:\n%s", sessStderr.String())
 
-	// We expect cawa-client session to also fail with exit code 1
+	// We expect ternctl session to also fail with exit code 1
 	if err == nil {
-		t.Fatal("expected cawa-client session to exit with error, but got success")
+		t.Fatal("expected ternctl session to exit with error, but got success")
 	}
 
 	sessStderrStr := sessStderr.String()
 	if !strings.Contains(sessStderrStr, "Session failed with error: claude exited with code 1: authentication failed") {
-		t.Errorf("cawa-client session stderr does not contain expected error message, got: %s", sessStderrStr)
+		t.Errorf("ternctl session stderr does not contain expected error message, got: %s", sessStderrStr)
 	}
 }
 

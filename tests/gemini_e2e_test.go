@@ -249,30 +249,30 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 	})
 	srv.AgentService().RegisterAgent(adapter)
 
-	// Ensure cawa-client binary is built
+	// Ensure ternctl binary is built
 	projectRoot, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatalf("project root path: %v", err)
 	}
 
-	cawaClientBin := "cawa-client"
+	ternctlBin := "ternctl"
 	if os.PathSeparator == '\\' {
-		cawaClientBin = "cawa-client.exe"
+		ternctlBin = "ternctl.exe"
 	}
-	cawaClientPath := filepath.Join(projectRoot, "bin", cawaClientBin)
+	ternctlPath := filepath.Join(projectRoot, "bin", ternctlBin)
 
-	cawaClientDir := filepath.Join(projectRoot, "examples", "cawa-client")
-	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", cawaClientBin), ".")
-	buildCmd.Dir = cawaClientDir
+	ternctlDir := filepath.Join(projectRoot, "examples", "ternctl")
+	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", ternctlBin), ".")
+	buildCmd.Dir = ternctlDir
 	if output, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("failed to build cawa-client: %v\noutput: %s", err, string(output))
+		t.Fatalf("failed to build ternctl: %v\noutput: %s", err, string(output))
 	}
 
-	// Execute cawa-client command
+	// Execute ternctl command
 	workDir := t.TempDir()
 	serverURL := fmt.Sprintf("http://localhost:%d", asPort)
 
-	cmd := exec.Command(cawaClientPath, 
+	cmd := exec.Command(ternctlPath, 
 		"--server", serverURL,
 		"--log-level", "trace",
 		"run",
@@ -286,13 +286,13 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	t.Logf("running cawa-client command: %s", cmd.String())
+	t.Logf("running ternctl command: %s", cmd.String())
 	err = cmd.Run()
-	t.Logf("cawa-client stdout:\n%s", stdout.String())
-	t.Logf("cawa-client stderr:\n%s", stderr.String())
+	t.Logf("ternctl stdout:\n%s", stdout.String())
+	t.Logf("ternctl stderr:\n%s", stderr.String())
 
 	if err != nil {
-		t.Fatalf("cawa-client command failed: %v", err)
+		t.Fatalf("ternctl command failed: %v", err)
 	}
 
 	// Verify the file was created

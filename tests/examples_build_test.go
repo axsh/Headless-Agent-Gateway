@@ -55,20 +55,38 @@ func TestExamples_MinimalClient_Builds(t *testing.T) {
 	}
 }
 
-// TestExamples_CawaServer_Builds verifies that the cawa-server example
+// TestFeatures_Tern_Builds verifies that the tern feature
 // compiles without errors.
-func TestExamples_CawaServer_Builds(t *testing.T) {
+func TestFeatures_Tern_Builds(t *testing.T) {
 	projectRoot, _ := filepath.Abs("..")
-	exampleDir := filepath.Join(projectRoot, "examples", "cawa-server")
+	featureDir := filepath.Join(projectRoot, "features", "tern")
 
-	if _, err := os.Stat(exampleDir); os.IsNotExist(err) {
-		t.Fatalf("example directory does not exist: %s", exampleDir)
+	if _, err := os.Stat(featureDir); os.IsNotExist(err) {
+		t.Fatalf("feature directory does not exist: %s", featureDir)
 	}
 
 	cmd := exec.Command("go", "build", "-o", nullOutput(), ".")
-	cmd.Dir = exampleDir
+	cmd.Dir = featureDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("cawa-server build failed: %v\n%s", err, output)
+		t.Fatalf("tern build failed: %v\n%s", err, output)
+	}
+}
+
+// TestFeatures_Ternctl_Builds verifies that the ternctl feature
+// compiles without errors.
+func TestFeatures_Ternctl_Builds(t *testing.T) {
+	projectRoot, _ := filepath.Abs("..")
+	featureDir := filepath.Join(projectRoot, "features", "ternctl")
+
+	if _, err := os.Stat(featureDir); os.IsNotExist(err) {
+		t.Fatalf("feature directory does not exist: %s", featureDir)
+	}
+
+	cmd := exec.Command("go", "build", "-o", nullOutput(), ".")
+	cmd.Dir = featureDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ternctl build failed: %v\n%s", err, output)
 	}
 }

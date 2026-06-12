@@ -1,6 +1,6 @@
 default_profile:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
+  provider: google
+  model: gemini-2.5-flash
 
 providers:
   openai:

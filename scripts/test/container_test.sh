@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CAWA_CLIENT="$PROJECT_ROOT/bin/cawa-client"
+TERNCTL_CLIENT="$PROJECT_ROOT/bin/ternctl"
 COMPOSE_TYPE="${1:-all-in-one}"
 COMPOSE_DIR="$PROJECT_ROOT/container/$COMPOSE_TYPE"
 
@@ -17,9 +17,9 @@ fail() { echo -e "${RED}FAIL${NC}: $1"; exit 1; }
 
 echo "=== Container Integration Test: $COMPOSE_TYPE ==="
 
-# Pre-check: cawa-client binary
-if [[ ! -x "$CAWA_CLIENT" ]]; then
-    echo "Building cawa-client..."
+# Pre-check: ternctl binary
+if [[ ! -x "$TERNCTL_CLIENT" ]]; then
+    echo "Building ternctl..."
     cd "$PROJECT_ROOT" && ./scripts/process/build.sh
 fi
 
@@ -34,7 +34,7 @@ docker-compose up -d
 # 3. Wait for health (max 30s)
 echo "Waiting for health check..."
 for i in $(seq 1 30); do
-    if "$CAWA_CLIENT" --server "http://localhost:3100" health 2>/dev/null; then
+    if "$TERNCTL_CLIENT" --server "http://localhost:3100" health 2>/dev/null; then
         break
     fi
     if [[ $i -eq 30 ]]; then
@@ -45,7 +45,7 @@ done
 pass "Health check"
 
 # 4. List agents
-AGENTS=$("$CAWA_CLIENT" --server "http://localhost:3100" agents 2>&1)
+AGENTS=$("$TERNCTL_CLIENT" --server "http://localhost:3100" agents 2>&1)
 if [[ -n "$AGENTS" ]]; then
     pass "List agents: $AGENTS"
 else
@@ -53,7 +53,7 @@ else
 fi
 
 # 5. Create + terminate session
-SESSION_ID=$("$CAWA_CLIENT" --server "http://localhost:3100" run \
+SESSION_ID=$("$TERNCTL_CLIENT" --server "http://localhost:3100" run \
     --agent claudecode --prompt "echo hello" 2>&1 | grep "Session created" | awk '{print $3}') || true
 if [[ -n "$SESSION_ID" ]]; then
     pass "Session lifecycle"

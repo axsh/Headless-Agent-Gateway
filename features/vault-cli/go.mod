@@ -1,4 +1,4 @@
-module github.com/axsh/arctic-tern/examples/vault-cli
+module github.com/axsh/arctic-tern/features/vault-cli
 
 go 1.26.4
 

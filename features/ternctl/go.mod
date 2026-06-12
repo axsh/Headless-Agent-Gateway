@@ -1,4 +1,4 @@
-module github.com/axsh/arctic-tern/examples/cawa-client
+module github.com/axsh/arctic-tern/features/ternctl
 
 go 1.26.4
 

@@ -54,11 +54,11 @@ get_next_id() {
 }
 
 # 3. Get Next Idea ID
-IDEAS_DIR="prompts/phases/${PHASE_NAME}/ideas/${BRANCH_NAME}"
+IDEAS_DIR="prompts/phases/${PHASE_NAME}/branches/${BRANCH_NAME}/ideas"
 NEXT_IDEA_ID=$(get_next_id "$IDEAS_DIR")
 
 # 4. Get Next Plan ID
-PLANS_DIR="prompts/phases/${PHASE_NAME}/plans/${BRANCH_NAME}"
+PLANS_DIR="prompts/phases/${PHASE_NAME}/branches/${BRANCH_NAME}/plans"
 NEXT_PLAN_ID=$(get_next_id "$PLANS_DIR")
 
 # Output JSON
