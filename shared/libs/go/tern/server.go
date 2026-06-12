@@ -24,6 +24,7 @@ import (
 	// Auto-register all built-in coding agents via init().
 	_ "github.com/axsh/arctic-tern/codingagent/claudecode"
 	_ "github.com/axsh/arctic-tern/codingagent/codex"
+	_ "github.com/axsh/arctic-tern/wayfinder"
 
 	// Auto-register all built-in LLM providers via init().
 	_ "github.com/axsh/arctic-tern/llmgateway/anthropic"
