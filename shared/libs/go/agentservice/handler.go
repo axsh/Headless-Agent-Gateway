@@ -93,6 +93,14 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		WorkDir:    req.WorkDir,
 		SessionDir: req.SessionDir,
 	}
+
+	// R2, R4: Resolve WorkDir to absolute path for record consistency.
+	if record.WorkDir != "" {
+		if abs, err := filepath.Abs(record.WorkDir); err == nil {
+			record.WorkDir = abs
+		}
+	}
+
 	// SessionDir fallback: use WorkDir/.AgentName if not explicitly set.
 	if record.SessionDir == "" && record.WorkDir != "" {
 		if record.AgentName != "" {
@@ -101,6 +109,22 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			record.SessionDir = record.WorkDir
 		}
 	}
+
+	// R1, R4: Resolve SessionDir to absolute path for record consistency.
+	if record.SessionDir != "" {
+		if abs, err := filepath.Abs(record.SessionDir); err == nil {
+			record.SessionDir = abs
+		}
+	}
+
+	// R5: Log resolved paths for debugging.
+	if s.logger != nil {
+		s.logger.Debug("session paths resolved",
+			"session_id", sessionID,
+			"work_dir", record.WorkDir,
+			"session_dir", record.SessionDir)
+	}
+
 	s.sessions.Create(record)
 
 	w.Header().Set("Content-Type", "application/json")
