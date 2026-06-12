@@ -227,3 +227,115 @@ func symbolNames(defs []SymbolDef) []string {
 	}
 	return names
 }
+
+func TestAnalyze_DeadFile(t *testing.T) {
+	dir := setupTestDir(t, map[string]string{
+		"main.go": `package main
+
+func main() { Used() }
+
+func Used() {}
+`,
+		"dead.go": `package main
+
+func DeadA() {}
+
+func DeadB() {}
+`,
+	})
+
+	result, err := Analyze(dir, nil)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// dead.go should be detected as a dead file.
+	if len(result.DeadFiles) != 1 {
+		t.Fatalf("expected 1 dead file, got %d", len(result.DeadFiles))
+	}
+	if result.DeadFiles[0].File != filepath.Join(dir, "dead.go") {
+		t.Errorf("expected dead file 'dead.go', got %q", result.DeadFiles[0].File)
+	}
+
+	// DeadA and DeadB should NOT be in DeadSymbols (duplicate report exclusion).
+	for _, sym := range result.DeadSymbols {
+		if sym.Name == "DeadA" || sym.Name == "DeadB" {
+			t.Errorf("dead file symbol %q should not be in DeadSymbols", sym.Name)
+		}
+	}
+}
+
+func TestAnalyze_PartiallyDeadFile(t *testing.T) {
+	dir := setupTestDir(t, map[string]string{
+		"lib.go": `package lib
+
+func Used() string { return helper() }
+
+func helper() string { return "hi" }
+
+func Unused() {}
+`,
+	})
+
+	result, err := Analyze(dir, nil)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// lib.go has both used and unused symbols, should NOT be a dead file.
+	if len(result.DeadFiles) != 0 {
+		t.Errorf("expected 0 dead files for partially dead file, got %d", len(result.DeadFiles))
+	}
+
+	// Unused should still be in DeadSymbols.
+	found := false
+	for _, sym := range result.DeadSymbols {
+		if sym.Name == "Unused" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Unused should be in DeadSymbols")
+	}
+}
+
+func TestExecute_DeadFile(t *testing.T) {
+	dir := setupTestDir(t, map[string]string{
+		"main.go": `package main
+
+func main() { Used() }
+
+func Used() {}
+`,
+		"dead.go": `package main
+
+func DeadA() {}
+
+func DeadB() {}
+`,
+	})
+
+	result, err := Analyze(dir, nil)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	removed, err := Execute(result)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if removed != 2 {
+		t.Errorf("expected 2 removed (1 file with 2 symbols), got %d", removed)
+	}
+
+	// dead.go should no longer exist.
+	if _, err := os.Stat(filepath.Join(dir, "dead.go")); !os.IsNotExist(err) {
+		t.Error("dead.go should have been deleted")
+	}
+
+	// main.go should still exist.
+	if _, err := os.Stat(filepath.Join(dir, "main.go")); err != nil {
+		t.Errorf("main.go should still exist: %v", err)
+	}
+}
+
