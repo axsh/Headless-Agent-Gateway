@@ -56,7 +56,8 @@ func TestRegisterAllTools_AllNineRegistered(t *testing.T) {
 
 	expected := []string{
 		"read_file", "write_file", "list_directory", "create_directory",
-		"edit_file", "search_files", "grep_files", "execute_command", "kill_process",
+		"edit_file", "search_files", "grep_files", "execute_command",
+		"run_background_process", "kill_process",
 	}
 	for _, name := range expected {
 		if _, ok := reg.Get(name); !ok {
@@ -65,8 +66,8 @@ func TestRegisterAllTools_AllNineRegistered(t *testing.T) {
 	}
 
 	defs := reg.Definitions()
-	if len(defs) != 9 {
-		t.Errorf("len(Definitions) = %d, want 9", len(defs))
+	if len(defs) != 10 {
+		t.Errorf("len(Definitions) = %d, want 10", len(defs))
 	}
 }
 

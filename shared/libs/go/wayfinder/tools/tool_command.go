@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,22 +22,6 @@ func newExecuteCommand(tc *ToolContext) ToolHandler {
 		// Check blocked commands.
 		if tc.IsBlockedCommand(commandLine) {
 			return "", fmt.Errorf("execute_command: command is blocked for safety: %s", commandLine)
-		}
-
-		// Check if background execution is requested.
-		background, _ := input["background"].(bool)
-
-		if background {
-			cmd := exec.CommandContext(ctx, "sh", "-c", commandLine)
-			cmd.Dir = tc.WorkDir
-			if err := cmd.Start(); err != nil {
-				return "", fmt.Errorf("execute_command: background start failed: %w", err)
-			}
-			pid := cmd.Process.Pid
-			tc.Tracker.TrackProcess(pid, commandLine)
-			// Detach: don't wait for the process.
-			go func() { _ = cmd.Wait() }()
-			return fmt.Sprintf("Background process started with PID: %d", pid), nil
 		}
 
 		// Foreground execution with combined output.
@@ -92,14 +77,24 @@ func newKillProcess(tc *ToolContext) ToolHandler {
 			return "", fmt.Errorf("kill_process: process %d not found: %w", pid, err)
 		}
 		if err := proc.Kill(); err != nil {
+			// Handle cases where the process is already gone.
 			if strings.Contains(err.Error(), "process already finished") ||
-				strings.Contains(err.Error(), "no such process") {
+				strings.Contains(err.Error(), "no such process") ||
+				strings.Contains(err.Error(), "Access is denied") {
 				tc.Tracker.UntrackProcess(pid)
-				return fmt.Sprintf("Process %d was already terminated", pid), nil
+				result, _ := json.Marshal(map[string]any{
+					"status": "already_terminated",
+					"pid":    pid,
+				})
+				return string(result), nil
 			}
 			return "", fmt.Errorf("kill_process: failed to kill process %d: %w", pid, err)
 		}
 		tc.Tracker.UntrackProcess(pid)
-		return fmt.Sprintf("Process %d killed successfully", pid), nil
+		result, _ := json.Marshal(map[string]any{
+			"status": "killed",
+			"pid":    pid,
+		})
+		return string(result), nil
 	}
 }

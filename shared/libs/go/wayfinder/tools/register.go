@@ -1,6 +1,6 @@
 package tools
 
-// RegisterAllTools registers all 9 built-in tools with the registry.
+// RegisterAllTools registers all 10 built-in tools with the registry.
 func RegisterAllTools(reg *Registry, tc *ToolContext) {
 	reg.Register("read_file", "Read the contents of a file",
 		map[string]any{
@@ -69,15 +69,23 @@ func RegisterAllTools(reg *Registry, tc *ToolContext) {
 			"required": []string{"pattern"},
 		}, newGrepFiles(tc))
 
-	reg.Register("execute_command", "Execute a shell command",
+	reg.Register("execute_command", "Execute a shell command (foreground only)",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"command":    map[string]any{"type": "string", "description": "Shell command to execute"},
-				"background": map[string]any{"type": "boolean", "description": "Run in background (default: false)"},
+				"command": map[string]any{"type": "string", "description": "Shell command to execute"},
 			},
 			"required": []string{"command"},
 		}, newExecuteCommand(tc))
+
+	reg.Register("run_background_process", "Start a command as a background process and return its PID",
+		map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"command": map[string]any{"type": "string", "description": "Shell command to run in background"},
+			},
+			"required": []string{"command"},
+		}, newRunBackgroundProcess(tc))
 
 	reg.Register("kill_process", "Kill a background process by PID",
 		map[string]any{
