@@ -20,6 +20,16 @@ import (
 	"github.com/axsh/arctic-tern/tasklog"
 	"github.com/axsh/arctic-tern/vault"
 	"github.com/axsh/arctic-tern/wsserver"
+
+	// Auto-register all built-in coding agents via init().
+	_ "github.com/axsh/arctic-tern/codingagent/claudecode"
+	_ "github.com/axsh/arctic-tern/codingagent/codex"
+
+	// Auto-register all built-in LLM providers via init().
+	_ "github.com/axsh/arctic-tern/llmgateway/anthropic"
+	_ "github.com/axsh/arctic-tern/llmgateway/google"
+	_ "github.com/axsh/arctic-tern/llmgateway/ollama"
+	_ "github.com/axsh/arctic-tern/llmgateway/openai"
 )
 
 // Server is the tern core facade that orchestrates all components.

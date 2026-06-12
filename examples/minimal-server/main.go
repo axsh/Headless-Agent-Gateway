@@ -16,9 +16,6 @@ import (
 	"syscall"
 
 	"github.com/axsh/arctic-tern/tern"
-
-	// Auto-register all built-in coding agents.
-	_ "github.com/axsh/arctic-tern/codingagent/all"
 )
 
 func main() {

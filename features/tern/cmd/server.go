@@ -10,16 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	// Auto-register coding agents via init().
-	_ "github.com/axsh/arctic-tern/codingagent/claudecode"
-	_ "github.com/axsh/arctic-tern/codingagent/codex"
-
-	// Auto-register LLM providers via init().
-	_ "github.com/axsh/arctic-tern/llmgateway/anthropic"
-	_ "github.com/axsh/arctic-tern/llmgateway/google"
-	_ "github.com/axsh/arctic-tern/llmgateway/ollama"
-	_ "github.com/axsh/arctic-tern/llmgateway/openai"
-
 	"github.com/axsh/arctic-tern/tern"
 )
 

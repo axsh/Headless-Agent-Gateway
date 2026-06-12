@@ -67,7 +67,7 @@ The `examples/` directory contains working samples that demonstrate Tern's core 
 
 ### Server (`examples/minimal-server`)
 
-Start a tern server with a single import-based agent registration:
+Start a tern server. All built-in coding agents and LLM providers are auto-registered by the `tern` package:
 
 ```go
 package main
@@ -81,9 +81,6 @@ import (
 	"syscall"
 
 	"github.com/axsh/arctic-tern/tern"
-
-	// Auto-register all built-in coding agents.
-	_ "github.com/axsh/arctic-tern/codingagent/all"
 )
 
 func main() {
