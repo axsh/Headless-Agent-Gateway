@@ -19,20 +19,23 @@ const (
 
 // Adapter implements codingagent.CodingAgent for Wayfinder.
 type Adapter struct {
-	logger  logger.Logger
-	baseURL string // Bifrost proxy URL
-	token   string // Authentication token
+	logger      logger.Logger
+	baseURL     string // Bifrost proxy URL
+	token       string // Authentication token
+	adapterCfg  *codingagent.AdapterConfig
 }
 
 // NewAdapter creates a new Wayfinder CodingAgent adapter.
-func NewAdapter(baseURL, token string, log logger.Logger) *Adapter {
+func NewAdapter(cfg *codingagent.AdapterConfig) *Adapter {
+	log := cfg.Logger
 	if log == nil {
 		log = &noopLogger{}
 	}
 	return &Adapter{
-		logger:  log.WithComponent(AgentName),
-		baseURL: baseURL,
-		token:   token,
+		logger:     log.WithComponent(AgentName),
+		baseURL:    cfg.GatewayURL,
+		token:      cfg.GatewayToken,
+		adapterCfg: cfg,
 	}
 }
 
@@ -44,6 +47,9 @@ func (a *Adapter) Name() string {
 // CreateSession starts a new Wayfinder agent session.
 func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.SessionOption) (codingagent.Session, error) {
 	cfg := codingagent.NewSessionConfig(opts...)
+
+	// Apply defaults from AdapterConfig (default model, work dir, etc.).
+	codingagent.ApplyDefaults(cfg, a.adapterCfg)
 
 	// Apply defaults for wayfinder.
 	if cfg.WorkDir == "" {

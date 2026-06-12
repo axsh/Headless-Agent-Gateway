@@ -11,14 +11,18 @@ func TestAdapter_ImplementsCodingAgent(t *testing.T) {
 }
 
 func TestAdapter_Name(t *testing.T) {
-	adapter := NewAdapter("http://127.0.0.1:8080", "token", nil)
+	adapter := NewAdapter(&codingagent.AdapterConfig{
+		GatewayURL: "http://127.0.0.1:8080", GatewayToken: "token",
+	})
 	if adapter.Name() != "wayfinder" {
 		t.Errorf("Name = %q, want %q", adapter.Name(), "wayfinder")
 	}
 }
 
 func TestAdapter_Close(t *testing.T) {
-	adapter := NewAdapter("http://127.0.0.1:8080", "token", nil)
+	adapter := NewAdapter(&codingagent.AdapterConfig{
+		GatewayURL: "http://127.0.0.1:8080", GatewayToken: "token",
+	})
 	if err := adapter.Close(); err != nil {
 		t.Errorf("Close failed: %v", err)
 	}
