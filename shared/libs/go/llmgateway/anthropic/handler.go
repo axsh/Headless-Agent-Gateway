@@ -1,4 +1,4 @@
-package llmgateway
+package anthropic
 
 import (
 	"encoding/json"
@@ -9,21 +9,32 @@ import (
 
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
+	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
 	"github.com/axsh/arctic-tern/vault"
 )
 
-// anthropicRequest represents the minimal fields we parse from Anthropic Messages API.
-type anthropicRequest struct {
+// request represents the minimal fields we parse from Anthropic Messages API.
+type request struct {
 	Model  string `json:"model"`
 	Stream *bool  `json:"stream,omitempty"`
 }
 
-// handleAnthropicMessages handles POST /v1/messages for Anthropic-compatible API.
-// It routes the request through the model router and delegates to Bifrost SDK.
-// Falls back to legacy conversion path when Bifrost SDK is not initialized.
-func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
+// HandleMessages returns an http.HandlerFunc that handles POST /v1/messages
+// for Anthropic-compatible API. It routes the request through the model router
+// and delegates to Bifrost SDK.
+func HandleMessages(ctx handlerctx.HandlerContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		handleMessages(ctx, w, r)
+	}
+}
+
+// handleMessages handles POST /v1/messages for Anthropic-compatible API.
+func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request) {
+	cfg := ctx.Config()
+	log := ctx.Logger()
+
 	// R5: Apply request body size limit.
-	if maxBody := p.cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
+	if maxBody := cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	}
 
@@ -32,7 +43,7 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			WriteErrorResponse(w, &GatewayError{
+			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 				Type:    "invalid_request_error",
 				Message: "request body too large",
 				Code:    "request_too_large",
@@ -40,7 +51,7 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 			})
 			return
 		}
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "failed to read request body",
 			Code:    "request_read_error",
@@ -50,9 +61,9 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 	}
 	defer r.Body.Close()
 
-	var req anthropicRequest
+	var req request
 	if err := json.Unmarshal(body, &req); err != nil {
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
@@ -61,11 +72,12 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	p.logger.Debug("anthropic messages request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
+	log.Debug("anthropic messages request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
 
 	// Route the model
-	if p.driver == nil || p.driver.router == nil {
-		WriteErrorResponse(w, &GatewayError{
+	router := ctx.Router()
+	if router == nil {
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "LLM gateway backend not configured",
 			Code:    "not_configured",
@@ -74,11 +86,11 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	sessionID := ExtractSessionID(r.Header.Get("x-api-key"))
+	sessionID := ctx.ExtractSessionID(r.Header.Get("x-api-key"))
 
-	routed, err := p.driver.router.ResolveModel(req.Model, sessionID)
+	routed, err := router.ResolveModel(req.Model, sessionID)
 	if err != nil {
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "not_found_error",
 			Message: "model not found: " + req.Model,
 			Code:    "model_not_found",
@@ -88,18 +100,18 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 	}
 
 	// R8: OR fallback flag from x-api-key header with model profile setting.
-	if ExtractFallbackFlag(r.Header.Get("x-api-key")) {
+	if ctx.ExtractFallbackFlag(r.Header.Get("x-api-key")) {
 		routed.ToolCallFallback = true
 	}
 
-	p.logger.Debug("request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode, "fallback", routed.ToolCallFallback)
+	log.Debug("request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode, "fallback", routed.ToolCallFallback)
 
 	// Resolve vault reference if needed
 	apiKey := routed.KeyValue
-	if vault.IsVaultRef(apiKey) && p.vault != nil {
-		resolved, err := p.vault.Resolve(apiKey)
+	if vault.IsVaultRef(apiKey) && ctx.Vault() != nil {
+		resolved, err := ctx.Vault().Resolve(apiKey)
 		if err != nil {
-			WriteErrorResponse(w, &GatewayError{
+			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 				Type:    "api_error",
 				Message: "failed to resolve API key from vault",
 				Code:    "vault_error",
@@ -110,15 +122,16 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		apiKey = resolved
 	}
 
-	p.logger.Info("anthropic request routed",
+	log.Info("anthropic request routed",
 		"model", routed.Model,
 		"provider", routed.Provider,
-		"key", MaskSecret(apiKey),
+		"key", ctx.MaskSecret(apiKey),
 	)
 
 	// Bifrost SDK path (required)
-	if p.driver.bifrostSDK == nil {
-		WriteErrorResponse(w, &GatewayError{
+	bifrostSDK := ctx.BifrostSDK()
+	if bifrostSDK == nil {
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "Bifrost SDK not initialized",
 			Code:    "not_configured",
@@ -126,20 +139,23 @@ func (p *ProxyServer) handleAnthropicMessages(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
-	p.handleAnthropicMessagesViaBifrost(w, r, body, routed)
+	handleMessagesViaBifrost(ctx, w, r, body, routed)
 }
 
-// handleAnthropicMessagesViaBifrost handles /v1/messages via Bifrost SDK.
+// handleMessagesViaBifrost handles /v1/messages via Bifrost SDK.
 // Converts the Anthropic request to BifrostResponsesRequest and delegates
 // to Bifrost SDK for cross-provider translation.
-func (p *ProxyServer) handleAnthropicMessagesViaBifrost(
+func handleMessagesViaBifrost(
+	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter, r *http.Request,
-	body []byte, routed *RoutedModel,
+	body []byte, routed *handlerctx.RoutedModel,
 ) {
+	log := ctx.Logger()
+
 	// Full-parse the request body for Bifrost conversion
-	var fullReq AnthropicFullRequest
+	var fullReq FullRequest
 	if err := json.Unmarshal(body, &fullReq); err != nil {
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
@@ -148,17 +164,17 @@ func (p *ProxyServer) handleAnthropicMessagesViaBifrost(
 		return
 	}
 
-	providerKey := ToBifrostProvider(routed.Provider)
+	providerKey := ctx.ToBifrostProvider(routed.Provider)
 
 	reqMessagesJSON, _ := json.Marshal(fullReq.Messages)
-	p.logger.Debug("raw anthropic request messages", "json", string(reqMessagesJSON))
+	log.Debug("raw anthropic request messages", "json", string(reqMessagesJSON))
 
 	// Convert Anthropic -> Bifrost
-	bifrostReq, err := ConvertAnthropicToBifrost(&fullReq, providerKey)
+	bifrostReq, err := ConvertToBifrost(&fullReq, providerKey)
 	if err != nil {
-		p.logger.Error("failed to convert anthropic request to bifrost",
+		log.Error("failed to convert anthropic request to bifrost",
 			"error", err, "model", routed.Model, "provider", routed.Provider)
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "failed to convert request: " + err.Error(),
 			Code:    "conversion_error",
@@ -171,36 +187,38 @@ func (p *ProxyServer) handleAnthropicMessagesViaBifrost(
 	bifrostReq.Model = routed.Model
 
 	bReqJSON, _ := json.Marshal(bifrostReq)
-	p.logger.Debug("converted bifrost request", "json", string(bReqJSON))
+	log.Debug("converted bifrost request", "json", string(bReqJSON))
 
 	// Sanitize tools for cross-provider requests
-	SanitizeToolsForProvider(bifrostReq, providerKey, p.logger)
+	ctx.SanitizeTools(bifrostReq, providerKey)
 
 	// Create Bifrost context
 	bifrostCtx := bifrostSchemas.NewBifrostContext(r.Context(), bifrostSchemas.NoDeadline)
 
-	p.logger.Debug("anthropic request via bifrost",
+	log.Debug("anthropic request via bifrost",
 		"provider", providerKey, "model", routed.Model,
 		"stream", fullReq.Stream != nil && *fullReq.Stream)
 
 	// Dispatch stream / non-stream
 	if fullReq.Stream != nil && *fullReq.Stream {
-		p.handleAnthropicMessagesBifrostStream(w, bifrostCtx, bifrostReq, routed.Model)
+		handleMessagesBifrostStream(ctx, w, bifrostCtx, bifrostReq, routed.Model)
 	} else {
-		p.handleAnthropicMessagesBifrostNonStream(w, bifrostCtx, bifrostReq, routed)
+		handleMessagesBifrostNonStream(ctx, w, bifrostCtx, bifrostReq, routed)
 	}
 }
 
-// handleAnthropicMessagesBifrostNonStream handles non-streaming /v1/messages via Bifrost SDK.
-func (p *ProxyServer) handleAnthropicMessagesBifrostNonStream(
+// handleMessagesBifrostNonStream handles non-streaming /v1/messages via Bifrost SDK.
+func handleMessagesBifrostNonStream(
+	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
-	ctx *bifrostSchemas.BifrostContext,
+	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
-	routed *RoutedModel,
+	routed *handlerctx.RoutedModel,
 ) {
-	p.logger.Debug("executing bifrost non-stream anthropic request", "model", req.Model)
+	log := ctx.Logger()
+	log.Debug("executing bifrost non-stream anthropic request", "model", req.Model)
 
-	resp, bifrostErr := p.driver.bifrostSDK.ResponsesRequest(ctx, req)
+	resp, bifrostErr := ctx.BifrostSDK().ResponsesRequest(bCtx, req)
 	if bifrostErr != nil {
 		status := http.StatusBadGateway
 		if bifrostErr.StatusCode != nil {
@@ -210,10 +228,10 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostNonStream(
 		if bifrostErr.Error != nil {
 			msg = bifrostErr.Error.Message
 		}
-		p.logger.Error("bifrost anthropic request failed",
+		log.Error("bifrost anthropic request failed",
 			"status", status, "message", msg,
 			"model", req.Model, "provider", req.Provider)
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: msg,
 			Code:    "upstream_error",
@@ -223,11 +241,11 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostNonStream(
 	}
 
 	// Convert Bifrost response -> Anthropic response
-	anthResp, err := ConvertBifrostToAnthropic(resp)
+	anthResp, err := ConvertFromBifrost(resp)
 	if err != nil {
-		p.logger.Error("failed to convert bifrost response to anthropic",
+		log.Error("failed to convert bifrost response to anthropic",
 			"error", err, "model", req.Model)
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "failed to convert response: " + err.Error(),
 			Code:    "conversion_error",
@@ -239,9 +257,9 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostNonStream(
 	// Apply ToolCallFallback if enabled
 	if routed.ToolCallFallback {
 		respJSON, _ := json.Marshal(anthResp)
-		rewritten, ok := TryFallbackAnthropicResponse(respJSON)
+		rewritten, ok := ctx.TryFallbackAnthropicResponse(respJSON)
 		if ok {
-			p.logger.Warn("tool call fallback applied", "model", routed.Model)
+			log.Warn("tool call fallback applied", "model", routed.Model)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			w.Write(rewritten)
@@ -249,24 +267,26 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostNonStream(
 		}
 	}
 
-	p.logger.Debug("bifrost anthropic request succeeded", "model", req.Model)
+	log.Debug("bifrost anthropic request succeeded", "model", req.Model)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(anthResp)
 }
 
-// handleAnthropicMessagesBifrostStream handles streaming /v1/messages via Bifrost SDK.
+// handleMessagesBifrostStream handles streaming /v1/messages via Bifrost SDK.
 // Converts Bifrost stream chunks to Anthropic-compatible SSE events.
-func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
+func handleMessagesBifrostStream(
+	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
-	ctx *bifrostSchemas.BifrostContext,
+	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
 	model string,
 ) {
-	p.logger.Debug("executing bifrost stream anthropic request", "model", req.Model)
+	log := ctx.Logger()
+	log.Debug("executing bifrost stream anthropic request", "model", req.Model)
 
-	ch, bifrostErr := p.driver.bifrostSDK.ResponsesStreamRequest(ctx, req)
+	ch, bifrostErr := ctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
 	if bifrostErr != nil {
 		status := http.StatusBadGateway
 		if bifrostErr.StatusCode != nil {
@@ -276,10 +296,10 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 		if bifrostErr.Error != nil {
 			msg = bifrostErr.Error.Message
 		}
-		p.logger.Error("bifrost stream anthropic request failed",
+		log.Error("bifrost stream anthropic request failed",
 			"status", status, "message", msg,
 			"model", req.Model, "provider", req.Provider)
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: msg,
 			Code:    "upstream_error",
@@ -296,7 +316,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		p.logger.Error("response writer does not support flushing for SSE")
+		log.Error("response writer does not support flushing for SSE")
 		return
 	}
 
@@ -304,7 +324,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 	startMsg := map[string]any{
 		"type": "message_start",
 		"message": map[string]any{
-			"id":          generateAnthropicID(),
+			"id":          generateID(),
 			"type":        "message",
 			"role":        "assistant",
 			"model":       model,
@@ -331,7 +351,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 			errJSON, _ := json.Marshal(chunk.BifrostError)
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
 			flusher.Flush()
-			p.logger.Debug("bifrost stream error chunk sent", "model", model)
+			log.Debug("bifrost stream error chunk sent", "model", model)
 			continue
 		}
 
@@ -439,7 +459,7 @@ func (p *ProxyServer) handleAnthropicMessagesBifrostStream(
 		"type": "message_stop",
 	})
 
-	p.logger.Debug("bifrost anthropic stream completed", "model", model, "chunks", chunkCount)
+	log.Debug("bifrost anthropic stream completed", "model", model, "chunks", chunkCount)
 }
 
 // emitSSEJSON writes an SSE event with a JSON data payload.
@@ -451,5 +471,3 @@ func emitSSEJSON(w http.ResponseWriter, flusher http.Flusher, eventType string, 
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, jsonData)
 	flusher.Flush()
 }
-
-

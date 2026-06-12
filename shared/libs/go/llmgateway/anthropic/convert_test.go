@@ -1,4 +1,4 @@
-package llmgateway
+package anthropic
 
 import (
 	"encoding/json"
@@ -11,17 +11,17 @@ import (
 
 // --- Forward Conversion Tests: Anthropic -> Bifrost ---
 
-func TestConvertAnthropicToBifrost_BasicMessage(t *testing.T) {
-	req := &AnthropicFullRequest{
+func TestConvertToBifrost_BasicMessage(t *testing.T) {
+	req := &FullRequest{
 		Model:     "claude-3-sonnet",
 		MaxTokens: 4096,
 		System:    json.RawMessage(`"You are a helpful assistant."`),
-		Messages: []AnthropicMsg{
+		Messages: []Message{
 			{Role: "user", Content: json.RawMessage(`"Hello, how are you?"`)},
 		},
 	}
 
-	result, err := ConvertAnthropicToBifrost(req, bifrostSchemas.Anthropic)
+	result, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -42,24 +42,24 @@ func TestConvertAnthropicToBifrost_BasicMessage(t *testing.T) {
 	assert.Equal(t, "Hello, how are you?", *result.Input[0].Content.ContentStr)
 }
 
-func TestConvertAnthropicToBifrost_SystemContentBlocks(t *testing.T) {
-	req := &AnthropicFullRequest{
+func TestConvertToBifrost_SystemContentBlocks(t *testing.T) {
+	req := &FullRequest{
 		Model:     "claude-3-sonnet",
 		MaxTokens: 1024,
 		System:    json.RawMessage(`[{"type":"text","text":"First part."},{"type":"text","text":"Second part."}]`),
-		Messages: []AnthropicMsg{
+		Messages: []Message{
 			{Role: "user", Content: json.RawMessage(`"test"`)},
 		},
 	}
 
-	result, err := ConvertAnthropicToBifrost(req, bifrostSchemas.Anthropic)
+	result, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
 	require.NoError(t, err)
 	require.NotNil(t, result.Params)
 	require.NotNil(t, result.Params.Instructions)
 	assert.Equal(t, "First part.\nSecond part.", *result.Params.Instructions)
 }
 
-func TestConvertAnthropicToBifrost_ToolUse(t *testing.T) {
+func TestConvertToBifrost_ToolUse(t *testing.T) {
 	// Assistant message with tool_use content block
 	toolInput := json.RawMessage(`{"path":"/tmp/test.txt","content":"hello"}`)
 	assistantContent, _ := json.Marshal([]ContentBlock{
@@ -72,17 +72,17 @@ func TestConvertAnthropicToBifrost_ToolUse(t *testing.T) {
 		{Type: "tool_result", ToolUseID: "call_123", Content: "File written successfully"},
 	})
 
-	req := &AnthropicFullRequest{
+	req := &FullRequest{
 		Model:     "claude-3-sonnet",
 		MaxTokens: 4096,
-		Messages: []AnthropicMsg{
+		Messages: []Message{
 			{Role: "user", Content: json.RawMessage(`"Write a file"`)},
 			{Role: "assistant", Content: assistantContent},
 			{Role: "user", Content: toolResultContent},
 		},
 	}
 
-	result, err := ConvertAnthropicToBifrost(req, bifrostSchemas.OpenAI)
+	result, err := ConvertToBifrost(req, bifrostSchemas.OpenAI)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -110,23 +110,23 @@ func TestConvertAnthropicToBifrost_ToolUse(t *testing.T) {
 	assert.True(t, foundFunctionCallOutput, "expected function_call_output message in Input")
 }
 
-func TestConvertAnthropicToBifrost_Tools(t *testing.T) {
-	req := &AnthropicFullRequest{
+func TestConvertToBifrost_Tools(t *testing.T) {
+	req := &FullRequest{
 		Model:     "claude-3-sonnet",
 		MaxTokens: 4096,
-		Tools: []AnthropicTool{
+		Tools: []Tool{
 			{
 				Name:        "read_file",
 				Description: "Read a file from disk",
 				InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`),
 			},
 		},
-		Messages: []AnthropicMsg{
+		Messages: []Message{
 			{Role: "user", Content: json.RawMessage(`"test"`)},
 		},
 	}
 
-	result, err := ConvertAnthropicToBifrost(req, bifrostSchemas.OpenAI)
+	result, err := ConvertToBifrost(req, bifrostSchemas.OpenAI)
 	require.NoError(t, err)
 	require.NotNil(t, result.Params)
 	require.Len(t, result.Params.Tools, 1)
@@ -141,18 +141,18 @@ func TestConvertAnthropicToBifrost_Tools(t *testing.T) {
 	require.NotNil(t, tool.ResponsesToolFunction.Parameters)
 }
 
-func TestConvertAnthropicToBifrost_Parameters(t *testing.T) {
+func TestConvertToBifrost_Parameters(t *testing.T) {
 	temp := 0.7
-	req := &AnthropicFullRequest{
+	req := &FullRequest{
 		Model:       "claude-3-sonnet",
 		MaxTokens:   8192,
 		Temperature: &temp,
-		Messages: []AnthropicMsg{
+		Messages: []Message{
 			{Role: "user", Content: json.RawMessage(`"test"`)},
 		},
 	}
 
-	result, err := ConvertAnthropicToBifrost(req, bifrostSchemas.Anthropic)
+	result, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
 	require.NoError(t, err)
 	require.NotNil(t, result.Params)
 
@@ -163,20 +163,20 @@ func TestConvertAnthropicToBifrost_Parameters(t *testing.T) {
 	assert.Equal(t, 0.7, *result.Params.Temperature)
 }
 
-func TestConvertAnthropicToBifrost_StreamFlag(t *testing.T) {
+func TestConvertToBifrost_StreamFlag(t *testing.T) {
 	// Stream flag should not affect the conversion
 	// (streaming is handled at handler level)
 	stream := true
-	req := &AnthropicFullRequest{
+	req := &FullRequest{
 		Model:     "claude-3-sonnet",
 		MaxTokens: 1024,
 		Stream:    &stream,
-		Messages: []AnthropicMsg{
+		Messages: []Message{
 			{Role: "user", Content: json.RawMessage(`"test"`)},
 		},
 	}
 
-	result, err := ConvertAnthropicToBifrost(req, bifrostSchemas.Anthropic)
+	result, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	// No stream field in BifrostResponsesRequest
@@ -186,7 +186,7 @@ func TestConvertAnthropicToBifrost_StreamFlag(t *testing.T) {
 
 // --- Reverse Conversion Tests: Bifrost -> Anthropic ---
 
-func TestConvertBifrostToAnthropic_BasicResponse(t *testing.T) {
+func TestConvertFromBifrost_BasicResponse(t *testing.T) {
 	textContent := "Hello! I'm doing well."
 	resp := &bifrostSchemas.BifrostResponsesResponse{
 		Model:  "claude-3-sonnet",
@@ -204,7 +204,7 @@ func TestConvertBifrostToAnthropic_BasicResponse(t *testing.T) {
 		},
 	}
 
-	result, err := ConvertBifrostToAnthropic(resp)
+	result, err := ConvertFromBifrost(resp)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -218,7 +218,7 @@ func TestConvertBifrostToAnthropic_BasicResponse(t *testing.T) {
 	assert.Equal(t, 50, result.Usage.OutputTokens)
 }
 
-func TestConvertBifrostToAnthropic_ToolUseOutput(t *testing.T) {
+func TestConvertFromBifrost_ToolUseOutput(t *testing.T) {
 	callID := "call_abc"
 	name := "read_file"
 	args := `{"path":"/tmp/test.txt"}`
@@ -237,7 +237,7 @@ func TestConvertBifrostToAnthropic_ToolUseOutput(t *testing.T) {
 		},
 	}
 
-	result, err := ConvertBifrostToAnthropic(resp)
+	result, err := ConvertFromBifrost(resp)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, result.Content, 1)
@@ -247,7 +247,7 @@ func TestConvertBifrostToAnthropic_ToolUseOutput(t *testing.T) {
 	assert.JSONEq(t, `{"path":"/tmp/test.txt"}`, string(result.Content[0].Input))
 }
 
-func TestConvertBifrostToAnthropic_Usage(t *testing.T) {
+func TestConvertFromBifrost_Usage(t *testing.T) {
 	resp := &bifrostSchemas.BifrostResponsesResponse{
 		Model: "claude-3-sonnet",
 		Usage: &bifrostSchemas.ResponsesResponseUsage{
@@ -256,13 +256,13 @@ func TestConvertBifrostToAnthropic_Usage(t *testing.T) {
 		},
 	}
 
-	result, err := ConvertBifrostToAnthropic(resp)
+	result, err := ConvertFromBifrost(resp)
 	require.NoError(t, err)
 	assert.Equal(t, 250, result.Usage.InputTokens)
 	assert.Equal(t, 120, result.Usage.OutputTokens)
 }
 
-func TestConvertBifrostToAnthropic_StopReason(t *testing.T) {
+func TestConvertFromBifrost_StopReason(t *testing.T) {
 	tests := []struct {
 		name       string
 		stopReason *string
@@ -297,7 +297,7 @@ func TestConvertBifrostToAnthropic_StopReason(t *testing.T) {
 				StopReason: tt.stopReason,
 			}
 
-			result, err := ConvertBifrostToAnthropic(resp)
+			result, err := ConvertFromBifrost(resp)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result.StopReason)
 		})

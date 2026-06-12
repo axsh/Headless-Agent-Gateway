@@ -1,4 +1,4 @@
-package llmgateway
+package openai
 
 import (
 	"encoding/json"
@@ -10,22 +10,31 @@ import (
 	bifrostOpenAI "github.com/maximhq/bifrost/core/providers/openai"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
+	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
 	"github.com/axsh/arctic-tern/vault"
 )
 
-// openaiRequest represents the minimal fields we parse from OpenAI Chat Completions API.
-type openaiRequest struct {
+// request represents the minimal fields we parse from OpenAI Chat Completions API.
+type request struct {
 	Model string `json:"model"`
 }
 
+// HandleResponses returns an http.HandlerFunc that handles POST /v1/responses
+// for OpenAI Responses API. This handler is used by Codex CLI in "responses"
+// wire_api mode.
+func HandleResponses(ctx handlerctx.HandlerContext) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		handleResponses(ctx, w, r)
+	}
+}
 
+// handleResponses handles POST /v1/responses for OpenAI Responses API.
+func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request) {
+	cfg := ctx.Config()
+	log := ctx.Logger()
 
-// handleOpenAIResponses handles POST /v1/responses for OpenAI Responses API.
-// This handler is used by Codex CLI in "responses" wire_api mode.
-// It resolves the model via ModelRouter, and delegates to Bifrost SDK.
-func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) {
 	// R5: Apply request body size limit.
-	if maxBody := p.cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
+	if maxBody := cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	}
 
@@ -34,7 +43,7 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			WriteErrorResponse(w, &GatewayError{
+			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 				Type:    "invalid_request_error",
 				Message: "request body too large",
 				Code:    "request_too_large",
@@ -42,7 +51,7 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 			})
 			return
 		}
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "failed to read request body",
 			Code:    "request_read_error",
@@ -53,11 +62,9 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 	defer r.Body.Close()
 
 	// Full-parse into Bifrost's OpenAIResponsesRequest to enable typed conversion.
-	// This populates Instructions, ToolChoice, Tools etc. in ResponsesParameters,
-	// allowing Bifrost SDK's requestConverter to translate them to provider-native formats.
 	var oaiReq bifrostOpenAI.OpenAIResponsesRequest
 	if err := json.Unmarshal(body, &oaiReq); err != nil {
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
@@ -66,14 +73,15 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Wrap model in openaiRequest for compatibility with routing and legacy fallback code.
-	req := openaiRequest{Model: oaiReq.Model}
+	// Wrap model in request for compatibility with routing and legacy fallback code.
+	req := request{Model: oaiReq.Model}
 
-	p.logger.Debug("openai responses request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
+	log.Debug("openai responses request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
 
 	// Route the model
-	if p.driver == nil || p.driver.router == nil {
-		WriteErrorResponse(w, &GatewayError{
+	router := ctx.Router()
+	if router == nil {
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "LLM gateway backend not configured",
 			Code:    "not_configured",
@@ -82,11 +90,11 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	sessionID := ExtractSessionID(r.Header.Get("Authorization"))
+	sessionID := ctx.ExtractSessionID(r.Header.Get("Authorization"))
 
-	routed, err := p.driver.router.ResolveModel(req.Model, sessionID)
+	routed, err := router.ResolveModel(req.Model, sessionID)
 	if err != nil {
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "not_found_error",
 			Message: "model not found: " + req.Model,
 			Code:    "model_not_found",
@@ -95,11 +103,12 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	p.logger.Debug("responses request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode)
+	log.Debug("responses request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode)
 
 	// Bifrost SDK path (required)
-	if p.driver.bifrostSDK == nil {
-		WriteErrorResponse(w, &GatewayError{
+	bifrostSDK := ctx.BifrostSDK()
+	if bifrostSDK == nil {
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "Bifrost SDK not initialized",
 			Code:    "not_configured",
@@ -110,10 +119,10 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 
 	// Resolve vault reference if needed
 	apiKey := routed.KeyValue
-	if vault.IsVaultRef(apiKey) && p.vault != nil {
-		resolved, err := p.vault.Resolve(apiKey)
+	if vault.IsVaultRef(apiKey) && ctx.Vault() != nil {
+		resolved, err := ctx.Vault().Resolve(apiKey)
 		if err != nil {
-			WriteErrorResponse(w, &GatewayError{
+			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 				Type:    "api_error",
 				Message: "failed to resolve API key from vault",
 				Code:    "vault_error",
@@ -124,54 +133,53 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 		apiKey = resolved
 	}
 
-	p.logger.Info("openai responses request via bifrost",
+	log.Info("openai responses request via bifrost",
 		"model", routed.Model,
 		"provider", routed.Provider,
-		"key", MaskSecret(apiKey),
+		"key", ctx.MaskSecret(apiKey),
 	)
 
 	bodyStr := string(body)
 	if len(bodyStr) > 10240 {
 		bodyStr = bodyStr[:10240] + "..."
 	}
-	p.logger.Trace("openai responses request body", "body", bodyStr)
+	log.Trace("openai responses request body", "body", bodyStr)
 
 	// Build BifrostResponsesRequest via typed conversion path.
-	// ToBifrostResponsesRequest populates Input and Params (Instructions, ToolChoice, Tools, etc.)
-	// from the fully-parsed OpenAIResponsesRequest. Bifrost SDK's requestConverter then
-	// translates these to provider-native formats (e.g. instructions -> SystemInstruction for Gemini).
 	bifrostCtx := bifrostSchemas.NewBifrostContext(r.Context(), bifrostSchemas.NoDeadline)
 	bifrostReq := oaiReq.ToBifrostResponsesRequest(bifrostCtx)
 
 	// Override provider and model with routing results.
-	providerKey := ToBifrostProvider(routed.Provider)
+	providerKey := ctx.ToBifrostProvider(routed.Provider)
 	bifrostReq.Provider = providerKey
 	bifrostReq.Model = routed.Model
 
 	// Sanitize tools for cross-provider requests.
-	SanitizeToolsForProvider(bifrostReq, providerKey, p.logger)
+	ctx.SanitizeTools(bifrostReq, providerKey)
 
-	p.logger.Debug("bifrost request constructed",
+	log.Debug("bifrost request constructed",
 		"provider", providerKey, "model", routed.Model,
 		"stream", isStreamRequest(body))
 
 	// Dispatch to stream or non-stream handler.
 	if isStreamRequest(body) {
-		p.handleOpenAIResponsesStream(w, bifrostCtx, bifrostReq)
+		handleResponsesStream(ctx, w, bifrostCtx, bifrostReq)
 	} else {
-		p.handleOpenAIResponsesNonStream(w, bifrostCtx, bifrostReq)
+		handleResponsesNonStream(ctx, w, bifrostCtx, bifrostReq)
 	}
 }
 
-// handleOpenAIResponsesNonStream handles non-streaming Responses API requests via Bifrost SDK.
-func (p *ProxyServer) handleOpenAIResponsesNonStream(
+// handleResponsesNonStream handles non-streaming Responses API requests via Bifrost SDK.
+func handleResponsesNonStream(
+	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
-	ctx *bifrostSchemas.BifrostContext,
+	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
 ) {
-	p.logger.Debug("executing bifrost non-stream responses request", "model", req.Model)
+	log := ctx.Logger()
+	log.Debug("executing bifrost non-stream responses request", "model", req.Model)
 
-	resp, bifrostErr := p.driver.bifrostSDK.ResponsesRequest(ctx, req)
+	resp, bifrostErr := ctx.BifrostSDK().ResponsesRequest(bCtx, req)
 	if bifrostErr != nil {
 		status := http.StatusBadGateway
 		if bifrostErr.StatusCode != nil {
@@ -181,10 +189,10 @@ func (p *ProxyServer) handleOpenAIResponsesNonStream(
 		if bifrostErr.Error != nil {
 			msg = bifrostErr.Error.Message
 		}
-		p.logger.Error("bifrost responses request failed",
+		log.Error("bifrost responses request failed",
 			"status", status, "message", msg,
 			"model", req.Model, "provider", req.Provider)
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: msg,
 			Code:    "upstream_error",
@@ -193,23 +201,25 @@ func (p *ProxyServer) handleOpenAIResponsesNonStream(
 		return
 	}
 
-	p.logger.Debug("bifrost responses request succeeded", "model", req.Model)
+	log.Debug("bifrost responses request succeeded", "model", req.Model)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
 }
 
-// handleOpenAIResponsesStream handles streaming Responses API requests via Bifrost SDK.
+// handleResponsesStream handles streaming Responses API requests via Bifrost SDK.
 // Converts Bifrost's channel-based streaming to SSE (Server-Sent Events) format.
-func (p *ProxyServer) handleOpenAIResponsesStream(
+func handleResponsesStream(
+	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
-	ctx *bifrostSchemas.BifrostContext,
+	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
 ) {
-	p.logger.Debug("executing bifrost stream responses request", "model", req.Model)
+	log := ctx.Logger()
+	log.Debug("executing bifrost stream responses request", "model", req.Model)
 
-	ch, bifrostErr := p.driver.bifrostSDK.ResponsesStreamRequest(ctx, req)
+	ch, bifrostErr := ctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
 	if bifrostErr != nil {
 		status := http.StatusBadGateway
 		if bifrostErr.StatusCode != nil {
@@ -219,10 +229,10 @@ func (p *ProxyServer) handleOpenAIResponsesStream(
 		if bifrostErr.Error != nil {
 			msg = bifrostErr.Error.Message
 		}
-		p.logger.Error("bifrost stream responses request failed",
+		log.Error("bifrost stream responses request failed",
 			"status", status, "message", msg,
 			"model", req.Model, "provider", req.Provider)
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: msg,
 			Code:    "upstream_error",
@@ -239,7 +249,7 @@ func (p *ProxyServer) handleOpenAIResponsesStream(
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		p.logger.Error("response writer does not support flushing for SSE")
+		log.Error("response writer does not support flushing for SSE")
 		return
 	}
 
@@ -254,7 +264,7 @@ func (p *ProxyServer) handleOpenAIResponsesStream(
 			errJSON, _ := json.Marshal(chunk.BifrostError)
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
 			flusher.Flush()
-			p.logger.Debug("bifrost stream error chunk sent", "model", req.Model)
+			log.Debug("bifrost stream error chunk sent", "model", req.Model)
 			continue
 		}
 
@@ -262,7 +272,7 @@ func (p *ProxyServer) handleOpenAIResponsesStream(
 		if chunk.BifrostResponsesStreamResponse != nil {
 			data, err := json.Marshal(chunk.BifrostResponsesStreamResponse)
 			if err != nil {
-				p.logger.Error("failed to marshal stream chunk", "error", err)
+				log.Error("failed to marshal stream chunk", "error", err)
 				continue
 			}
 			eventType := string(chunk.BifrostResponsesStreamResponse.Type)
@@ -272,10 +282,8 @@ func (p *ProxyServer) handleOpenAIResponsesStream(
 		}
 	}
 
-	p.logger.Debug("bifrost stream completed", "model", req.Model, "chunks", chunkCount)
+	log.Debug("bifrost stream completed", "model", req.Model, "chunks", chunkCount)
 }
-
-
 
 // isStreamRequest checks if the request body has "stream": true.
 func isStreamRequest(body []byte) bool {
@@ -287,6 +295,3 @@ func isStreamRequest(body []byte) bool {
 	}
 	return raw.Stream != nil && *raw.Stream
 }
-
-
-

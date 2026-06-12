@@ -6,10 +6,12 @@ import (
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
 	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
 )
 
 func init() {
 	llmgateway.RegisterProvider(&Provider{})
+	handlerctx.RegisterHandler("POST /v1/responses", HandleResponses)
 }
 
 // Provider implements llmgateway.Provider for OpenAI.

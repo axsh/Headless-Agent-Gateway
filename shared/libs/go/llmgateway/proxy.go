@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
 	"github.com/axsh/arctic-tern/logger"
 	"github.com/axsh/arctic-tern/vault"
 )
@@ -274,12 +275,17 @@ func extractToken(headerValue string) string {
 }
 
 // setupRoutes registers HTTP handlers on the given mux.
+// Provider-specific handlers (anthropic, openai) are resolved from the handler
+// registry populated by subpackage init() functions.
 func (p *ProxyServer) setupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", p.handleIndex)
 	mux.HandleFunc("GET /health", p.handleHealth)
 	mux.HandleFunc("GET /v1/models", p.handleModels)
-	mux.HandleFunc("POST /v1/messages", p.authMiddleware(p.handleAnthropicMessages))
-	mux.HandleFunc("POST /v1/responses", p.authMiddleware(p.handleOpenAIResponses))
+
+	// Register provider-specific handlers from the handler registry.
+	for path, factory := range handlerctx.AllHandlers() {
+		mux.HandleFunc(path, p.authMiddleware(factory(p)))
+	}
 }
 
 // handleIndex returns 200 OK with endpoint list (Claude Code reachability check).

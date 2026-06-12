@@ -1,4 +1,4 @@
-package llmgateway
+package anthropic
 
 import (
 	"encoding/json"
@@ -8,10 +8,10 @@ import (
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 )
 
-// ConvertAnthropicToBifrost converts an Anthropic Messages API request
+// ConvertToBifrost converts an Anthropic Messages API request
 // to a BifrostResponsesRequest for provider-agnostic routing via Bifrost SDK.
-func ConvertAnthropicToBifrost(
-	req *AnthropicFullRequest,
+func ConvertToBifrost(
+	req *FullRequest,
 	provider bifrostSchemas.ModelProvider,
 ) (*bifrostSchemas.BifrostResponsesRequest, error) {
 	bifrostReq := &bifrostSchemas.BifrostResponsesRequest{
@@ -31,7 +31,7 @@ func ConvertAnthropicToBifrost(
 
 	// 2. Messages -> Input
 	for _, msg := range req.Messages {
-		converted, err := convertAnthropicMessage(msg)
+		converted, err := convertMessage(msg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message: %w", err)
 		}
@@ -41,7 +41,7 @@ func ConvertAnthropicToBifrost(
 	// 3. Tools -> Params.Tools
 	for _, tool := range req.Tools {
 		bifrostReq.Params.Tools = append(bifrostReq.Params.Tools,
-			convertAnthropicTool(tool))
+			convertTool(tool))
 	}
 
 	// 4. Parameters
@@ -79,10 +79,10 @@ func extractSystemInstructions(raw json.RawMessage) (string, error) {
 	return strings.Join(parts, "\n"), nil
 }
 
-// convertAnthropicMessage converts a single Anthropic message to one or more
+// convertMessage converts a single Anthropic message to one or more
 // Bifrost ResponsesMessage entries. A single Anthropic message with mixed
 // content blocks (text + tool_use) may expand into multiple Bifrost messages.
-func convertAnthropicMessage(msg AnthropicMsg) ([]bifrostSchemas.ResponsesMessage, error) {
+func convertMessage(msg Message) ([]bifrostSchemas.ResponsesMessage, error) {
 	// Try string content first
 	var textContent string
 	if err := json.Unmarshal(msg.Content, &textContent); err == nil {
@@ -186,8 +186,8 @@ func convertAnthropicMessage(msg AnthropicMsg) ([]bifrostSchemas.ResponsesMessag
 	return result, nil
 }
 
-// convertAnthropicTool converts an Anthropic tool definition to a Bifrost ResponsesTool.
-func convertAnthropicTool(tool AnthropicTool) bifrostSchemas.ResponsesTool {
+// convertTool converts an Anthropic tool definition to a Bifrost ResponsesTool.
+func convertTool(tool Tool) bifrostSchemas.ResponsesTool {
 	name := tool.Name
 	desc := tool.Description
 
@@ -226,13 +226,13 @@ func toBifrostRole(role string) bifrostSchemas.ResponsesMessageRoleType {
 
 // --- Reverse Conversion: Bifrost -> Anthropic ---
 
-// ConvertBifrostToAnthropic converts a BifrostResponsesResponse
+// ConvertFromBifrost converts a BifrostResponsesResponse
 // to an Anthropic Messages API response.
-func ConvertBifrostToAnthropic(
+func ConvertFromBifrost(
 	resp *bifrostSchemas.BifrostResponsesResponse,
-) (*AnthropicResponse, error) {
-	anthResp := &AnthropicResponse{
-		ID:    generateAnthropicID(),
+) (*Response, error) {
+	anthResp := &Response{
+		ID:    generateID(),
 		Type:  "message",
 		Role:  "assistant",
 		Model: resp.Model,
@@ -257,7 +257,7 @@ func ConvertBifrostToAnthropic(
 
 	// 3. Usage
 	if resp.Usage != nil {
-		anthResp.Usage = AnthropicUsage{
+		anthResp.Usage = Usage{
 			InputTokens:  resp.Usage.InputTokens,
 			OutputTokens: resp.Usage.OutputTokens,
 		}
@@ -330,8 +330,8 @@ func mapBifrostStopReason(resp *bifrostSchemas.BifrostResponsesResponse) string 
 	return "end_turn"
 }
 
-// generateAnthropicID generates a message ID in the Anthropic format.
-func generateAnthropicID() string {
+// generateID generates a message ID in the Anthropic format.
+func generateID() string {
 	return "msg_bifrost_" + randomHexString(12)
 }
 

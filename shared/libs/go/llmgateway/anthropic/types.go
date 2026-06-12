@@ -1,32 +1,32 @@
-package llmgateway
+package anthropic
 
 import "encoding/json"
 
 // --- Anthropic Types ---
 // These types define the Anthropic Messages API request/response format.
-// They are used by the Bifrost conversion layer (convert_anthropic_bifrost.go)
+// They are used by the Bifrost conversion layer (convert.go)
 // and the fallback/tool_call_fallback logic.
 
-// AnthropicFullRequest represents the full Anthropic Messages API request body.
-type AnthropicFullRequest struct {
+// FullRequest represents the full Anthropic Messages API request body.
+type FullRequest struct {
 	Model       string          `json:"model"`
-	Messages    []AnthropicMsg  `json:"messages"`
+	Messages    []Message       `json:"messages"`
 	System      json.RawMessage `json:"system,omitempty"`
 	MaxTokens   int             `json:"max_tokens"`
 	Temperature *float64        `json:"temperature,omitempty"`
 	Stream      *bool           `json:"stream,omitempty"`
-	Tools       []AnthropicTool `json:"tools,omitempty"`
+	Tools       []Tool          `json:"tools,omitempty"`
 }
 
-// AnthropicTool represents a tool definition in Anthropic format.
-type AnthropicTool struct {
+// Tool represents a tool definition in Anthropic format.
+type Tool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
 }
 
-// AnthropicMsg represents a message in Anthropic format.
-type AnthropicMsg struct {
+// Message represents a message in Anthropic format.
+type Message struct {
 	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"`
 }
@@ -43,19 +43,19 @@ type ContentBlock struct {
 	Content   string          `json:"content,omitempty"`
 }
 
-// AnthropicResponse represents the Anthropic Messages API response.
-type AnthropicResponse struct {
+// Response represents the Anthropic Messages API response.
+type Response struct {
 	ID         string         `json:"id"`
 	Type       string         `json:"type"`
 	Role       string         `json:"role"`
 	Content    []ContentBlock `json:"content"`
 	Model      string         `json:"model"`
 	StopReason string         `json:"stop_reason"`
-	Usage      AnthropicUsage `json:"usage"`
+	Usage      Usage          `json:"usage"`
 }
 
-// AnthropicUsage represents token usage in Anthropic format.
-type AnthropicUsage struct {
+// Usage represents token usage in Anthropic format.
+type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 }

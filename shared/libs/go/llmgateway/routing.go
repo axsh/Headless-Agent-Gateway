@@ -5,18 +5,12 @@ import (
 	"time"
 
 	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
 	"github.com/axsh/arctic-tern/logger"
 )
 
-// RoutedModel holds the resolved provider, key value, and model name.
-type RoutedModel struct {
-	Provider         string // e.g. "anthropic"
-	KeyName          string // e.g. "primary"
-	KeyValue         string // actual API key value from profile
-	Model            string // e.g. "claude-sonnet-4-20250514"
-	Mode             string // "chat", "responses", or "" (treated as "chat")
-	ToolCallFallback bool   // enable text-to-tool-call conversion
-}
+// RoutedModel is an alias for handlerctx.RoutedModel for backward compatibility.
+type RoutedModel = handlerctx.RoutedModel
 
 type sessionEntry struct {
 	model    *RoutedModel
