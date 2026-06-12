@@ -97,8 +97,15 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 		}
 
 	case "function_call_output":
-		// Tool result
-		return &codingagent.StreamEvent{Type: codingagent.EventResult}
+		// Tool result - parse the output content.
+		var out struct {
+			Output string `json:"output"`
+		}
+		json.Unmarshal([]byte(line), &out)
+		return &codingagent.StreamEvent{
+			Type:    codingagent.EventToolResult,
+			Content: out.Output,
+		}
 
 	case "error":
 		return &codingagent.StreamEvent{

@@ -96,3 +96,39 @@ func TestParseExecEvent_InvalidJSON(t *testing.T) {
 		t.Errorf("expected nil for invalid JSON, got %+v", ev)
 	}
 }
+
+func TestParseExecEvent_FunctionCallOutput(t *testing.T) {
+	line := `{"type":"function_call_output","call_id":"fc_123","name":"exec_command","output":"/c/Users/yamya/myprog\n"}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolResult {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolResult)
+	}
+	if ev.Content != "/c/Users/yamya/myprog\n" {
+		t.Errorf("content = %q, want pwd output", ev.Content)
+	}
+}
+
+func TestParseExecEvent_FunctionCallOutput_EmptyOutput(t *testing.T) {
+	line := `{"type":"function_call_output"}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolResult {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolResult)
+	}
+	if ev.Content != "" {
+		t.Errorf("content = %q, want empty", ev.Content)
+	}
+}
+
+func TestParseExecEvent_UnknownType(t *testing.T) {
+	line := `{"type":"some.future.event","data":"hello"}`
+	ev := codex.ParseExecEvent(line)
+	if ev != nil {
+		t.Errorf("expected nil for unknown event type, got %+v", ev)
+	}
+}

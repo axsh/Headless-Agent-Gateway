@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -122,6 +123,24 @@ func StartProcess(
 		env = append(env, "CODEX_HOME="+codexHome)
 	}
 
+	// Ensure CODEX_HOME directory exists (codex CLI requires it to be pre-created).
+	for i, e := range env {
+		if strings.HasPrefix(e, "CODEX_HOME=") {
+			home := strings.TrimPrefix(e, "CODEX_HOME=")
+			// Resolve relative path to absolute to avoid confusion with cmd.Dir.
+			if !filepath.IsAbs(home) {
+				if abs, err := filepath.Abs(home); err == nil {
+					home = abs
+					env[i] = "CODEX_HOME=" + home
+				}
+			}
+			if err := os.MkdirAll(home, 0755); err != nil {
+				log.Warn("failed to create CODEX_HOME directory", "path", home, "error", err)
+			}
+			break
+		}
+	}
+
 	// R6: Log masked environment variables.
 	var maskedEnv []string
 	for _, envVar := range env {
@@ -177,6 +196,8 @@ func StartProcess(
 				case <-procCtx.Done():
 					return
 				}
+			} else {
+				log.Trace("unhandled codex event type (ignored)", "line", line)
 			}
 		}
 
