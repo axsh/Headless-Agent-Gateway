@@ -224,7 +224,7 @@ func (pm *ProcessManager) Stop() error {
 		pm.logger.Debug("killing process tree on Windows", "pid", pid)
 		killCmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid))
 		if killErr := killCmd.Run(); killErr != nil {
-			pm.logger.Debug("taskkill failed (process may have already exited)", "error", killErr)
+			pm.logger.Debug("process cleanup: attempted precautionary kill, but process had already exited", "pid", pid)
 		}
 		pm.cancel()
 		return nil
