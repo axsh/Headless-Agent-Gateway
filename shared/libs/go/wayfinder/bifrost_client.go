@@ -44,7 +44,7 @@ func (bc *BifrostClient) GenerateMessage(ctx context.Context, logicalModel strin
 		return nil, fmt.Errorf("bifrost: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+bc.token)
+	req.Header.Set("X-Gateway-Token", bc.token)
 
 	resp, err := bc.httpClient.Do(req)
 	if err != nil {
