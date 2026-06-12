@@ -451,45 +451,45 @@ None.
 
 ### Phase 1: 基盤 (イベント型 + EventEmitter)
 
-- [ ] Step 1: `codingagent/event.go` に新イベント型4つ (`EventNodeStart`, `EventNodeComplete`, `EventNodeFailed`, `EventProgress`) を追加
-- [ ] Step 2: `wayfinder/emitter_test.go` を作成 (3テストケース: Emit, NilSafe, NilChannel)
-- [ ] Step 3: `wayfinder/emitter.go` を作成 (`EventEmitter` struct + `NewEventEmitter` + `Emit`)
-- [ ] Step 4: テスト実行して PASS を確認
+- [x] Step 1: `codingagent/event.go` に新イベント型4つ (`EventNodeStart`, `EventNodeComplete`, `EventNodeFailed`, `EventProgress`) を追加
+- [x] Step 2: `wayfinder/emitter_test.go` を作成 (3テストケース: Emit, NilSafe, NilChannel)
+- [x] Step 3: `wayfinder/emitter.go` を作成 (`EventEmitter` struct + `NewEventEmitter` + `Emit`)
+- [x] Step 4: テスト実行して PASS を確認
 
 ### Phase 2: AgentCore + Adapter リファクタリング
 
-- [ ] Step 5: `wayfinder/agent_core.go` に `emitter *EventEmitter` フィールドと `SetEmitter` メソッドを追加
-- [ ] Step 6: `wayfinder/agent_core.go` の `runSimple` に emitter.Emit 呼び出しを追加 (tool_use, tool_result, text)
-- [ ] Step 7: `wayfinder/planning/wbs_tree.go` に `Progress()` メソッドを追加
-- [ ] Step 8: `wayfinder/planning/wbs_tree_test.go` に `TestWBSTree_Progress` テストを追加
-- [ ] Step 9: `wayfinder/planning/wbs_orchestrator.go` に `EventEmitFunc` 型、`WithEventEmitter` オプション、`emit` ヘルパーを追加。`Execute` 内でノードイベント + 進捗イベントを発行
-- [ ] Step 10: `wayfinder/planning/wbs_orchestrator_test.go` にイベント発行テスト3件を追加
-- [ ] Step 11: `wayfinder/agent_core.go` の `runWithWBSTree` で `WithEventEmitter` を使って `WBSOrchestrator` にEmitterを接続
-- [ ] Step 12: `wayfinder/adapter.go` の `Send()` をリファクタリング (EventEmitter注入 + Run完了/エラーイベント)
-- [ ] Step 13: テスト実行して PASS を確認
+- [x] Step 5: `wayfinder/agent_core.go` に `emitter *EventEmitter` フィールドと `SetEmitter` メソッドを追加
+- [x] Step 6: `wayfinder/agent_core.go` の `runSimple` に emitter.Emit 呼び出しを追加 (tool_use, tool_result, text)
+- [x] Step 7: `wayfinder/planning/wbs_tree.go` に `Progress()` メソッドを追加
+- [x] Step 8: `wayfinder/planning/wbs_tree_test.go` に `TestWBSTree_Progress` テストを追加
+- [x] Step 9: `wayfinder/planning/wbs_orchestrator.go` に `EventEmitFunc` 型、`WithEventEmitter` オプション、`emit` ヘルパーを追加。`Execute` 内でノードイベント + 進捗イベントを発行
+- [x] Step 10: `wayfinder/planning/wbs_orchestrator_test.go` にイベント発行テスト3件を追加
+- [x] Step 11: `wayfinder/agent_core.go` の `runWithWBSTree` で `WithEventEmitter` を使って `WBSOrchestrator` にEmitterを接続
+- [x] Step 12: `wayfinder/adapter.go` の `Send()` をリファクタリング (EventEmitter注入 + Run完了/エラーイベント)
+- [x] Step 13: テスト実行して PASS を確認
 
 ### Phase 3: Context分離 + SSE Heartbeat
 
-- [ ] Step 14: `agentservice/service.go` に `execCancels` マップと `RegisterExecCancel` / `UnregisterExecCancel` / `CancelExecution` メソッドを追加。`Shutdown` に execCancels キャンセルを追加
-- [ ] Step 15: `agentservice/handler.go` の `handleSendMessage` でcontext分離を実装 (`context.WithCancel(context.Background())`)
-- [ ] Step 16: `agentservice/handler.go` の `streamSSE` にheartbeat ticker (15秒) とclientCtx/execCtxの分離を実装。シグネチャに `execCtx` を追加
-- [ ] Step 17: `agentservice/handler.go` の `respondJSON` にも同様のcontext分離を適用
-- [ ] Step 18: `agentservice/handler.go` の `handleTerminate` に `CancelExecution` 呼び出しを追加
-- [ ] Step 19: `agentservice/handler_test.go` にテスト3件を追加 (Heartbeat, ContextSeparation, TerminateCancels)
-- [ ] Step 20: テスト実行して PASS を確認
+- [x] Step 14: `agentservice/service.go` に `execCancels` マップと `RegisterExecCancel` / `UnregisterExecCancel` / `CancelExecution` メソッドを追加。`Shutdown` に execCancels キャンセルを追加
+- [x] Step 15: `agentservice/handler.go` の `handleSendMessage` でcontext分離を実装 (`context.WithCancel(context.Background())`)
+- [x] Step 16: `agentservice/handler.go` の `streamSSE` にheartbeat ticker (15秒) とclientCtx/execCtxの分離を実装。シグネチャに `execCtx` を追加
+- [x] Step 17: `agentservice/handler.go` の `respondJSON` にも同様のcontext分離を適用
+- [x] Step 18: `agentservice/handler.go` の `handleTerminate` に `CancelExecution` 呼び出しを追加
+- [x] Step 19: `agentservice/handler_test.go` にテスト3件を追加 (Heartbeat, ContextSeparation, TerminateCancels)
+- [x] Step 20: テスト実行して PASS を確認
 
 ### Phase 4: クライアント側 (stream.go + ternctl)
 
-- [ ] Step 21: `client/stream.go` に新イベント型の定数を追加
-- [ ] Step 22: `client/stream.go` の `Output()` メソッドに新イベント型のcase分岐を追加
-- [ ] Step 23: `client/stream_test.go` にテスト2件を追加 (NodeEvents, KeepAliveIgnored)
-- [ ] Step 24: テスト実行して PASS を確認
+- [x] Step 21: `client/stream.go` に新イベント型の定数を追加
+- [x] Step 22: `client/stream.go` の `Output()` メソッドに新イベント型のcase分岐を追加
+- [x] Step 23: `client/stream_test.go` にテスト2件を追加 (NodeEvents, KeepAliveIgnored)
+- [x] Step 24: テスト実行して PASS を確認
 
 ### Phase 5: ビルドと検証
 
-- [ ] Step 25: 全体ビルド + ユニットテスト
-- [ ] Step 26: E2Eテスト実行
-- [ ] Step 27: git commit + push
+- [x] Step 25: 全体ビルド + ユニットテスト
+- [x] Step 26: E2Eテスト実行
+- [x] Step 27: git commit + push
 
 ## Verification Plan
 
