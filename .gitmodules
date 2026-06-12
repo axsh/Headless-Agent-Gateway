@@ -1,3 +1,6 @@
 [submodule "reference_repo/vv4"]
 	path = reference_repo/vv4
 	url = git@github.com:axsh/vv4.git
+[submodule "reference_repo/vv-prototype"]
+	path = reference_repo/vv-prototype
+	url = git@github.com:YamazakiYasuhiro/vv-prototype.git
