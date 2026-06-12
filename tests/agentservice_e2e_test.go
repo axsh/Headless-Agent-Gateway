@@ -659,10 +659,8 @@ func TestE2E_SessionContinuation(t *testing.T) {
 	t.Logf("Agent Session ID after msg2: %s (preserved=%v)", agentSID2, agentSID1 == agentSID2)
 }
 
-// --- TC: SessionDir fallback E2E ---
-
 // TestE2E_SessionDirFallback verifies that when session_dir is not specified,
-// it falls back to work_dir in the session record.
+// it falls back to work_dir/.claudecode in the session record (absolute path).
 func TestE2E_SessionDirFallback(t *testing.T) {
 	baseURL, cleanup := startE2EServer(t)
 	defer cleanup()
@@ -684,13 +682,23 @@ func TestE2E_SessionDirFallback(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	sessionID := result["session_id"]
 
-	// Get session and verify session_dir == work_dir
+	// Get session and verify session_dir == work_dir/.claudecode (absolute path)
 	session := getE2ESession(t, baseURL, sessionID)
 	sessionDir, _ := session["session_dir"].(string)
 	sessionWorkDir, _ := session["work_dir"].(string)
 
-	if sessionDir != sessionWorkDir {
-		t.Errorf("session_dir = %q, want %q (same as work_dir)", sessionDir, sessionWorkDir)
+	// After fix: session_dir should be work_dir/.claudecode (absolute)
+	wantSessionDir := filepath.Join(sessionWorkDir, ".claudecode")
+	if sessionDir != wantSessionDir {
+		t.Errorf("session_dir = %q, want %q", sessionDir, wantSessionDir)
+	}
+
+	// Both should be absolute paths
+	if !filepath.IsAbs(sessionDir) {
+		t.Errorf("session_dir should be absolute, got %q", sessionDir)
+	}
+	if !filepath.IsAbs(sessionWorkDir) {
+		t.Errorf("work_dir should be absolute, got %q", sessionWorkDir)
 	}
 	t.Logf("session_dir fallback verified: %s", sessionDir)
 }
