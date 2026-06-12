@@ -2,10 +2,12 @@ package wayfinder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/wayfinder/planning"
 	"github.com/axsh/arctic-tern/wayfinder/session"
 	"github.com/axsh/arctic-tern/wayfinder/tools"
 )
@@ -32,7 +34,9 @@ type AgentCore struct {
 	store          *session.Store
 	sessionID      string
 	compactionCfg  *session.CompactionConfig
-	subagent       SubagentRunner // nil if subagent is disabled
+	subagent       SubagentRunner     // nil if subagent is disabled
+	router         *ExecutionRouter   // nil if routing is disabled
+	planner        *planning.WBSPlanner // nil if planning is disabled
 }
 
 // NewAgentCore creates a new AgentCore.
@@ -71,8 +75,7 @@ func NewAgentCore(llm LLMClient, config *AgentConfig, log logger.Logger) *AgentC
 }
 
 // Run executes the agent with a user prompt.
-// It enters the tool-calling loop: send messages to LLM, process tool calls,
-// feed results back, repeat until the LLM responds with text only.
+// It determines the execution route and dispatches accordingly.
 func (ac *AgentCore) Run(ctx context.Context, prompt string) (string, error) {
 	ac.logger.Debug("agent core run started", "model", ac.config.LogicalModel, "prompt_len", len(prompt))
 
@@ -83,6 +86,30 @@ func (ac *AgentCore) Run(ctx context.Context, prompt string) (string, error) {
 		}
 	}
 
+	// Check if we have a WBS tree to resume.
+	if ac.store != nil && ac.sessionID != "" {
+		if wbsTree := ac.loadWBSFromSession(); wbsTree != nil && !wbsTree.IsComplete() {
+			ac.logger.Info("resuming WBS execution from session")
+			return ac.runWithWBSTree(ctx, wbsTree)
+		}
+	}
+
+	// Determine execution route if router is configured.
+	if ac.router != nil {
+		route, reason, _ := ac.router.Route(ctx, ac.config.LogicalModel, prompt)
+		ac.logger.Info("execution route determined", "route", route, "reason", reason)
+
+		if route == RoutePlanning && ac.planner != nil {
+			return ac.runWithPlanning(ctx, prompt)
+		}
+	}
+
+	// Simple execution (existing loop).
+	return ac.runSimple(ctx, prompt)
+}
+
+// runSimple is the existing tool-calling loop.
+func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, error) {
 	// If no messages restored, initialize with system prompt and user prompt.
 	if len(ac.messages) == 0 {
 		if ac.config.SystemPrompt != "" {
@@ -352,6 +379,102 @@ func (ac *AgentCore) Tracker() *FileTracker {
 	return ac.tracker
 }
 
+// SetRouter configures the execution router.
+func (ac *AgentCore) SetRouter(router *ExecutionRouter) {
+	ac.router = router
+}
+
+// SetPlanner configures the WBS planner.
+func (ac *AgentCore) SetPlanner(planner *planning.WBSPlanner) {
+	ac.planner = planner
+}
+
+// runWithPlanning generates a WBS and orchestrates execution.
+func (ac *AgentCore) runWithPlanning(ctx context.Context, prompt string) (string, error) {
+	ac.logger.Info("generating WBS plan")
+
+	tree, err := ac.planner.GenerateWBS(ctx, ac.config.LogicalModel, prompt)
+	if err != nil {
+		ac.logger.Warn("WBS generation failed, falling back to simple", "error", err.Error())
+		return ac.runSimple(ctx, prompt)
+	}
+
+	ac.logger.Debug("WBS plan generated", "root_nodes", len(tree.RootNodes))
+	return ac.runWithWBSTree(ctx, tree)
+}
+
+// runWithWBSTree orchestrates execution of a WBS tree.
+func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree) (string, error) {
+	// Create a node executor that delegates to the simple run loop.
+	nodeExec := &agentNodeExecutor{core: ac}
+	persister := &agentWBSPersister{core: ac}
+
+	orch := planning.NewWBSOrchestrator(nodeExec, persister, ac.logger)
+	if err := orch.Execute(ctx, tree); err != nil {
+		return "", fmt.Errorf("WBS orchestration failed: %w", err)
+	}
+
+	return planning.CollectResults(tree), nil
+}
+
+// loadWBSFromSession loads WBS tree from the session state if available.
+func (ac *AgentCore) loadWBSFromSession() *planning.WBSTree {
+	if ac.store == nil || ac.sessionID == "" {
+		return nil
+	}
+	state, err := ac.store.Load(ac.sessionID)
+	if err != nil || state == nil {
+		return nil
+	}
+	if len(state.WBSTreeJSON) == 0 {
+		return nil
+	}
+	var tree planning.WBSTree
+	if err := json.Unmarshal(state.WBSTreeJSON, &tree); err != nil {
+		ac.logger.Warn("failed to unmarshal WBS tree from session", "error", err.Error())
+		return nil
+	}
+	return &tree
+}
+
+// agentNodeExecutor implements planning.NodeExecutor using AgentCore.runSimple.
+type agentNodeExecutor struct {
+	core *AgentCore
+}
+
+func (e *agentNodeExecutor) ExecuteNode(ctx context.Context, node planning.WBSNode) (string, error) {
+	prompt := fmt.Sprintf("[WBS Step %s: %s]\n%s", node.ID, node.Name, node.Description)
+	return e.core.runSimple(ctx, prompt)
+}
+
+// agentWBSPersister implements planning.StatePersister using the session store.
+type agentWBSPersister struct {
+	core *AgentCore
+}
+
+func (p *agentWBSPersister) PersistWBS(tree *planning.WBSTree) {
+	if p.core.store == nil || p.core.sessionID == "" {
+		return
+	}
+	wbsJSON, err := json.Marshal(tree)
+	if err != nil {
+		p.core.logger.Warn("failed to marshal WBS tree for persistence", "error", err.Error())
+		return
+	}
+	state := &session.SessionState{
+		SessionID:      p.core.sessionID,
+		Status:         session.StatusActive,
+		Messages:       convertToSessionMessages(p.core.messages),
+		CreatedFiles:   p.core.tracker.TrackedFilesSnapshot(),
+		RunningProcesses: p.core.tracker.TrackedProcessesSnapshot(),
+		WBSTreeJSON:    json.RawMessage(wbsJSON),
+		LastActivityAt: time.Now(),
+	}
+	if err := p.core.store.Save(state); err != nil {
+		p.core.logger.Warn("failed to persist WBS state", "error", err.Error())
+	}
+}
+
 // noopLogger is a no-operation logger used when no logger is provided.
 type noopLogger struct{}
 
@@ -364,3 +487,4 @@ func (n *noopLogger) WithFields(fields map[string]any) logger.Logger {
 	return n
 }
 func (n *noopLogger) WithComponent(name string) logger.Logger { return n }
+
