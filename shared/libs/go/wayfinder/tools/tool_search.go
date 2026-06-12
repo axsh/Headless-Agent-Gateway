@@ -6,13 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
 
 // newSearchFiles creates the search_files tool handler.
-// It searches for files matching a pattern within the workDir.
-func newSearchFiles(workDir string) ToolHandler {
+func newSearchFiles(tc *ToolContext) ToolHandler {
 	return func(ctx context.Context, input map[string]any) (string, error) {
 		pattern, _ := input["pattern"].(string)
 		searchPath, _ := input["path"].(string)
@@ -22,7 +19,7 @@ func newSearchFiles(workDir string) ToolHandler {
 		if searchPath == "" {
 			searchPath = "."
 		}
-		absPath, err := wayfinder.ValidatePath(workDir, searchPath)
+		absPath, err := tc.ValidatePath(tc.WorkDir, searchPath)
 		if err != nil {
 			return "", fmt.Errorf("search_files: %w", err)
 		}
@@ -30,14 +27,14 @@ func newSearchFiles(workDir string) ToolHandler {
 		var matches []string
 		err = filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				return nil // Skip inaccessible paths.
+				return nil
 			}
 			if info.IsDir() {
 				return nil
 			}
 			matched, _ := filepath.Match(pattern, info.Name())
 			if matched {
-				relPath, _ := filepath.Rel(workDir, path)
+				relPath, _ := filepath.Rel(tc.WorkDir, path)
 				matches = append(matches, relPath)
 			}
 			return nil
@@ -54,8 +51,7 @@ func newSearchFiles(workDir string) ToolHandler {
 }
 
 // newGrepFiles creates the grep_files tool handler.
-// It searches file contents for a text pattern.
-func newGrepFiles(workDir string) ToolHandler {
+func newGrepFiles(tc *ToolContext) ToolHandler {
 	return func(ctx context.Context, input map[string]any) (string, error) {
 		pattern, _ := input["pattern"].(string)
 		searchPath, _ := input["path"].(string)
@@ -65,7 +61,7 @@ func newGrepFiles(workDir string) ToolHandler {
 		if searchPath == "" {
 			searchPath = "."
 		}
-		absPath, err := wayfinder.ValidatePath(workDir, searchPath)
+		absPath, err := tc.ValidatePath(tc.WorkDir, searchPath)
 		if err != nil {
 			return "", fmt.Errorf("grep_files: %w", err)
 		}
@@ -75,8 +71,7 @@ func newGrepFiles(workDir string) ToolHandler {
 			if err != nil || info.IsDir() {
 				return nil
 			}
-			// Only search text files (skip large/binary files).
-			if info.Size() > 1<<20 { // 1MB limit
+			if info.Size() > 1<<20 {
 				return nil
 			}
 			data, err := os.ReadFile(path)
@@ -84,7 +79,7 @@ func newGrepFiles(workDir string) ToolHandler {
 				return nil
 			}
 			lines := strings.Split(string(data), "\n")
-			relPath, _ := filepath.Rel(workDir, path)
+			relPath, _ := filepath.Rel(tc.WorkDir, path)
 			for i, line := range lines {
 				if strings.Contains(line, pattern) {
 					results = append(results, fmt.Sprintf("%s:%d:%s", relPath, i+1, line))
@@ -99,7 +94,6 @@ func newGrepFiles(workDir string) ToolHandler {
 		if len(results) == 0 {
 			return "No matches found for pattern: " + pattern, nil
 		}
-		// Limit results to 50 matches.
 		if len(results) > 50 {
 			results = results[:50]
 			results = append(results, "... (results truncated at 50 matches)")

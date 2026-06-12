@@ -2,17 +2,57 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
+
+// testValidatePath is a simple path validator for tests.
+func testValidatePath(workDir, rawPath string) (string, error) {
+	if filepath.IsAbs(rawPath) {
+		return rawPath, nil
+	}
+	return filepath.Join(workDir, rawPath), nil
+}
+
+// testTracker implements FileTrackerInterface for tests.
+type testTracker struct {
+	files     map[string]bool
+	processes map[int]string
+}
+
+func newTestTracker() *testTracker {
+	return &testTracker{files: make(map[string]bool), processes: make(map[int]string)}
+}
+
+func (t *testTracker) TrackFile(path string)                   { t.files[path] = true }
+func (t *testTracker) IsTracked(path string) bool              { return t.files[path] }
+func (t *testTracker) TrackProcess(pid int, cmdLine string)    { t.processes[pid] = cmdLine }
+func (t *testTracker) UntrackProcess(pid int)                  { delete(t.processes, pid) }
+
+func testContext(workDir string) *ToolContext {
+	return &ToolContext{
+		WorkDir:          workDir,
+		ValidatePath:     testValidatePath,
+		IsBlockedCommand: func(cmd string) bool { return false },
+		Tracker:          newTestTracker(),
+	}
+}
+
+func testContextWithBlocker(workDir string) *ToolContext {
+	tc := testContext(workDir)
+	tc.IsBlockedCommand = func(cmd string) bool {
+		// Simple blocker for testing.
+		return len(cmd) > 4 && cmd[:4] == "sudo"
+	}
+	return tc
+}
 
 func TestRegisterAllTools_AllNineRegistered(t *testing.T) {
 	reg := NewRegistry()
-	tracker := wayfinder.NewFileTracker()
-	RegisterAllTools(reg, t.TempDir(), tracker)
+	tc := testContext(t.TempDir())
+	RegisterAllTools(reg, tc)
 
 	expected := []string{
 		"read_file", "write_file", "list_directory", "create_directory",
@@ -34,7 +74,8 @@ func TestReadFile_Success(t *testing.T) {
 	workDir := t.TempDir()
 	os.WriteFile(filepath.Join(workDir, "test.txt"), []byte("hello world"), 0644)
 
-	handler := newReadFile(workDir)
+	tc := testContext(workDir)
+	handler := newReadFile(tc)
 	result, err := handler(context.Background(), map[string]any{"path": "test.txt"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -46,7 +87,20 @@ func TestReadFile_Success(t *testing.T) {
 
 func TestReadFile_PathTraversalBlocked(t *testing.T) {
 	workDir := t.TempDir()
-	handler := newReadFile(workDir)
+	// Use a ValidatePath that actually checks boundaries.
+	tc := &ToolContext{
+		WorkDir: workDir,
+		ValidatePath: func(wd, raw string) (string, error) {
+			abs := filepath.Clean(filepath.Join(wd, raw))
+			rel, _ := filepath.Rel(wd, abs)
+			if len(rel) >= 2 && rel[:2] == ".." {
+				return "", fmt.Errorf("path outside workDir")
+			}
+			return abs, nil
+		},
+		Tracker: newTestTracker(),
+	}
+	handler := newReadFile(tc)
 	_, err := handler(context.Background(), map[string]any{"path": "../../etc/passwd"})
 	if err == nil {
 		t.Fatal("expected error for path traversal")
@@ -55,8 +109,8 @@ func TestReadFile_PathTraversalBlocked(t *testing.T) {
 
 func TestWriteFile_Success(t *testing.T) {
 	workDir := t.TempDir()
-	tracker := wayfinder.NewFileTracker()
-	handler := newWriteFile(workDir, tracker)
+	tc := testContext(workDir)
+	handler := newWriteFile(tc)
 
 	result, err := handler(context.Background(), map[string]any{
 		"path":    "output.txt",
@@ -73,15 +127,15 @@ func TestWriteFile_Success(t *testing.T) {
 	if string(data) != "generated content" {
 		t.Errorf("file content = %q, want %q", string(data), "generated content")
 	}
-	if !tracker.IsTracked(filepath.Join(workDir, "output.txt")) {
+	if !tc.Tracker.IsTracked(filepath.Join(workDir, "output.txt")) {
 		t.Error("expected file to be tracked after write")
 	}
 }
 
 func TestWriteFile_CreatesParentDirs(t *testing.T) {
 	workDir := t.TempDir()
-	tracker := wayfinder.NewFileTracker()
-	handler := newWriteFile(workDir, tracker)
+	tc := testContext(workDir)
+	handler := newWriteFile(tc)
 
 	_, err := handler(context.Background(), map[string]any{
 		"path":    "deep/nested/dir/file.txt",
@@ -101,7 +155,8 @@ func TestListDirectory_Success(t *testing.T) {
 	os.WriteFile(filepath.Join(workDir, "a.txt"), []byte("a"), 0644)
 	os.Mkdir(filepath.Join(workDir, "subdir"), 0755)
 
-	handler := newListDirectory(workDir)
+	tc := testContext(workDir)
+	handler := newListDirectory(tc)
 	result, err := handler(context.Background(), map[string]any{"path": "."})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -113,8 +168,8 @@ func TestListDirectory_Success(t *testing.T) {
 
 func TestCreateDirectory_Success(t *testing.T) {
 	workDir := t.TempDir()
-	tracker := wayfinder.NewFileTracker()
-	handler := newCreateDirectory(workDir, tracker)
+	tc := testContext(workDir)
+	handler := newCreateDirectory(tc)
 
 	_, err := handler(context.Background(), map[string]any{"path": "new/deep/dir"})
 	if err != nil {
@@ -130,7 +185,8 @@ func TestEditFile_Success(t *testing.T) {
 	workDir := t.TempDir()
 	os.WriteFile(filepath.Join(workDir, "edit.txt"), []byte("hello world"), 0644)
 
-	handler := newEditFile(workDir)
+	tc := testContext(workDir)
+	handler := newEditFile(tc)
 	_, err := handler(context.Background(), map[string]any{
 		"path":     "edit.txt",
 		"old_text": "world",
@@ -149,7 +205,8 @@ func TestEditFile_NotUnique(t *testing.T) {
 	workDir := t.TempDir()
 	os.WriteFile(filepath.Join(workDir, "dup.txt"), []byte("aaa bbb aaa"), 0644)
 
-	handler := newEditFile(workDir)
+	tc := testContext(workDir)
+	handler := newEditFile(tc)
 	_, err := handler(context.Background(), map[string]any{
 		"path":     "dup.txt",
 		"old_text": "aaa",
@@ -165,7 +222,8 @@ func TestSearchFiles_Success(t *testing.T) {
 	os.WriteFile(filepath.Join(workDir, "main.go"), []byte("package main"), 0644)
 	os.WriteFile(filepath.Join(workDir, "test.txt"), []byte("test"), 0644)
 
-	handler := newSearchFiles(workDir)
+	tc := testContext(workDir)
+	handler := newSearchFiles(tc)
 	result, err := handler(context.Background(), map[string]any{"pattern": "*.go"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -179,7 +237,8 @@ func TestGrepFiles_Success(t *testing.T) {
 	workDir := t.TempDir()
 	os.WriteFile(filepath.Join(workDir, "code.go"), []byte("func Hello() {\n\treturn\n}"), 0644)
 
-	handler := newGrepFiles(workDir)
+	tc := testContext(workDir)
+	handler := newGrepFiles(tc)
 	result, err := handler(context.Background(), map[string]any{"pattern": "Hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -191,8 +250,8 @@ func TestGrepFiles_Success(t *testing.T) {
 
 func TestExecuteCommand_ForegroundSuccess(t *testing.T) {
 	workDir := t.TempDir()
-	tracker := wayfinder.NewFileTracker()
-	handler := newExecuteCommand(workDir, tracker)
+	tc := testContext(workDir)
+	handler := newExecuteCommand(tc)
 
 	result, err := handler(context.Background(), map[string]any{"command": "echo hello"})
 	if err != nil {
@@ -205,8 +264,8 @@ func TestExecuteCommand_ForegroundSuccess(t *testing.T) {
 
 func TestExecuteCommand_Blocked(t *testing.T) {
 	workDir := t.TempDir()
-	tracker := wayfinder.NewFileTracker()
-	handler := newExecuteCommand(workDir, tracker)
+	tc := testContextWithBlocker(workDir)
+	handler := newExecuteCommand(tc)
 
 	_, err := handler(context.Background(), map[string]any{"command": "sudo rm -rf /"})
 	if err == nil {
@@ -215,13 +274,11 @@ func TestExecuteCommand_Blocked(t *testing.T) {
 }
 
 func TestKillProcess_InvalidPID(t *testing.T) {
-	tracker := wayfinder.NewFileTracker()
-	handler := newKillProcess(tracker)
+	tc := testContext(t.TempDir())
+	handler := newKillProcess(tc)
 
 	_, err := handler(context.Background(), map[string]any{"pid": float64(-999999)})
 	if err == nil {
-		// On some OS, FindProcess(-999999) may not error until Kill().
-		// Either way, an error at some point is expected.
 		t.Log("no error from FindProcess, expected error from Kill")
 	}
 }

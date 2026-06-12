@@ -3,9 +3,14 @@ package tools
 import (
 	"context"
 	"sync"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
+
+// ToolDefinition describes a tool for the LLM (local copy to avoid import cycle).
+type ToolDefinition struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
+}
 
 // ToolHandler is the function signature for a tool execution handler.
 type ToolHandler func(ctx context.Context, input map[string]any) (string, error)
@@ -51,13 +56,13 @@ func (r *Registry) Get(name string) (*RegisteredTool, bool) {
 	return tool, ok
 }
 
-// Definitions returns all registered tools as LLM ToolDefinitions.
-func (r *Registry) Definitions() []wayfinder.ToolDefinition {
+// Definitions returns all registered tools as ToolDefinitions.
+func (r *Registry) Definitions() []ToolDefinition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	defs := make([]wayfinder.ToolDefinition, 0, len(r.tools))
+	defs := make([]ToolDefinition, 0, len(r.tools))
 	for _, t := range r.tools {
-		defs = append(defs, wayfinder.ToolDefinition{
+		defs = append(defs, ToolDefinition{
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: t.InputSchema,

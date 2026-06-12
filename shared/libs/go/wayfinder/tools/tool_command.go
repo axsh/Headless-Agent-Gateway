@@ -8,12 +8,10 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-
-	"github.com/axsh/arctic-tern/wayfinder"
 )
 
 // newExecuteCommand creates the execute_command tool handler.
-func newExecuteCommand(workDir string, tracker *wayfinder.FileTracker) ToolHandler {
+func newExecuteCommand(tc *ToolContext) ToolHandler {
 	return func(ctx context.Context, input map[string]any) (string, error) {
 		commandLine, _ := input["command"].(string)
 		if commandLine == "" {
@@ -21,7 +19,7 @@ func newExecuteCommand(workDir string, tracker *wayfinder.FileTracker) ToolHandl
 		}
 
 		// Check blocked commands.
-		if wayfinder.IsBlockedCommand(commandLine) {
+		if tc.IsBlockedCommand(commandLine) {
 			return "", fmt.Errorf("execute_command: command is blocked for safety: %s", commandLine)
 		}
 
@@ -30,12 +28,12 @@ func newExecuteCommand(workDir string, tracker *wayfinder.FileTracker) ToolHandl
 
 		if background {
 			cmd := exec.CommandContext(ctx, "sh", "-c", commandLine)
-			cmd.Dir = workDir
+			cmd.Dir = tc.WorkDir
 			if err := cmd.Start(); err != nil {
 				return "", fmt.Errorf("execute_command: background start failed: %w", err)
 			}
 			pid := cmd.Process.Pid
-			tracker.TrackProcess(pid, commandLine)
+			tc.Tracker.TrackProcess(pid, commandLine)
 			// Detach: don't wait for the process.
 			go func() { _ = cmd.Wait() }()
 			return fmt.Sprintf("Background process started with PID: %d", pid), nil
@@ -43,7 +41,7 @@ func newExecuteCommand(workDir string, tracker *wayfinder.FileTracker) ToolHandl
 
 		// Foreground execution with combined output.
 		cmd := exec.CommandContext(ctx, "sh", "-c", commandLine)
-		cmd.Dir = workDir
+		cmd.Dir = tc.WorkDir
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -68,7 +66,7 @@ func newExecuteCommand(workDir string, tracker *wayfinder.FileTracker) ToolHandl
 }
 
 // newKillProcess creates the kill_process tool handler.
-func newKillProcess(tracker *wayfinder.FileTracker) ToolHandler {
+func newKillProcess(tc *ToolContext) ToolHandler {
 	return func(ctx context.Context, input map[string]any) (string, error) {
 		pidRaw, ok := input["pid"]
 		if !ok {
@@ -94,15 +92,14 @@ func newKillProcess(tracker *wayfinder.FileTracker) ToolHandler {
 			return "", fmt.Errorf("kill_process: process %d not found: %w", pid, err)
 		}
 		if err := proc.Kill(); err != nil {
-			// Check if process was already dead.
 			if strings.Contains(err.Error(), "process already finished") ||
 				strings.Contains(err.Error(), "no such process") {
-				tracker.UntrackProcess(pid)
+				tc.Tracker.UntrackProcess(pid)
 				return fmt.Sprintf("Process %d was already terminated", pid), nil
 			}
 			return "", fmt.Errorf("kill_process: failed to kill process %d: %w", pid, err)
 		}
-		tracker.UntrackProcess(pid)
+		tc.Tracker.UntrackProcess(pid)
 		return fmt.Sprintf("Process %d killed successfully", pid), nil
 	}
 }
