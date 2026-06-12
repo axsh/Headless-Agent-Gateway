@@ -485,3 +485,121 @@ func TestCodexE2E_GPT5Codex_FileCreation(t *testing.T) {
 	}
 	t.Logf("File created successfully: %s (%d bytes)", filePath, len(content))
 }
+
+// --- TC-Codex-007: Real ternctl command execution ---
+
+// TestCodexE2E_TernctlRealCommand launches tern server and ternctl client as
+// real subprocesses via exec.Command, verifying that tool use/result events
+// appear in ternctl's stdout output.
+func TestCodexE2E_TernctlRealCommand(t *testing.T) {
+	// Prerequisite: codex CLI on PATH
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Fatalf("codex CLI not found on PATH: %v", err)
+	}
+
+	// Resolve binary paths
+	ternBin, err := filepath.Abs("../bin/tern")
+	if err != nil {
+		t.Fatalf("resolve tern path: %v", err)
+	}
+	ternctlBin, err := filepath.Abs("../bin/ternctl")
+	if err != nil {
+		t.Fatalf("resolve ternctl path: %v", err)
+	}
+	if _, err := os.Stat(ternBin); err != nil {
+		t.Fatalf("tern binary not found at %s: %v", ternBin, err)
+	}
+	if _, err := os.Stat(ternctlBin); err != nil {
+		t.Fatalf("ternctl binary not found at %s: %v", ternctlBin, err)
+	}
+
+	// Prepare test config with dynamic ports
+	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
+	asPort := freePort(t)
+	gwPort := freePort(t)
+	wsPort := freePort(t)
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	configContent := fmt.Sprintf(`llm_gateway:
+  port: %d
+  model_profiles_path: "%s"
+log:
+  level: "info"
+vault:
+  backend: "keyring"
+websocket:
+  port: %d
+agent_service:
+  port: %d
+  disable_sandbox: true
+`, gwPort, filepath.ToSlash(modelProfilesSrc), wsPort, asPort)
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	// Phase 1: Start tern server as subprocess
+	ternCmd := exec.Command(ternBin, "--config", configPath)
+	// Discard server output to avoid blocking on pipe buffer
+	ternCmd.Stdout = nil
+	ternCmd.Stderr = nil
+	if err := ternCmd.Start(); err != nil {
+		t.Fatalf("start tern: %v", err)
+	}
+	defer ternCmd.Process.Kill()
+
+	serverURL := fmt.Sprintf("http://localhost:%d", asPort)
+	waitForHealthy(t, serverURL, 15*time.Second)
+
+	// Phase 2: Run ternctl as subprocess
+	workDir := filepath.Join(tmpDir, "work")
+	os.MkdirAll(workDir, 0755)
+	os.MkdirAll(filepath.Join(workDir, ".codex"), 0755)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	ternctlCmd := exec.CommandContext(ctx, ternctlBin,
+		"--server", serverURL,
+		"run",
+		"--agent", "codex",
+		"--prompt", "please run 'echo hello' command and report the result.",
+		"--work-dir", workDir,
+	)
+	output, err := ternctlCmd.CombinedOutput()
+	outputStr := string(output)
+	t.Logf("ternctl output:\n%s", outputStr)
+
+	// Phase 3: Verify stdout content
+	if err != nil {
+		t.Fatalf("ternctl exited with error: %v\noutput: %s", err, outputStr)
+	}
+	if !strings.Contains(outputStr, "Session created:") {
+		t.Error("expected 'Session created:' in output")
+	}
+	if !strings.Contains(outputStr, "[Tool:") {
+		t.Error("expected '[Tool: ...]' in output (tool use event)")
+	}
+	if !strings.Contains(outputStr, "[Tool Result]") {
+		t.Error("expected '[Tool Result] ...' in output (tool result event)")
+	}
+	if !strings.Contains(outputStr, `"status": "completed"`) {
+		t.Error("expected session status 'completed' in output")
+	}
+}
+
+// waitForHealthy polls the health endpoint until it returns 200 OK.
+func waitForHealthy(t *testing.T, baseURL string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(baseURL + "/health")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			return
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("server at %s did not become healthy within %s", baseURL, timeout)
+}
