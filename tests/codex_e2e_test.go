@@ -525,7 +525,7 @@ func TestCodexE2E_TernctlRealCommand(t *testing.T) {
   port: %d
   model_profiles_path: "%s"
 log:
-  level: "info"
+  level: "trace"
 vault:
   backend: "keyring"
 websocket:
@@ -538,9 +538,15 @@ agent_service:
 
 	// Phase 1: Start tern server as subprocess
 	ternCmd := exec.Command(ternBin, "--config", configPath)
-	// Discard server output to avoid blocking on pipe buffer
-	ternCmd.Stdout = nil
-	ternCmd.Stderr = nil
+	// Write server output to a log file for diagnostics
+	serverLogPath := filepath.Join(tmpDir, "server.log")
+	serverLogFile, err := os.Create(serverLogPath)
+	if err != nil {
+		t.Fatalf("create server log: %v", err)
+	}
+	defer serverLogFile.Close()
+	ternCmd.Stdout = serverLogFile
+	ternCmd.Stderr = serverLogFile
 	if err := ternCmd.Start(); err != nil {
 		t.Fatalf("start tern: %v", err)
 	}
@@ -569,13 +575,24 @@ agent_service:
 	t.Logf("ternctl output:\n%s", outputStr)
 
 	// Phase 3: Verify stdout content
+	// Helper to read server log for diagnostics
+	readServerLog := func() string {
+		data, err := os.ReadFile(serverLogPath)
+		if err != nil {
+			return fmt.Sprintf("(failed to read server log: %v)", err)
+		}
+		return string(data)
+	}
+
 	if err != nil {
+		t.Logf("tern server output:\n%s", readServerLog())
 		t.Fatalf("ternctl exited with error: %v\noutput: %s", err, outputStr)
 	}
 	if !strings.Contains(outputStr, "Session created:") {
 		t.Error("expected 'Session created:' in output")
 	}
 	if !strings.Contains(outputStr, "[Tool:") {
+		t.Logf("tern server output:\n%s", readServerLog())
 		t.Error("expected '[Tool: ...]' in output (tool use event)")
 	}
 	if !strings.Contains(outputStr, "[Tool Result]") {

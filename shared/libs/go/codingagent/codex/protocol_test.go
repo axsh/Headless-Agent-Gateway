@@ -216,3 +216,49 @@ func TestParseExecEvent_EventMsg_Ignored(t *testing.T) {
 		}
 	}
 }
+
+// --- item.started / item.completed format tests (Codex CLI 0.139.0 actual stdout) ---
+// These are the events that `codex exec --json` actually outputs to stdout.
+// The response_item/event_msg format is used in session rollout logs but NOT in stdout.
+
+func TestParseExecEvent_ItemStarted_CommandExecution(t *testing.T) {
+	line := `{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"echo hello","aggregated_output":"","exit_code":null,"status":"in_progress"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolUse {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolUse)
+	}
+	if ev.ToolName != "command_execution" {
+		t.Errorf("tool_name = %q, want %q", ev.ToolName, "command_execution")
+	}
+}
+
+func TestParseExecEvent_ItemCompleted_CommandExecution(t *testing.T) {
+	line := `{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"echo hello","aggregated_output":"hello\r\n","exit_code":0,"status":"completed"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolResult {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolResult)
+	}
+	if !strings.Contains(ev.Content, "hello") {
+		t.Errorf("content = %q, want to contain 'hello'", ev.Content)
+	}
+}
+
+func TestParseExecEvent_ItemCompleted_AgentMessage(t *testing.T) {
+	line := `{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"The command was executed successfully."}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventText {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventText)
+	}
+	if !strings.Contains(ev.Content, "The command was executed successfully.") {
+		t.Errorf("content = %q, want to contain message text", ev.Content)
+	}
+}

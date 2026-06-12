@@ -17,6 +17,7 @@ type ExecEvent struct {
 	ThreadID string          `json:"thread_id,omitempty"`
 	Error    json.RawMessage `json:"error,omitempty"`
 	Payload  json.RawMessage `json:"payload,omitempty"`
+	Item     json.RawMessage `json:"item,omitempty"`
 }
 
 // ExecEventMessage is the data payload for message-type events.
@@ -37,7 +38,18 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 	}
 
 	switch ev.Type {
-	// --- Nested format (Codex CLI 0.139.0+) ---
+	// --- Codex CLI 0.139.0 stdout format (item.started / item.completed) ---
+
+	case "item.started":
+		// Tool use start: {"type":"item.started","item":{"type":"command_execution","command":"..."}}
+		return parseItemEvent(ev.Item, false)
+
+	case "item.completed":
+		// Tool result or message: {"type":"item.completed","item":{"type":"command_execution","aggregated_output":"..."}}
+		// or: {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
+		return parseItemEvent(ev.Item, true)
+
+	// --- Nested format (session rollout logs) ---
 
 	case "response_item":
 		// Envelope: {"type":"response_item","payload":{"type":"function_call",...}}
@@ -233,6 +245,55 @@ func parsePayloadEvent(payloadType string, payload json.RawMessage) *codingagent
 					Type:    codingagent.EventText,
 					Content: strings.Join(texts, ""),
 				}
+			}
+		}
+		return nil
+
+	default:
+		return nil
+	}
+}
+
+// parseItemEvent converts an item.started or item.completed payload to a StreamEvent.
+// Codex CLI 0.139.0 stdout uses {"type":"item.started/completed","item":{...}} format.
+func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEvent {
+	if item == nil {
+		return nil
+	}
+	var header struct {
+		Type             string  `json:"type"`
+		Command          string  `json:"command,omitempty"`
+		AggregatedOutput string  `json:"aggregated_output,omitempty"`
+		ExitCode         *int    `json:"exit_code,omitempty"`
+		Text             string  `json:"text,omitempty"`
+	}
+	if err := json.Unmarshal(item, &header); err != nil {
+		return nil
+	}
+
+	switch header.Type {
+	case "command_execution":
+		if completed {
+			// item.completed with command_execution -> tool result
+			return &codingagent.StreamEvent{
+				Type:    codingagent.EventToolResult,
+				Content: header.AggregatedOutput,
+			}
+		}
+		// item.started with command_execution -> tool use
+		return &codingagent.StreamEvent{
+			Type:     codingagent.EventToolUse,
+			ToolName: "command_execution",
+			ToolInput: map[string]any{
+				"command": header.Command,
+			},
+		}
+
+	case "agent_message":
+		if completed {
+			return &codingagent.StreamEvent{
+				Type:    codingagent.EventText,
+				Content: header.Text,
 			}
 		}
 		return nil
