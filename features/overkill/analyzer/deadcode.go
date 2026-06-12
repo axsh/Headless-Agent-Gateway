@@ -9,9 +9,17 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+// DeadFile represents a file where all definitions are dead.
+type DeadFile struct {
+	File    string      // file path
+	Package string      // Go package name
+	Symbols []SymbolDef // dead symbols in this file
+}
+
 // AnalysisResult holds the complete analysis results.
 type AnalysisResult struct {
-	DeadSymbols []SymbolDef // symbols with no references
+	DeadSymbols []SymbolDef // symbols with no references (excluding dead file members)
+	DeadFiles   []DeadFile  // files where all definitions are dead
 	AllDefs     []SymbolDef // all collected definitions
 	AllRefs     []SymbolRef // all collected references
 }
@@ -86,11 +94,92 @@ func Analyze(rootDir string, excludePatterns []string) (*AnalysisResult, error) 
 		}
 	}
 
+	// Detect dead files: files where ALL definitions are dead.
+	deadFiles := detectDeadFiles(deadSymbols, allDefs)
+
+	// Remove symbols belonging to dead files from DeadSymbols
+	// to avoid duplicate reporting.
+	if len(deadFiles) > 0 {
+		deadFileSymbols := make(map[string]bool)
+		for _, df := range deadFiles {
+			for _, sym := range df.Symbols {
+				key := df.File + ":" + sym.Name
+				deadFileSymbols[key] = true
+			}
+		}
+		var filtered []SymbolDef
+		for _, sym := range deadSymbols {
+			key := sym.File + ":" + sym.Name
+			if !deadFileSymbols[key] {
+				filtered = append(filtered, sym)
+			}
+		}
+		deadSymbols = filtered
+	}
+
 	return &AnalysisResult{
 		DeadSymbols: deadSymbols,
+		DeadFiles:   deadFiles,
 		AllDefs:     allDefs,
 		AllRefs:     allRefs,
 	}, nil
+}
+
+// detectDeadFiles identifies files where all non-skippable definitions are dead.
+func detectDeadFiles(deadSymbols []SymbolDef, allDefs []SymbolDef) []DeadFile {
+	// Build dead symbol index: file+name -> bool.
+	deadSet := make(map[string]bool)
+	for _, sym := range deadSymbols {
+		key := sym.File + ":" + sym.Name
+		deadSet[key] = true
+	}
+
+	// Group all definitions by file.
+	fileDefs := make(map[string][]SymbolDef)
+	for _, def := range allDefs {
+		fileDefs[def.File] = append(fileDefs[def.File], def)
+	}
+
+	var deadFiles []DeadFile
+	for filePath, defs := range fileDefs {
+		// Count non-skippable definitions.
+		var checkable []SymbolDef
+		for _, def := range defs {
+			if shouldSkip(def) || def.Ignored {
+				continue
+			}
+			checkable = append(checkable, def)
+		}
+
+		// Skip files with no checkable definitions.
+		if len(checkable) == 0 {
+			continue
+		}
+
+		// Check if ALL checkable definitions are dead.
+		allDead := true
+		for _, def := range checkable {
+			key := def.File + ":" + def.Name
+			if !deadSet[key] {
+				allDead = false
+				break
+			}
+		}
+
+		if allDead {
+			pkgName := ""
+			if len(defs) > 0 {
+				pkgName = defs[0].Package
+			}
+			deadFiles = append(deadFiles, DeadFile{
+				File:    filePath,
+				Package: pkgName,
+				Symbols: checkable,
+			})
+		}
+	}
+
+	return deadFiles
 }
 
 // extractPackageName gets the package name from the AST.
