@@ -379,27 +379,60 @@ providers:
 
 ### 3. Start the server
 
+In one terminal, start the tern server:
+
 ```bash
-./bin/tern --config config.yaml
+$ ./bin/tern --config ./features/tern/config.yaml
+tern server started and running...
 ```
+
+The server exposes:
+* CAWA Agent Service on port `3100` (configurable via `agent_service.port`)
+* LLM Gateway on port `14000` (configurable via `llm_gateway.port`)
 
 ### 4. Run a task with ternctl
 
+Open another terminal and interact with the server:
+
 ```bash
 # Check server health
-./bin/ternctl health
+$ ./bin/ternctl health
 
-# List available agents
-./bin/ternctl agents
-
-# List available models
-./bin/ternctl models
+# List available agents and models
+$ ./bin/ternctl agents
+$ ./bin/ternctl models
 
 # Run a coding task
-./bin/ternctl run --agent claudecode --prompt "Create hello.txt" --work-dir .
+$ ./bin/ternctl run \
+    --agent claudecode \
+    --prompt "Analyze the current directory structure and create a summary report in REPORT.md" \
+    --work-dir ./tmp
 ```
 
-### 5. Or use the Go client library
+When the task completes, ternctl outputs session details as JSON:
+
+```json
+{
+  "agent_name": "claudecode",
+  "id": "a95db64cb646901efb395a18d817a37d",
+  "status": "completed",
+  "work_dir": "tmp"
+}
+```
+
+### 5. Continue an existing session
+
+Use `--resume` with the session `id` from the previous output to continue the conversation:
+
+```bash
+$ ./bin/ternctl run \
+    --resume a95db64cb646901efb395a18d817a37d \
+    --prompt "Add a table of contents to REPORT.md"
+```
+
+The agent resumes the previous session with full context of the prior conversation.
+
+### 6. Or use the Go client library
 
 ```go
 c := client.New("http://localhost:3100")
