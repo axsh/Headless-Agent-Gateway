@@ -2,18 +2,21 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/axsh/arctic-tern/codingagent"
 )
 
 // ExecEvent represents a JSONL event from "codex exec --json" output.
-// Event types include: thread.started, turn.started, turn.completed,
-// turn.failed, message.text, message.tool_use, error, etc.
+// Codex CLI 0.139.0+ wraps events in response_item/event_msg envelopes
+// with the actual event type in payload.type. Older flat-format events
+// (e.g. {"type":"function_call",...}) are also supported for backward compatibility.
 type ExecEvent struct {
 	Type     string          `json:"type"`
 	Message  string          `json:"message,omitempty"`
 	ThreadID string          `json:"thread_id,omitempty"`
 	Error    json.RawMessage `json:"error,omitempty"`
+	Payload  json.RawMessage `json:"payload,omitempty"`
 }
 
 // ExecEventMessage is the data payload for message-type events.
@@ -25,6 +28,7 @@ type ExecEventMessage struct {
 }
 
 // ParseExecEvent converts a JSONL line from "codex exec --json" to a StreamEvent.
+// Handles both nested format (Codex CLI 0.139.0+) and flat format (backward compat).
 // Returns nil for events that don't map to StreamEvent types.
 func ParseExecEvent(line string) *codingagent.StreamEvent {
 	var ev ExecEvent
@@ -33,6 +37,43 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 	}
 
 	switch ev.Type {
+	// --- Nested format (Codex CLI 0.139.0+) ---
+
+	case "response_item":
+		// Envelope: {"type":"response_item","payload":{"type":"function_call",...}}
+		var header struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(ev.Payload, &header); err != nil {
+			return nil
+		}
+		return parsePayloadEvent(header.Type, ev.Payload)
+
+	case "event_msg":
+		// Envelope: {"type":"event_msg","payload":{"type":"agent_message","message":"..."}}
+		var msg struct {
+			Type    string `json:"type"`
+			Message string `json:"message,omitempty"`
+		}
+		if err := json.Unmarshal(ev.Payload, &msg); err != nil {
+			return nil
+		}
+		switch msg.Type {
+		case "agent_message":
+			return &codingagent.StreamEvent{Type: codingagent.EventText, Content: msg.Message}
+		case "task_complete":
+			return &codingagent.StreamEvent{Type: codingagent.EventResult}
+		default:
+			// token_count, user_message, task_started etc. - ignore
+			return nil
+		}
+
+	case "session_meta", "turn_context":
+		// Lifecycle metadata events - no mapping needed
+		return nil
+
+	// --- Flat format (backward compatibility) ---
+
 	case "message":
 		// Message event with content array
 		var msg struct {
@@ -82,7 +123,7 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 		return nil
 
 	case "function_call":
-		// Tool use event
+		// Tool use event (flat format)
 		var tc struct {
 			Name      string `json:"name"`
 			Arguments string `json:"arguments"`
@@ -97,7 +138,7 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 		}
 
 	case "function_call_output":
-		// Tool result - parse the output content.
+		// Tool result (flat format) - parse the output content.
 		var out struct {
 			Output string `json:"output"`
 		}
@@ -135,6 +176,65 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 
 	case "thread.started", "turn.started":
 		// Lifecycle events - no mapping needed
+		return nil
+
+	default:
+		return nil
+	}
+}
+
+// parsePayloadEvent converts a response_item payload to a StreamEvent.
+// Handles function_call, function_call_output, and message payloads.
+func parsePayloadEvent(payloadType string, payload json.RawMessage) *codingagent.StreamEvent {
+	switch payloadType {
+	case "function_call":
+		var tc struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}
+		json.Unmarshal(payload, &tc)
+		return &codingagent.StreamEvent{
+			Type:     codingagent.EventToolUse,
+			ToolName: tc.Name,
+			ToolInput: map[string]any{
+				"arguments": tc.Arguments,
+			},
+		}
+
+	case "function_call_output":
+		var out struct {
+			Output string `json:"output"`
+		}
+		json.Unmarshal(payload, &out)
+		return &codingagent.StreamEvent{
+			Type:    codingagent.EventToolResult,
+			Content: out.Output,
+		}
+
+	case "message":
+		// Assistant message with content array
+		var msg struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text,omitempty"`
+			} `json:"content,omitempty"`
+		}
+		json.Unmarshal(payload, &msg)
+		if msg.Role == "assistant" && len(msg.Content) > 0 {
+			var texts []string
+			for _, c := range msg.Content {
+				if c.Type == "output_text" || c.Type == "text" {
+					texts = append(texts, c.Text)
+				}
+			}
+			if len(texts) > 0 {
+				return &codingagent.StreamEvent{
+					Type:    codingagent.EventText,
+					Content: strings.Join(texts, ""),
+				}
+			}
+		}
 		return nil
 
 	default:

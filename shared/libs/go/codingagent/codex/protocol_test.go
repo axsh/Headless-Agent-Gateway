@@ -1,6 +1,7 @@
 package codex_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/axsh/arctic-tern/codingagent"
@@ -130,5 +131,88 @@ func TestParseExecEvent_UnknownType(t *testing.T) {
 	ev := codex.ParseExecEvent(line)
 	if ev != nil {
 		t.Errorf("expected nil for unknown event type, got %+v", ev)
+	}
+}
+
+// --- Nested JSONL format tests (Codex CLI 0.139.0+) ---
+
+func TestParseExecEvent_ResponseItem_FunctionCall(t *testing.T) {
+	line := `{"timestamp":"2026-06-12T07:21:11.017Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\": \"pwd\"}","call_id":"fc_123"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolUse {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolUse)
+	}
+	if ev.ToolName != "shell_command" {
+		t.Errorf("tool_name = %q, want %q", ev.ToolName, "shell_command")
+	}
+}
+
+func TestParseExecEvent_ResponseItem_FunctionCallOutput(t *testing.T) {
+	line := `{"timestamp":"2026-06-12T07:21:12.216Z","type":"response_item","payload":{"type":"function_call_output","call_id":"fc_123","output":"Exit code: 0\nOutput:\n/home/user\n"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolResult {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolResult)
+	}
+	if !strings.Contains(ev.Content, "/home/user") {
+		t.Errorf("content = %q, want to contain /home/user", ev.Content)
+	}
+}
+
+func TestParseExecEvent_ResponseItem_AssistantMessage(t *testing.T) {
+	line := `{"timestamp":"2026-06-12T07:21:13.903Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The current directory is /home/user."}]}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventText {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventText)
+	}
+	if !strings.Contains(ev.Content, "The current directory") {
+		t.Errorf("content = %q, want to contain 'The current directory'", ev.Content)
+	}
+}
+
+func TestParseExecEvent_EventMsg_AgentMessage(t *testing.T) {
+	line := `{"timestamp":"2026-06-12T07:21:13.903Z","type":"event_msg","payload":{"type":"agent_message","message":"The current directory is /home/user."}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventText {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventText)
+	}
+	if ev.Content != "The current directory is /home/user." {
+		t.Errorf("content = %q, want exact message", ev.Content)
+	}
+}
+
+func TestParseExecEvent_EventMsg_TaskComplete(t *testing.T) {
+	line := `{"timestamp":"2026-06-12T07:21:13.907Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventResult {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventResult)
+	}
+}
+
+func TestParseExecEvent_EventMsg_Ignored(t *testing.T) {
+	lines := []string{
+		`{"type":"event_msg","payload":{"type":"token_count"}}`,
+		`{"type":"event_msg","payload":{"type":"user_message"}}`,
+		`{"type":"event_msg","payload":{"type":"task_started"}}`,
+	}
+	for _, line := range lines {
+		ev := codex.ParseExecEvent(line)
+		if ev != nil {
+			t.Errorf("expected nil for %s, got %+v", line, ev)
+		}
 	}
 }
