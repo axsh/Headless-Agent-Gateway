@@ -40,3 +40,5 @@ providers:
         value: "ollama"
         models:
           - name: qwen2.5-coder:7b
+            behavior:
+              tool_call_fallback: true
