@@ -47,12 +47,3 @@ func GetProvider(name string) (Provider, bool) {
 	p, ok := providerRegistry[name]
 	return p, ok
 }
-
-
-
-// resetProviderRegistry clears the registry (for testing only).
-func resetProviderRegistry() {
-	providerMu.Lock()
-	defer providerMu.Unlock()
-	providerRegistry = map[string]Provider{}
-}

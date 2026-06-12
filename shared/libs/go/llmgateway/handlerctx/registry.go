@@ -21,14 +21,6 @@ func RegisterHandler(path string, factory HandlerFactory) {
 	handlerRegistry[path] = factory
 }
 
-// GetHandler returns the handler factory for the given route path.
-func GetHandler(path string) (HandlerFactory, bool) {
-	handlerMu.RLock()
-	defer handlerMu.RUnlock()
-	f, ok := handlerRegistry[path]
-	return f, ok
-}
-
 // AllHandlers returns a copy of all registered handler factories.
 func AllHandlers() map[string]HandlerFactory {
 	handlerMu.RLock()
