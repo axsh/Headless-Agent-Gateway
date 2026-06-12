@@ -330,12 +330,13 @@ Built binaries are placed in the `bin/` directory:
 ### 1. Store API keys in the vault
 
 ```bash
-# Store an API key for a provider (e.g. Anthropic)
+# Store an API key using the provider shorthand
+# (--provider anthropic expands to vault key: providers/anthropic/default)
 $ ./bin/vault-cli set --provider anthropic
-Enter secret value: ****
+Enter value: sk-ant-...
 
-# Or specify a custom vault key path
-$ ./bin/vault-cli set --key providers/openai/default
+# For non-default key names, use --key with a full path
+$ ./bin/vault-cli set --key providers/openai/team-a
 
 # Check which providers have keys registered
 $ ./bin/vault-cli status
