@@ -159,11 +159,19 @@ func sendWayfinderMessage(t *testing.T, baseURL, sessionID, message string, time
 }
 
 // extractPIDFromOutput extracts a PID number from output text.
+// Tries structured JSON first (from run_background_process/kill_process),
+// then falls back to regex-based extraction from free-form text.
 func extractPIDFromOutput(output string) (int, error) {
-	// Try multiple patterns: "PID: 1234", "PID 1234", "pid=1234", "PID is: 1234"
+	// 1. Try structured JSON extraction.
+	// The agent may embed JSON in its response, e.g. {"status":"started","pid":12345,"command":"..."}
+	if pid, ok := extractPIDFromJSON(output); ok {
+		return pid, nil
+	}
+
+	// 2. Regex-based extraction from free-form text.
 	patterns := []string{
 		`(?i)PID\s*(?:is\s*)?[:=]?\s*(\d+)`,
-		`(?i)process\s+(?:id\s+)?(\d+)`,
+		`(?i)process\s+(?:id\s+)?\s*[:=]?\s*(\d+)`,
 		`(?i)started.*?(\d{3,})`,
 	}
 	for _, pat := range patterns {
@@ -177,7 +185,8 @@ func extractPIDFromOutput(output string) (int, error) {
 			}
 		}
 	}
-	// Fallback: if the entire output (trimmed) is a bare number, use it.
+
+	// 3. Fallback: bare number.
 	trimmed := strings.TrimSpace(output)
 	if regexp.MustCompile(`^\d{3,}$`).MatchString(trimmed) {
 		var pid int
@@ -186,7 +195,47 @@ func extractPIDFromOutput(output string) (int, error) {
 			return pid, nil
 		}
 	}
+
 	return 0, fmt.Errorf("no PID found in output: %s", truncate(output, 200))
+}
+
+// extractPIDFromJSON tries to find a JSON object with a "pid" field in the output.
+// Handles both raw JSON and JSON embedded within free-form text.
+func extractPIDFromJSON(output string) (int, bool) {
+	// Try extracting JSON objects from the output.
+	candidates := findJSONObjects(output)
+	for _, candidate := range candidates {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(candidate), &obj); err != nil {
+			continue
+		}
+		if pid, ok := obj["pid"].(float64); ok && pid > 0 {
+			return int(pid), true
+		}
+	}
+	return 0, false
+}
+
+// findJSONObjects extracts potential JSON objects from text.
+func findJSONObjects(text string) []string {
+	var results []string
+	for i := 0; i < len(text); i++ {
+		if text[i] == '{' {
+			depth := 0
+			for j := i; j < len(text); j++ {
+				if text[j] == '{' {
+					depth++
+				} else if text[j] == '}' {
+					depth--
+					if depth == 0 {
+						results = append(results, text[i:j+1])
+						break
+					}
+				}
+			}
+		}
+	}
+	return results
 }
 
 // truncate truncates a string to maxLen characters.
