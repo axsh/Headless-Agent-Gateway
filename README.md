@@ -84,7 +84,8 @@ Create a session, send a message, and stream the response:
 c := client.New("http://localhost:3100")
 
 session, _ := c.CreateSession(ctx, client.SessionRequest{
-    Agent:   "claudecode",
+    Agent:   "claudecode",        // Use Claude Code as the coding agent
+    Model:   "gpt-5.5",           // ...but route LLM calls through OpenAI
     WorkDir: ".",
 })
 defer session.Terminate(ctx)
