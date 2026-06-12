@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/axsh/arctic-tern/codingagent"
@@ -92,9 +93,13 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		WorkDir:    req.WorkDir,
 		SessionDir: req.SessionDir,
 	}
-	// SessionDir fallback: use WorkDir if not explicitly set.
+	// SessionDir fallback: use WorkDir/.AgentName if not explicitly set.
 	if record.SessionDir == "" && record.WorkDir != "" {
-		record.SessionDir = record.WorkDir
+		if record.AgentName != "" {
+			record.SessionDir = filepath.Join(record.WorkDir, "."+record.AgentName)
+		} else {
+			record.SessionDir = record.WorkDir
+		}
 	}
 	s.sessions.Create(record)
 

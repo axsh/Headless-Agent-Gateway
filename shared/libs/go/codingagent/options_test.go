@@ -1,6 +1,7 @@
 package codingagent_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/axsh/arctic-tern/codingagent"
@@ -172,7 +173,7 @@ func TestApplyDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("session dir falls back to work dir", func(t *testing.T) {
+	t.Run("session dir falls back to work dir when no agent name", func(t *testing.T) {
 		cfg := codingagent.NewSessionConfig(
 			codingagent.WithWorkDir("/workspace/project"),
 		)
@@ -183,12 +184,28 @@ func TestApplyDefaults(t *testing.T) {
 		}
 	})
 
+	t.Run("session dir includes agent name when set", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(
+			codingagent.WithWorkDir("/workspace/project"),
+		)
+		ac := &codingagent.AdapterConfig{
+			AgentName: "claudecode",
+		}
+		codingagent.ApplyDefaults(cfg, ac)
+		want := filepath.Join("/workspace/project", ".claudecode")
+		if cfg.SessionDir != want {
+			t.Errorf("SessionDir = %v, want %v", cfg.SessionDir, want)
+		}
+	})
+
 	t.Run("explicit session dir takes priority", func(t *testing.T) {
 		cfg := codingagent.NewSessionConfig(
 			codingagent.WithWorkDir("/workspace/project"),
 			codingagent.WithSessionDir("/data/sessions"),
 		)
-		ac := &codingagent.AdapterConfig{}
+		ac := &codingagent.AdapterConfig{
+			AgentName: "claudecode",
+		}
 		codingagent.ApplyDefaults(cfg, ac)
 		if cfg.SessionDir != "/data/sessions" {
 			t.Errorf("SessionDir = %v, want /data/sessions", cfg.SessionDir)
@@ -201,6 +218,7 @@ func TestApplyDefaults(t *testing.T) {
 		)
 		ac := &codingagent.AdapterConfig{
 			DefaultSessionDir: "/default/sessions",
+			AgentName:         "claudecode",
 		}
 		codingagent.ApplyDefaults(cfg, ac)
 		if cfg.SessionDir != "/default/sessions" {

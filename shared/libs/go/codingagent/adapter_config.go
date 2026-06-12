@@ -4,6 +4,9 @@ import "github.com/axsh/arctic-tern/logger"
 
 // AdapterConfig is the common configuration for all coding agent adapters.
 type AdapterConfig struct {
+	// AgentName is the agent name used for directory naming (e.g., "claudecode", "codex").
+	AgentName string
+
 	// GatewayURL is the LLM Gateway Proxy URL.
 	GatewayURL string
 

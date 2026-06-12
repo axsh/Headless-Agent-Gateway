@@ -1,5 +1,7 @@
 package codingagent
 
+import "path/filepath"
+
 // SessionOption configures a session at creation time.
 type SessionOption func(*SessionConfig)
 
@@ -100,10 +102,12 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 			cfg.EnvVars[k] = v
 		}
 	}
-	// SessionDir fallback: explicit > AdapterConfig > WorkDir
+	// SessionDir fallback: explicit > AdapterConfig > WorkDir/.AgentName > WorkDir
 	if cfg.SessionDir == "" {
 		if ac.DefaultSessionDir != "" {
 			cfg.SessionDir = ac.DefaultSessionDir
+		} else if cfg.WorkDir != "" && ac.AgentName != "" {
+			cfg.SessionDir = filepath.Join(cfg.WorkDir, "."+ac.AgentName)
 		} else if cfg.WorkDir != "" {
 			cfg.SessionDir = cfg.WorkDir
 		}
