@@ -8,6 +8,8 @@ import (
 
 	"github.com/axsh/arctic-tern/codingagent"
 	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/wayfinder/planning"
+	"github.com/axsh/arctic-tern/wayfinder/subagent"
 )
 
 const (
@@ -60,16 +62,44 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 	llmClient := NewBifrostClient(a.baseURL, a.token)
 	core := NewAgentCore(llmClient, agentCfg, a.logger)
 
-	// If resuming, restore messages from session state.
-	if cfg.AgentSessionID != "" {
-		a.logger.Debug("resuming session", "session_id", cfg.AgentSessionID)
-		// Session restore will be implemented in Part 2 (Session Persistence).
-	}
+	// === Wire all components ===
 
+	// 1. Session ID.
 	sessionID := cfg.AgentSessionID
 	if sessionID == "" {
 		sessionID = generateSessionID()
 	}
+	core.SetSessionID(sessionID)
+
+	// 2. Session resume (restore messages from existing session).
+	if cfg.AgentSessionID != "" {
+		a.logger.Debug("resuming session", "session_id", cfg.AgentSessionID)
+		// restoreSession is called automatically in AgentCore.Run().
+	}
+
+	// 3. ExecutionRouter (simple/planning auto-detection).
+	router := NewExecutionRouter(llmClient)
+	core.SetRouter(router)
+
+	// 4. WBSPlanner (WBS plan generation).
+	planner := planning.NewWBSPlanner(llmClient)
+	core.SetPlanner(planner)
+
+	// 5. AgentRunner + SubagentExecutor (child session and tool delegation).
+	runner := NewAgentRunnerImpl(a.baseURL, a.token)
+	core.SetRunner(runner)
+
+	subLLM := newSubagentLLMAdapter(llmClient)
+	core.SetSubagentLLM(subLLM)
+
+	parentCfg := &subagent.AgentRunnerConfig{
+		WorkDir:             agentCfg.WorkDir,
+		SessionDir:          agentCfg.SessionDir,
+		LogicalModel:        agentCfg.LogicalModel,
+		AllowedPathPatterns: agentCfg.AllowedPathPatterns,
+	}
+	subExec := subagent.NewSubagentExecutor(parentCfg, subLLM, runner, a.logger)
+	core.SetSubagentExecutor(subExec)
 
 	a.logger.Info("session created",
 		"session_id", sessionID,
@@ -162,4 +192,60 @@ func (s *wayfinderSession) Close() error {
 // generateSessionID creates a simple unique session ID.
 func generateSessionID() string {
 	return fmt.Sprintf("wf-%d", time.Now().UnixNano())
+}
+
+// newSubagentLLMAdapter wraps a wayfinder LLMClient as a subagent.LLMClient.
+func newSubagentLLMAdapter(llm LLMClient) subagent.LLMClient {
+	return &subagentLLMAdapter{llm: llm}
+}
+
+// subagentLLMAdapter bridges wayfinder.LLMClient to subagent.LLMClient.
+type subagentLLMAdapter struct {
+	llm LLMClient
+}
+
+func (a *subagentLLMAdapter) GenerateMessage(
+	ctx context.Context,
+	model string,
+	msgs []subagent.ChatMessage,
+	tools []subagent.ToolDefinition,
+) (*subagent.LLMResponse, error) {
+	// Convert subagent messages to wayfinder messages.
+	wfMsgs := make([]ChatMessage, len(msgs))
+	for i, m := range msgs {
+		wfMsgs[i] = ChatMessage{
+			Role:       m.Role,
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+		}
+		for _, tc := range m.ToolCalls {
+			wfMsgs[i].ToolCalls = append(wfMsgs[i].ToolCalls, ToolCall{
+				ID: tc.ID, Name: tc.Name, Input: tc.Input,
+			})
+		}
+	}
+
+	// Convert subagent tool definitions to wayfinder tool definitions.
+	wfTools := make([]ToolDefinition, len(tools))
+	for i, t := range tools {
+		// subagent.InputSchema is any, wayfinder.InputSchema is map[string]any.
+		schema, _ := t.InputSchema.(map[string]any)
+		wfTools[i] = ToolDefinition{
+			Name: t.Name, Description: t.Description, InputSchema: schema,
+		}
+	}
+
+	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert wayfinder response back to subagent response.
+	result := &subagent.LLMResponse{Content: resp.Content}
+	for _, tc := range resp.ToolCalls {
+		result.ToolCalls = append(result.ToolCalls, subagent.ToolCall{
+			ID: tc.ID, Name: tc.Name, Input: tc.Input,
+		})
+	}
+	return result, nil
 }
