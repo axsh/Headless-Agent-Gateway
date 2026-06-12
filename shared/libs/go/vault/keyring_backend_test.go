@@ -31,9 +31,9 @@ func TestBuildKeyringServiceName(t *testing.T) {
 		}
 	})
 
-	t.Run("starts with hag-vault- prefix", func(t *testing.T) {
+	t.Run("starts with tern-vault- prefix", func(t *testing.T) {
 		name := buildKeyringServiceName()
-		prefix := "hag-vault-"
+		prefix := "tern-vault-"
 		if len(name) < len(prefix) || name[:len(prefix)] != prefix {
 			t.Errorf("expected prefix %q, got %q", prefix, name)
 		}

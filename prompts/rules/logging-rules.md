@@ -82,7 +82,7 @@ logger.Debug("routing request", "model", model, "provider", provider, "mode", mo
 
 | コンポーネント | タグ名 |
 |---|---|
-| HAG コアサーバー | `hag` |
+| Tern コアサーバー | `tern` |
 | LLM Gateway Proxy | `llmgateway` |
 | Agent Service | `agentservice` |
 | Coding Agent (Claude Code) | `claudecode` |

@@ -23,7 +23,7 @@ None.
 
 | Requirement (from Spec) | Implementation Point (Section/File) |
 | :--- | :--- |
-| R2-1: HAG_VAULT_KEY未設定でエラー | Proposed Changes > vault/file_backend.go |
+| R2-1: TERN_VAULT_KEY未設定でエラー | Proposed Changes > vault/file_backend.go |
 | R2-2: デフォルトキー削除 | Proposed Changes > vault/file_backend.go |
 | R2-3: エラーメッセージに案内 | Proposed Changes > vault/file_backend.go |
 | R3-1: routing.goのTrace先頭8文字をMaskSecretに統一 | Proposed Changes > llmgateway/routing.go |
@@ -138,11 +138,11 @@ None.
 *   **Description**: デフォルトキー廃止に伴うテスト修正
 *   **Technical Design**: 既存テストの修正 + 新規テストケース追加
 *   **Logic**:
-    *   `TestNewFileVaultBackend_NoKey`: `HAG_VAULT_KEY` を未設定にして `NewFileVaultBackend` を呼び出す
-        *   検証: エラーが返ること。エラーメッセージに `"HAG_VAULT_KEY"` と `"openssl rand"` が含まれること
-    *   `TestNewFileVaultBackend_WithKey`: `HAG_VAULT_KEY` を設定して `NewFileVaultBackend` を呼び出す
+    *   `TestNewFileVaultBackend_NoKey`: `TERN_VAULT_KEY` を未設定にして `NewFileVaultBackend` を呼び出す
+        *   検証: エラーが返ること。エラーメッセージに `"TERN_VAULT_KEY"` と `"openssl rand"` が含まれること
+    *   `TestNewFileVaultBackend_WithKey`: `TERN_VAULT_KEY` を設定して `NewFileVaultBackend` を呼び出す
         *   検証: エラーが nil であること。正常にインスタンスが作成されること
-    *   既存テストで `HAG_VAULT_KEY` を設定していないものがあれば、`t.Setenv("HAG_VAULT_KEY", "test-key-for-unit-test")` を追加
+    *   既存テストで `TERN_VAULT_KEY` を設定していないものがあれば、`t.Setenv("TERN_VAULT_KEY", "test-key-for-unit-test")` を追加
 
 #### [MODIFY] [file_backend.go](file:///shared/libs/go/vault/file_backend.go)
 
@@ -151,16 +151,16 @@ None.
 
     ```go
     // 変更前 (L27-29)
-    rawKey := os.Getenv("HAG_VAULT_KEY")
+    rawKey := os.Getenv("TERN_VAULT_KEY")
     if rawKey == "" {
         rawKey = "default-hag-vault-key-change-me"
     }
 
     // 変更後
-    rawKey := os.Getenv("HAG_VAULT_KEY")
+    rawKey := os.Getenv("TERN_VAULT_KEY")
     if rawKey == "" {
         return nil, fmt.Errorf(
-            "HAG_VAULT_KEY environment variable is required for file vault backend; " +
+            "TERN_VAULT_KEY environment variable is required for file vault backend; " +
             "set a strong random key (e.g. openssl rand -base64 32)")
     }
     ```

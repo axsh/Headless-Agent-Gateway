@@ -85,7 +85,7 @@ governance:
 | `KeyringVaultBackend` | OS Keyringを利用 | セキュアなデスクトップ環境 |
 
 - **R2-5**: AES暗号化はオプショナル機能とする。`FileVaultBackend` での平文保存防止に有用
-- **R2-6**: 環境変数からのAPIキー読み込みに対応する。環境変数名の規約は `HAG_VAULT_{PROVIDER}_{KEY}` とする (例: `HAG_VAULT_ANTHROPIC_PRIMARY`)
+- **R2-6**: 環境変数からのAPIキー読み込みに対応する。環境変数名の規約は `TERN_VAULT_{PROVIDER}_{KEY}` とする (例: `TERN_VAULT_ANTHROPIC_PRIMARY`)
 - **R2-7**: `vault://` 参照を実際のキー値に解決する `Resolve(ref string) (string, error)` メソッドを持つ
 
 ```go
@@ -227,7 +227,7 @@ graph TD
 1. `model_profiles.yaml` ロード時に `value: "vault://providers/anthropic/primary"` を検出
 2. VaultStoreの `Resolve("vault://providers/anthropic/primary")` を呼び出す
 3. バックエンドに応じてキー値を取得:
-   - `EnvVaultBackend`: `HAG_VAULT_ANTHROPIC_PRIMARY` 環境変数を読み込む
+   - `EnvVaultBackend`: `TERN_VAULT_ANTHROPIC_PRIMARY` 環境変数を読み込む
    - `FileVaultBackend`: ファイルから読み込む (AES復号が必要ならば復号)
    - `KeyringVaultBackend`: OS Keyringから読み込む
 4. 解決された値をBifrost SDK初期化時に渡す
@@ -240,7 +240,7 @@ graph TD
 
 1. `vault.backend: "env"` を設定する
 2. `model_profiles.yaml` に `value: "vault://providers/anthropic/primary"` を定義する
-3. `HAG_VAULT_ANTHROPIC_PRIMARY=sk-ant-xxxxx` を環境変数にセットする
+3. `TERN_VAULT_ANTHROPIC_PRIMARY=sk-ant-xxxxx` を環境変数にセットする
 4. LLM Gatewayを起動する
 5. `POST /v1/messages` でAnthropicモデルにリクエストする
 6. 正常にLLMレスポンスが返ること

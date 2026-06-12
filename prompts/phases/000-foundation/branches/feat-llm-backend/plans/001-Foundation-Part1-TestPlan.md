@@ -46,9 +46,9 @@ None.
 | REQ-V01 | VaultStore interface定義 (Resolve/Set/Delete/List) | 機能 |
 | REQ-V02 | vault://参照のパース (IsVaultRef/ParseVaultRef) | 機能 |
 | REQ-V03 | EnvVaultBackend (環境変数からのキー読み込み) | 機能 |
-| REQ-V04 | 環境変数名規約 (HAG_VAULT_{PROVIDER}_{KEY}) | 機能 |
+| REQ-V04 | 環境変数名規約 (TERN_VAULT_{PROVIDER}_{KEY}) | 機能 |
 | REQ-V05 | 未設定環境変数のエラーハンドリング | 機能 |
-| REQ-V06 | EnvVaultBackend.List() (HAG_VAULT_プレフィックス探索) | 機能 |
+| REQ-V06 | EnvVaultBackend.List() (TERN_VAULT_プレフィックス探索) | 機能 |
 | REQ-V07 | マルチテナント対応 (複数パス解決) | 統合 |
 
 ---
@@ -513,7 +513,7 @@ None.
 
 #### 2.1 実現根拠
 
-1. **E-V03-1**: 環境変数 `HAG_VAULT_ANTHROPIC_PRIMARY` にキーを設定し、`Resolve("vault://providers/anthropic/primary")` で取得できること
+1. **E-V03-1**: 環境変数 `TERN_VAULT_ANTHROPIC_PRIMARY` にキーを設定し、`Resolve("vault://providers/anthropic/primary")` で取得できること
 2. **E-V03-2**: 未設定の環境変数に対してエラーが返ること
 3. **E-V03-3**: vault://でない参照に対してエラーが返ること
 4. **E-V03-4**: Set/Delete/Listが正しく動作すること
@@ -528,7 +528,7 @@ None.
 * **配置先**: `shared/libs/go/vault/env_backend_test.go`
 * **テスト関数名**: `TestEnvVaultBackend_Resolve`
 * **テストシナリオ**:
-    1. [Arrange] `t.Setenv("HAG_VAULT_ANTHROPIC_PRIMARY", "sk-ant-test123")`
+    1. [Arrange] `t.Setenv("TERN_VAULT_ANTHROPIC_PRIMARY", "sk-ant-test123")`
     2. [Act] `backend.Resolve("vault://providers/anthropic/primary")` 呼び出し
     3. [Assert] 返却値 == `"sk-ant-test123"`, err == nil
 
@@ -558,9 +558,9 @@ None.
             path string
             want string
         }{
-            {"providers/anthropic/primary", "HAG_VAULT_ANTHROPIC_PRIMARY"},
-            {"providers/openai/team-a", "HAG_VAULT_OPENAI_TEAM_A"},
-            {"providers/ollama/default", "HAG_VAULT_OLLAMA_DEFAULT"},
+            {"providers/anthropic/primary", "TERN_VAULT_ANTHROPIC_PRIMARY"},
+            {"providers/openai/team-a", "TERN_VAULT_OPENAI_TEAM_A"},
+            {"providers/ollama/default", "TERN_VAULT_OLLAMA_DEFAULT"},
         }
         ```
     2. [Act] `pathToEnvName(path)` 呼び出し
@@ -574,7 +574,7 @@ None.
 * **配置先**: `shared/libs/go/vault/env_backend_test.go`
 * **テスト関数名**: `TestEnvVaultBackend_List`
 * **テストシナリオ**:
-    1. [Arrange] `t.Setenv("HAG_VAULT_ANTHROPIC_PRIMARY", "key1")`, `t.Setenv("HAG_VAULT_OPENAI_PRIMARY", "key2")`
+    1. [Arrange] `t.Setenv("TERN_VAULT_ANTHROPIC_PRIMARY", "key1")`, `t.Setenv("TERN_VAULT_OPENAI_PRIMARY", "key2")`
     2. [Act] `backend.List()` 呼び出し
     3. [Assert] 返却されたパス一覧に期待パスが含まれること
 
@@ -596,7 +596,7 @@ None.
 * **配置先**: `shared/libs/go/vault/env_backend_test.go`
 * **テスト関数名**: `TestEnvVaultBackend_MultiTenant`
 * **テストシナリオ**:
-    1. [Arrange] `t.Setenv("HAG_VAULT_ANTHROPIC_TEAM_A", "key-team-a")`, `t.Setenv("HAG_VAULT_ANTHROPIC_TEAM_B", "key-team-b")`
+    1. [Arrange] `t.Setenv("TERN_VAULT_ANTHROPIC_TEAM_A", "key-team-a")`, `t.Setenv("TERN_VAULT_ANTHROPIC_TEAM_B", "key-team-b")`
     2. [Act] `backend.Resolve("vault://providers/anthropic/team-a")` と `backend.Resolve("vault://providers/anthropic/team-b")` 呼び出し
     3. [Assert] それぞれ異なる値が返ること
 

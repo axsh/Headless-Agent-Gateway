@@ -7,7 +7,7 @@ import (
 )
 
 // EnvVaultBackend resolves secrets from environment variables.
-// Path mapping: vault://providers/{provider}/{key} -> HAG_VAULT_{PROVIDER}_{KEY}
+// Path mapping: vault://providers/{provider}/{key} -> TERN_VAULT_{PROVIDER}_{KEY}
 type EnvVaultBackend struct{}
 
 // NewEnvVaultBackend creates a new EnvVaultBackend.
@@ -39,7 +39,7 @@ func (b *EnvVaultBackend) Delete(path string) error {
 	return os.Unsetenv(pathToEnvName(path))
 }
 
-// List returns all secret paths by scanning environment variables with HAG_VAULT_ prefix.
+// List returns all secret paths by scanning environment variables with TERN_VAULT_ prefix.
 func (b *EnvVaultBackend) List() ([]string, error) {
 	var paths []string
 	for _, env := range os.Environ() {
@@ -51,11 +51,11 @@ func (b *EnvVaultBackend) List() ([]string, error) {
 	return paths, nil
 }
 
-const envPrefix = "HAG_VAULT_"
+const envPrefix = "TERN_VAULT_"
 
 // pathToEnvName converts a vault path to an environment variable name.
-// "providers/anthropic/primary" -> "HAG_VAULT_ANTHROPIC_PRIMARY"
-// "providers/anthropic/team-a"  -> "HAG_VAULT_ANTHROPIC_TEAM_A"
+// "providers/anthropic/primary" -> "TERN_VAULT_ANTHROPIC_PRIMARY"
+// "providers/anthropic/team-a"  -> "TERN_VAULT_ANTHROPIC_TEAM_A"
 func pathToEnvName(path string) string {
 	// Strip "providers/" prefix if present.
 	path = strings.TrimPrefix(path, "providers/")
@@ -66,7 +66,7 @@ func pathToEnvName(path string) string {
 }
 
 // envNameToPath converts an environment variable name back to a vault path.
-// "HAG_VAULT_ANTHROPIC_PRIMARY" -> "anthropic_primary" (normalized, not exact inverse)
+// "TERN_VAULT_ANTHROPIC_PRIMARY" -> "anthropic_primary" (normalized, not exact inverse)
 func envNameToPath(envName string) string {
 	name := strings.TrimPrefix(envName, envPrefix)
 	return strings.ToLower(name)

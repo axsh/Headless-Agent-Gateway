@@ -48,7 +48,7 @@ func buildKeyringServiceName(tenantID ...string) string {
 		tID = tenantID[0]
 	}
 	h := sha256.Sum256([]byte(strings.ToLower(tID)))
-	return "hag-vault-" + toBase62(h[:])
+	return "tern-vault-" + toBase62(h[:])
 }
 
 // storedNode is the JSON representation persisted in the OS Keyring.

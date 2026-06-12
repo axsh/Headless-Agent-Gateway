@@ -31,7 +31,7 @@ HAG (Headless-Agent-Gateway) の基本機能を実装する「000-foundation」�
 - **R2-3**: `examples/standalone/docker-compose.yaml` を作成する。
   * `config.yaml` / `model_profiles.yaml` のボリュームマウント設定。
   * LLM Gateway Proxy ポート (`14000`) と API/WebSocket ポート (`18080`) の公開・マッピング設定。
-  * 環境変数からのAPIキー解決（`HAG_VAULT_` プレフィックスなど）への対応。
+  * 環境変数からのAPIキー解決（`TERN_VAULT_` プレフィックスなど）への対応。
 
 #### R3: LLM Gateway Proxy の拡張機能
 

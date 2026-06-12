@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/resources/images/hag_witch_circle_transparent_2.png" alt="HAG Logo" width="200">
+  <img src="docs/resources/images/hag_witch_circle_transparent_2.png" alt="Arctic Tern Logo" width="200">
 </p>
 
-<h1 align="center">HAG (Headless Agent Gateway)</h1>
+<h1 align="center">Arctic Tern</h1>
 
 <p align="center">
 LLM プロバイダ (OpenAI, Anthropic, Google 等) への API リクエストを透過的にプロキシし、<br>
@@ -30,11 +30,11 @@ LLM プロバイダ (OpenAI, Anthropic, Google 等) への API リクエスト�
 ```
 .
 ├── features/           # 機能モジュール (個別の Go モジュール)
-│   └── hag/            # HAG 本体のエントリポイント (将来拡張用)
+│   └── tern/           # Tern 本体のエントリポイント (将来拡張用)
 ├── shared/
 │   └── libs/
-│       └── go/         # 共有ライブラリ群 (Go モジュール: github.com/axsh/hag)
-│           ├── hag/           # HAG サーバコア (New, Launch, Shutdown)
+│       └── go/         # 共有ライブラリ群 (Go モジュール: github.com/axsh/arctic-tern)
+│           ├── tern/          # Tern サーバコア (New, Launch, Shutdown)
 │           ├── llmgateway/    # LLM Gateway プロキシ (OpenAI / Anthropic)
 │           ├── wsserver/      # WebSocket サーバ (ログストリーミング)
 │           ├── tasklog/       # エージェントログ管理
@@ -44,7 +44,7 @@ LLM プロバイダ (OpenAI, Anthropic, Google 等) への API リクエスト�
 │           ├── codingagent/   # コーディングエージェント
 │           └── logger/        # ロガー
 ├── examples/           # 動作デモ・サンプル
-│   ├── standalone/     # HAG サーバ単体起動デモ (Docker 対応)
+│   ├── standalone/     # Tern サーバ単体起動デモ (Docker 対応)
 │   ├── cawa-client/    # Coding Agent Web API クライアント CLI
 │   ├── log-viewer/     # WebSocket ログビューア / シミュレータ
 │   └── vault-cli/      # シークレット管理 CLI ツール
@@ -65,8 +65,8 @@ LLM プロバイダ (OpenAI, Anthropic, Google 等) への API リクエスト�
 ### リポジトリのクローンとサブモジュール取得
 
 ```bash
-git clone git@github.com:axsh/Headless-Agent-Gateway.git
-cd Headless-Agent-Gateway
+git clone git@github.com:axsh/arctic-tern.git
+cd arctic-tern
 git submodule update --init --recursive
 ```
 
@@ -117,7 +117,7 @@ Coding Agent Web API (AgentService) と対話するための CLI ツールです
 
 #### 前提条件
 
-- HAG サーバ (standalone) が起動していること (手順は下記「2. standalone」を参照)
+- Tern サーバ (standalone) が起動していること (手順は下記「2. standalone」を参照)
 - Claude Code CLI (`claude`) がインストールされていること
 
 #### ビルド
@@ -186,7 +186,7 @@ cd ../..
 #### デモ実行フロー
 
 ```bash
-# 1. 別ターミナルで HAG サーバを起動 (下記「2. standalone」の手順を参照)
+# 1. 別ターミナルで Tern サーバを起動 (下記「2. standalone」の手順を参照)
 ./bin/standalone -config examples/standalone/config.yaml
 
 # 2. ヘルスチェック
@@ -208,9 +208,9 @@ cd ../..
 # SSE でリアルタイムに応答がストリーミングされる
 ```
 
-### 2. standalone - HAG サーバ単体起動
+### 2. standalone - Tern サーバ単体起動
 
-HAG サーバを起動して LLM Gateway プロキシと WebSocket ログサーバを立ち上げるデモです。
+Tern サーバを起動して LLM Gateway プロキシと WebSocket ログサーバを立ち上げるデモです。
 
 #### ローカル実行
 
@@ -222,7 +222,7 @@ cd ../..
 ```
 
 > **Note**: `examples/standalone/config.yaml` の `model_profiles_path` はデフォルトで
-> Docker コンテナ用のパス (`/etc/hag/model_profiles.yaml`) が設定されています。
+> Docker コンテナ用のパス (`/etc/tern/model_profiles.yaml`) が設定されています。
 > ローカル実行時は、実際の `model_profiles.yaml` のパスに変更してください。
 >
 > ```yaml
@@ -239,11 +239,11 @@ API キーの設定方法は Vault バックエンドによって異なります
 ```bash
 # LLM プロバイダの API キーを環境変数で設定する。
 # model_profiles.yaml の vault:// 参照が以下のように環境変数名に変換される:
-#   vault://providers/openai/default    → HAG_VAULT_OPENAI_DEFAULT
-#   vault://providers/anthropic/primary → HAG_VAULT_ANTHROPIC_PRIMARY
+#   vault://providers/openai/default    → TERN_VAULT_OPENAI_DEFAULT
+#   vault://providers/anthropic/primary → TERN_VAULT_ANTHROPIC_PRIMARY
 # 各環境変数の値に、対応するプロバイダの実際の API キーを設定する。
-export HAG_VAULT_OPENAI_DEFAULT="sk-proj-your-openai-api-key"
-export HAG_VAULT_ANTHROPIC_PRIMARY="sk-ant-your-anthropic-api-key"
+export TERN_VAULT_OPENAI_DEFAULT="sk-proj-your-openai-api-key"
+export TERN_VAULT_ANTHROPIC_PRIMARY="sk-ant-your-anthropic-api-key"
 
 # 起動 (プロジェクトルートから)
 ./bin/standalone -config examples/standalone/config.yaml
@@ -488,7 +488,7 @@ Session created: 30c5db0aeb058d6e1a97f0f03e81ba41
 ### 4. log-viewer - WebSocket ログビューア
 
 WebSocket 経由でエージェントのログをリアルタイムに表示するビューアです。
-シミュレータモードを使えば、HAG サーバとダミーログ生成を一括で起動して動作を確認できます。
+シミュレータモードを使えば、Tern サーバとダミーログ生成を一括で起動して動作を確認できます。
 
 #### シミュレータモード (単体で動作確認)
 

@@ -304,8 +304,8 @@ services:
       - ./config.yaml:/app/config.yaml
       - ./model_profiles.yaml:/app/model_profiles.yaml
     environment:
-      - HAG_VAULT_ANTHROPIC_PRIMARY=${ANTHROPIC_API_KEY}
-      - HAG_VAULT_OPENAI_PRIMARY=${OPENAI_API_KEY}
+      - TERN_VAULT_ANTHROPIC_PRIMARY=${ANTHROPIC_API_KEY}
+      - TERN_VAULT_OPENAI_PRIMARY=${OPENAI_API_KEY}
 ```
 
 - **R7-3**: Coding Agent CLIからLLM Gateway Proxyへの通信はコンテナ内ネットワークで行う

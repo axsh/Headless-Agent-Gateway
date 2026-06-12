@@ -659,14 +659,14 @@ vault:
             {
                 name:   "anthropic key",
                 ref:    "vault://providers/anthropic/primary",
-                envKey: "HAG_VAULT_ANTHROPIC_PRIMARY",
+                envKey: "TERN_VAULT_ANTHROPIC_PRIMARY",
                 envVal: "sk-ant-test123",
                 want:   "sk-ant-test123",
             },
             {
                 name:    "missing env var",
                 ref:     "vault://providers/openai/primary",
-                envKey:  "HAG_VAULT_OPENAI_PRIMARY",
+                envKey:  "TERN_VAULT_OPENAI_PRIMARY",
                 wantErr: true,
             },
             {
@@ -682,9 +682,9 @@ vault:
             path string
             want string
         }{
-            {"providers/anthropic/primary", "HAG_VAULT_ANTHROPIC_PRIMARY"},
-            {"providers/openai/team-a", "HAG_VAULT_OPENAI_TEAM_A"},
-            {"providers/ollama/default", "HAG_VAULT_OLLAMA_DEFAULT"},
+            {"providers/anthropic/primary", "TERN_VAULT_ANTHROPIC_PRIMARY"},
+            {"providers/openai/team-a", "TERN_VAULT_OPENAI_TEAM_A"},
+            {"providers/ollama/default", "TERN_VAULT_OLLAMA_DEFAULT"},
         }
     }
     ```
@@ -702,7 +702,7 @@ vault:
     )
 
     // EnvVaultBackend resolves secrets from environment variables.
-    // vault://providers/{provider}/{key} -> HAG_VAULT_{PROVIDER}_{KEY}
+    // vault://providers/{provider}/{key} -> TERN_VAULT_{PROVIDER}_{KEY}
     type EnvVaultBackend struct{}
 
     func NewEnvVaultBackend() *EnvVaultBackend {
@@ -731,11 +731,11 @@ vault:
     }
 
     func (b *EnvVaultBackend) List() ([]string, error) {
-        // Scan environment for HAG_VAULT_ prefix
+        // Scan environment for TERN_VAULT_ prefix
         var paths []string
         for _, env := range os.Environ() {
             parts := strings.SplitN(env, "=", 2)
-            if strings.HasPrefix(parts[0], "HAG_VAULT_") {
+            if strings.HasPrefix(parts[0], "TERN_VAULT_") {
                 paths = append(paths, envNameToPath(parts[0]))
             }
         }
@@ -747,7 +747,7 @@ vault:
     2. pathが `providers/{provider}/{key}` 形式の場合、`providers/` prefix を除去
     3. `/` を `_` に置換
     4. 大文字化
-    5. `HAG_VAULT_` prefix を付与
+    5. `TERN_VAULT_` prefix を付与
     6. `-` を `_` に置換 (team-a -> TEAM_A)
 
 ---

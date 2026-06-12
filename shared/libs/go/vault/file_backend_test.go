@@ -9,9 +9,9 @@ import (
 
 func TestFileVaultBackend_Lifecycle(t *testing.T) {
 	// Set AES key for test
-	t.Setenv("HAG_VAULT_KEY", "12345678901234567890123456789012") // 32 bytes key
+	t.Setenv("TERN_VAULT_KEY", "12345678901234567890123456789012") // 32 bytes key
 
-	tmpDir, err := os.MkdirTemp("", "hag-vault-test-*")
+	tmpDir, err := os.MkdirTemp("", "tern-vault-test-*")
 	if err != nil {
 		t.Fatalf("MkdirTemp failed: %v", err)
 	}
@@ -78,9 +78,9 @@ func TestFileVaultBackend_Lifecycle(t *testing.T) {
 }
 
 func TestNewFileVaultBackend_NoKey(t *testing.T) {
-	t.Setenv("HAG_VAULT_KEY", "")
+	t.Setenv("TERN_VAULT_KEY", "")
 
-	tmpDir, err := os.MkdirTemp("", "hag-vault-nokey-*")
+	tmpDir, err := os.MkdirTemp("", "tern-vault-nokey-*")
 	if err != nil {
 		t.Fatalf("MkdirTemp failed: %v", err)
 	}
@@ -88,10 +88,10 @@ func TestNewFileVaultBackend_NoKey(t *testing.T) {
 
 	_, err = NewFileVaultBackend(filepath.Join(tmpDir, "vault.db"))
 	if err == nil {
-		t.Fatal("expected error when HAG_VAULT_KEY is empty, got nil")
+		t.Fatal("expected error when TERN_VAULT_KEY is empty, got nil")
 	}
-	if !strings.Contains(err.Error(), "HAG_VAULT_KEY") {
-		t.Errorf("error message should mention HAG_VAULT_KEY, got: %v", err)
+	if !strings.Contains(err.Error(), "TERN_VAULT_KEY") {
+		t.Errorf("error message should mention TERN_VAULT_KEY, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "openssl rand") {
 		t.Errorf("error message should include key generation guidance, got: %v", err)
@@ -99,9 +99,9 @@ func TestNewFileVaultBackend_NoKey(t *testing.T) {
 }
 
 func TestNewFileVaultBackend_WithKey(t *testing.T) {
-	t.Setenv("HAG_VAULT_KEY", "test-vault-key-for-unit-tests-32")
+	t.Setenv("TERN_VAULT_KEY", "test-vault-key-for-unit-tests-32")
 
-	tmpDir, err := os.MkdirTemp("", "hag-vault-withkey-*")
+	tmpDir, err := os.MkdirTemp("", "tern-vault-withkey-*")
 	if err != nil {
 		t.Fatalf("MkdirTemp failed: %v", err)
 	}

@@ -152,16 +152,16 @@ tls:
 
 #### R2: FileVaultBackend デフォルト暗号化キー廃止
 
-- **R2-1**: `HAG_VAULT_KEY` 環境変数が未設定の場合、`NewFileVaultBackend` はエラーを返す
+- **R2-1**: `TERN_VAULT_KEY` 環境変数が未設定の場合、`NewFileVaultBackend` はエラーを返す
 - **R2-2**: デフォルトキー `"default-hag-vault-key-change-me"` をコードから削除する
 - **R2-3**: エラーメッセージには、環境変数の設定方法を案内する
 
 ```go
 // 変更後
-rawKey := os.Getenv("HAG_VAULT_KEY")
+rawKey := os.Getenv("TERN_VAULT_KEY")
 if rawKey == "" {
     return nil, fmt.Errorf(
-        "HAG_VAULT_KEY environment variable is required for file vault backend; " +
+        "TERN_VAULT_KEY environment variable is required for file vault backend; " +
         "set a strong random key (e.g. openssl rand -base64 32)")
 }
 ```
@@ -553,10 +553,10 @@ log:
 
 ### シナリオ7: FileVaultBackend デフォルトキー廃止
 
-1. `HAG_VAULT_KEY` 環境変数を未設定にする
+1. `TERN_VAULT_KEY` 環境変数を未設定にする
 2. `vault.backend: file` でLLMGPを起動する
 3. エラーメッセージに設定方法の案内が含まれること
-4. `HAG_VAULT_KEY` を設定して起動する
+4. `TERN_VAULT_KEY` を設定して起動する
 5. 正常に起動すること
 
 ### シナリオ8: Google APIキーURL排除

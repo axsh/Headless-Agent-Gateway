@@ -38,7 +38,7 @@ func WriteConfigTOML(model, gatewayURL, wireAPI string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get user home dir: %w", err)
 	}
-	baseDir := filepath.Join(homeDir, ".codex-hag-sessions")
+	baseDir := filepath.Join(homeDir, ".codex-tern-sessions")
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return "", fmt.Errorf("create base dir: %w", err)
 	}

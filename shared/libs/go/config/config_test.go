@@ -70,13 +70,13 @@ llm_gateway:
 			input: `
 vault:
   backend: "file"
-  file_path: "/etc/hag/vault.json"
+  file_path: "/etc/tern/vault.json"
   aes_enabled: true
 `,
 			want: AppConfig{
 				Vault: VaultConfig{
 					Backend:    "file",
-					FilePath:   "/etc/hag/vault.json",
+					FilePath:   "/etc/tern/vault.json",
 					AESEnabled: true,
 				},
 			},
@@ -121,7 +121,7 @@ log:
     - type: "syslog"
       network: "udp"
       address: "localhost:514"
-      tag: "hag"
+      tag: "tern"
 `
 	var cfg AppConfig
 	err := yaml.Unmarshal([]byte(input), &cfg)
@@ -141,7 +141,7 @@ log:
 	if cfg.Log.Outputs[1].Type != "syslog" {
 		t.Errorf("expected output 1 to be syslog, got %q", cfg.Log.Outputs[1].Type)
 	}
-	if cfg.Log.Outputs[1].Network != "udp" || cfg.Log.Outputs[1].Address != "localhost:514" || cfg.Log.Outputs[1].Tag != "hag" {
+	if cfg.Log.Outputs[1].Network != "udp" || cfg.Log.Outputs[1].Address != "localhost:514" || cfg.Log.Outputs[1].Tag != "tern" {
 		t.Errorf("syslog output mismatch: %+v", cfg.Log.Outputs[1])
 	}
 }

@@ -1,10 +1,10 @@
-# HAG Agent-only container (Coding Agent with Claude Code CLI)
+# Arctic Tern Agent-only container (Coding Agent with Claude Code CLI)
 FROM golang:1.21-bookworm AS go-builder
 WORKDIR /build
 COPY go.work go.work.sum ./
 COPY shared/libs/go/ ./shared/libs/go/
 COPY examples/ ./examples/
-RUN cd shared/libs/go && go build -o /build/bin/hag-agent ../../examples/cawa-server
+RUN cd shared/libs/go && go build -o /build/bin/tern-agent ../../examples/cawa-server
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
@@ -15,7 +15,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN npm install -g @anthropic-ai/claude-code
 
 RUN groupadd -r claude && useradd -r -g claude -m -d /home/claude claude
-COPY --from=go-builder /build/bin/hag-agent /usr/local/bin/
+COPY --from=go-builder /build/bin/tern-agent /usr/local/bin/
 COPY container/hybrid/agent/entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
@@ -28,4 +28,4 @@ ENV AGENT_AUTH_TOKEN=""
 EXPOSE 3100
 WORKDIR /workspace
 ENTRYPOINT ["entrypoint.sh"]
-CMD ["hag-agent", "--agent-only"]
+CMD ["tern-agent", "--agent-only"]

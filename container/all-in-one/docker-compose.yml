@@ -1,6 +1,6 @@
 version: "3.8"
 services:
-  hag:
+  tern:
     build:
       context: ../..
       dockerfile: container/all-in-one/Dockerfile

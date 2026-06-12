@@ -14,10 +14,10 @@ func TestEnvVaultBackend_PathToEnvName(t *testing.T) {
 		path string
 		want string
 	}{
-		{"providers/anthropic/primary", "HAG_VAULT_ANTHROPIC_PRIMARY"},
-		{"providers/openai/team-a", "HAG_VAULT_OPENAI_TEAM_A"},
-		{"providers/ollama/default", "HAG_VAULT_OLLAMA_DEFAULT"},
-		{"custom/path/key", "HAG_VAULT_CUSTOM_PATH_KEY"},
+		{"providers/anthropic/primary", "TERN_VAULT_ANTHROPIC_PRIMARY"},
+		{"providers/openai/team-a", "TERN_VAULT_OPENAI_TEAM_A"},
+		{"providers/ollama/default", "TERN_VAULT_OLLAMA_DEFAULT"},
+		{"custom/path/key", "TERN_VAULT_CUSTOM_PATH_KEY"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -32,7 +32,7 @@ func TestEnvVaultBackend_Resolve(t *testing.T) {
 	backend := NewEnvVaultBackend()
 
 	t.Run("success", func(t *testing.T) {
-		t.Setenv("HAG_VAULT_ANTHROPIC_PRIMARY", "sk-ant-test123")
+		t.Setenv("TERN_VAULT_ANTHROPIC_PRIMARY", "sk-ant-test123")
 		val, err := backend.Resolve("vault://providers/anthropic/primary")
 		if err != nil {
 			t.Fatalf("Resolve() error = %v", err)
@@ -47,7 +47,7 @@ func TestEnvVaultBackend_Resolve(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for missing env var")
 		}
-		if !strings.Contains(err.Error(), "HAG_VAULT_OPENAI_MISSING_KEY") {
+		if !strings.Contains(err.Error(), "TERN_VAULT_OPENAI_MISSING_KEY") {
 			t.Errorf("error should mention env var name: %v", err)
 		}
 	})
@@ -77,7 +77,7 @@ func TestEnvVaultBackend_Set(t *testing.T) {
 
 func TestEnvVaultBackend_Delete(t *testing.T) {
 	backend := NewEnvVaultBackend()
-	t.Setenv("HAG_VAULT_ANTHROPIC_DELETE", "to-delete")
+	t.Setenv("TERN_VAULT_ANTHROPIC_DELETE", "to-delete")
 
 	if err := backend.Delete("providers/anthropic/delete"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
@@ -91,15 +91,15 @@ func TestEnvVaultBackend_Delete(t *testing.T) {
 
 func TestEnvVaultBackend_List(t *testing.T) {
 	backend := NewEnvVaultBackend()
-	t.Setenv("HAG_VAULT_ANTHROPIC_LIST1", "key1")
-	t.Setenv("HAG_VAULT_OPENAI_LIST2", "key2")
+	t.Setenv("TERN_VAULT_ANTHROPIC_LIST1", "key1")
+	t.Setenv("TERN_VAULT_OPENAI_LIST2", "key2")
 
 	paths, err := backend.List()
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
 
-	// Filter to just our test entries (test env may have other HAG_VAULT_ vars).
+	// Filter to just our test entries (test env may have other TERN_VAULT_ vars).
 	var found []string
 	for _, p := range paths {
 		if strings.Contains(p, "list") {
@@ -115,8 +115,8 @@ func TestEnvVaultBackend_List(t *testing.T) {
 
 func TestEnvVaultBackend_MultiTenant(t *testing.T) {
 	backend := NewEnvVaultBackend()
-	t.Setenv("HAG_VAULT_ANTHROPIC_TEAM_A", "key-team-a")
-	t.Setenv("HAG_VAULT_ANTHROPIC_TEAM_B", "key-team-b")
+	t.Setenv("TERN_VAULT_ANTHROPIC_TEAM_A", "key-team-a")
+	t.Setenv("TERN_VAULT_ANTHROPIC_TEAM_B", "key-team-b")
 
 	valA, err := backend.Resolve("vault://providers/anthropic/team-a")
 	if err != nil {

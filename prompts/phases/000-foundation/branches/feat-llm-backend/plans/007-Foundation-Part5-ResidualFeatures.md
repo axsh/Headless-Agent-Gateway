@@ -115,7 +115,7 @@ None.
     type FileVaultBackend struct {
         mu       sync.RWMutex
         filepath string
-        key      []byte // AES-256 key derived from HAG_VAULT_KEY env
+        key      []byte // AES-256 key derived from TERN_VAULT_KEY env
         secrets  map[string]string
     }
 
@@ -127,7 +127,7 @@ None.
     ```
 *   **Logic**:
     *   ファイル読み書きの際、`crypto/aes` および `crypto/cipher` の GCM モードを用いてデータを暗号化・復号化する。
-    *   環境変数 `HAG_VAULT_KEY` が無い場合は、固定値またはエラーとして暗号キーを取得する。
+    *   環境変数 `TERN_VAULT_KEY` が無い場合は、固定値またはエラーとして暗号キーを取得する。
 
 ---
 
