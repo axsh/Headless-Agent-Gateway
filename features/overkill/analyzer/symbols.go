@@ -241,7 +241,7 @@ func collectRefs(node *sitter.Node, source []byte, filePath, pkgName string, ref
 	kind := node.Kind()
 
 	// Collect identifiers that are references (not definitions).
-	if kind == "identifier" || kind == "type_identifier" {
+	if kind == "identifier" || kind == "type_identifier" || kind == "field_identifier" {
 		// Skip if this is a definition name (handled by parent extraction).
 		parent := node.Parent()
 		if parent != nil && isDefNameNode(node, parent) {
