@@ -94,7 +94,29 @@
 ## 5. ロギングと通信処理
 
 *   **統一ログシステムの使用**: 全てのログ出力は、プロジェクト共通の `internal/logger` パッケージを通じて行うこと。標準の `log` パッケージや `fmt.Print`、`slog` の直接使用は禁止とする。
-*   **ログレベルの使い分け**: `Debug`, `Info`, `Warn`, `Error` を適切に使い分けること。
+*   **ログレベルの使い分け**: `Trace`, `Debug`, `Info`, `Warn`, `Error` を適切に使い分けること。詳細な使用基準や命名規則については [logging-rules.md](file://prompts/rules/logging-rules.md) を参照し、それに従うこと。
+
+### 5.1 Backend Server Binding (Go)
+
+> [!IMPORTANT]
+> **ループバックアドレスへのバインド義務**: `net.Listen` や `http.ListenAndServe` 等でTCPサーバを起動する際、特別な理由がない限り **`127.0.0.1`** を明示的に指定すること。ホスト部分を省略した `:0` や `:<port>` の使用は **禁止** する。
+
+*   **理由**: ホスト部分を省略すると `0.0.0.0`（全インターフェース）にバインドされ、Windows環境でファイアウォール警告ダイアログが表示される。自動テストの完全自動化を阻害し、放置されたダイアログがゴミリソースとなる。
+*   **対象**: 本番コード、テストコード、テストユーティリティ（`freePort()` 等のヘルパー関数を含む）の全てに適用される。
+*   **`localhost` ではなく `127.0.0.1` を使用する**: `localhost` はDNS解決を経由し、IPv6 (`::1`) に解決される可能性がある。`127.0.0.1` を直接指定することで確実にIPv4ループバックのみにバインドされる。
+
+```go
+// Good: explicitly bind to loopback
+net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+net.Listen("tcp", "127.0.0.1:0")
+
+// Bad: binds to 0.0.0.0 (all interfaces), triggers firewall dialog
+net.Listen("tcp", fmt.Sprintf(":%d", port))
+net.Listen("tcp", ":0")
+```
+
+*   **例外**: 外部ネットワークからの接続を明示的に受け付ける必要がある場合（本番デプロイ用サーバ等）は、その旨をコードコメントに記載した上で `0.0.0.0` または特定のインターフェースアドレスを使用してよい。
+
 
 ### 5.2 Web Frontend API Request
 

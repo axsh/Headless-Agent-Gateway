@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  tern:
+    build:
+      context: ../..
+      dockerfile: features/tern/Dockerfile
+    ports:
+      - "14000:14000" # LLM Gateway Proxy Port
+      - "18080:18080" # API / WebSocket Port (wsserver/agentservice skeleton)
+    volumes:
+      - ./config.yaml:/etc/tern/config.yaml
+      - ./model_profiles.yaml:/etc/tern/model_profiles.yaml
+    environment:
+      - TERN_VAULT_KEY=super-secret-key-123
+      - TERN_VAULT_PROVIDERS_OPENAI_DEFAULT=sk-proj-openai-test-key
+      - TERN_VAULT_PROVIDERS_ANTHROPIC_PRIMARY=sk-ant-test-key
+    restart: always

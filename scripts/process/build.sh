@@ -126,7 +126,7 @@ build_go() {
 
         # --- Build ---
         info "Building $feature_name..."
-        if go build -o "$PROJECT_ROOT/bin/$feature_name" ./...; then
+        if go build -o "$PROJECT_ROOT/bin/$feature_name" .; then
             success "Build succeeded for $feature_name → bin/$feature_name"
         else
             fail "Build failed for $feature_name."
@@ -140,7 +140,88 @@ build_go() {
     if [[ "$found_any" == "false" ]]; then
         warn "No Go projects found under features/*/."
         warn "Expected structure: features/{name}/go.mod"
-        return 0
+    fi
+
+    # ============================================================
+    # Shared Libraries: shared/libs/go/
+    # ============================================================
+    if [[ -f "shared/libs/go/go.mod" ]]; then
+        step "Shared Libraries: shared/libs/go"
+        cd "$PROJECT_ROOT/shared/libs/go"
+
+        # --- Unit Tests ---
+        info "Running Go unit tests for shared/libs/go..."
+
+        SHARED_PKGS=$(go list ./... | grep -v '/tests/' | grep -v '/tests$' || true)
+
+        if [[ -z "$SHARED_PKGS" ]]; then
+            warn "No Go unit test packages found for shared/libs/go."
+        elif echo "$SHARED_PKGS" | xargs go test -v -count=1; then
+            success "Unit tests passed for shared/libs/go."
+        else
+            fail "Unit tests failed for shared/libs/go."
+            FAILED=true
+            return 1
+        fi
+
+        # --- Build (verify compilation only, no binary output) ---
+        info "Verifying shared/libs/go compilation..."
+        if go build ./...; then
+            success "Shared libs compilation verified."
+        else
+            fail "Shared libs compilation failed."
+            FAILED=true
+            return 1
+        fi
+
+        cd "$PROJECT_ROOT"
+    fi
+
+    # ============================================================
+    # Examples: examples/*/
+    # ============================================================
+    local examples_found=false
+    for example_dir in examples/*/; do
+        [[ -d "$example_dir" ]] || continue
+        if [[ ! -f "$example_dir/go.mod" ]]; then
+            continue
+        fi
+
+        examples_found=true
+        local example_name
+        example_name=$(basename "$example_dir")
+
+        step "Example: $example_name"
+        cd "$PROJECT_ROOT/$example_dir"
+
+        # --- Unit Tests ---
+        info "Running tests for example $example_name..."
+        EXAMPLE_PKGS=$(go list ./... 2>/dev/null || true)
+        if [[ -n "$EXAMPLE_PKGS" ]]; then
+            if echo "$EXAMPLE_PKGS" | xargs go test -v -count=1; then
+                success "Tests passed for example $example_name."
+            else
+                fail "Tests failed for example $example_name."
+                FAILED=true
+                return 1
+            fi
+        fi
+
+        # --- Build ---
+        info "Building example $example_name..."
+        if go build -o "$PROJECT_ROOT/bin/$example_name" .; then
+            success "Build succeeded for example $example_name → bin/$example_name"
+        else
+            fail "Build failed for example $example_name."
+            FAILED=true
+            return 1
+        fi
+
+        cd "$PROJECT_ROOT"
+    done
+
+    if [[ "$examples_found" == "true" ]]; then
+        info "Example binaries built to bin/."
     fi
 }
 

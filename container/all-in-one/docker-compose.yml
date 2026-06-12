@@ -1,0 +1,18 @@
+version: "3.8"
+services:
+  hag:
+    build:
+      context: ../..
+      dockerfile: container/all-in-one/Dockerfile
+    ports:
+      - "14000:14000"
+      - "3100:3100"
+    volumes:
+      - workspace:/workspace
+    environment:
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-}
+      - AGENT_AUTH_TOKEN=${AGENT_AUTH_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+volumes:
+  workspace:

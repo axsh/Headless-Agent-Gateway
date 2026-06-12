@@ -27,3 +27,9 @@ phases/
 3. Create an implementation plan in `<branch-name>/plans/`
 4. Review and approve the plan
 5. Execute the plan
+
+## 現在の進捗状況 (feat-llm-backend)
+
+- **000-foundation**:
+  - LLM Gateway Proxy、Config & Secrets、Keyring/File(AES)/Env Vault、階層化エージェントログ（`tasklog`）、OpenAIストリーミング、Passthrough L4ドライバー、サブセッションフォールバック、およびスタンドアロンDocker起動環境をすべて実装し、検証を完了しました。
+

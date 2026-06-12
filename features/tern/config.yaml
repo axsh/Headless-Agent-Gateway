@@ -1,0 +1,21 @@
+llm_gateway:
+  port: 14000
+  model_profiles_path: "model_profiles.yaml"
+  retry:
+    max_retries: 3
+    initial_delay_seconds: 1
+    max_delay_seconds: 30
+log:
+  level: "trace"
+  outputs:
+    - type: "stdout"
+    - type: "syslog"
+      network: "udp"
+      address: "localhost:514"
+      tag: "tern"
+vault:
+  backend: "keyring"
+websocket:
+  port: 18080
+agent_service:
+  port: 3100
