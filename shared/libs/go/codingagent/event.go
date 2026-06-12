@@ -16,6 +16,14 @@ const (
 	EventError EventType = "error"
 	// EventSystem is a system event (e.g., session init).
 	EventSystem EventType = "system"
+	// EventNodeStart indicates a WBS node has started execution.
+	EventNodeStart EventType = "node_start"
+	// EventNodeComplete indicates a WBS node has completed successfully.
+	EventNodeComplete EventType = "node_complete"
+	// EventNodeFailed indicates a WBS node execution failed.
+	EventNodeFailed EventType = "node_failed"
+	// EventProgress indicates WBS overall progress (e.g., "2/5").
+	EventProgress EventType = "progress"
 )
 
 // StreamEvent is a streaming event from a coding agent.

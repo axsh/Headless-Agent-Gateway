@@ -34,3 +34,11 @@ providers:
           - name: gemini-2.5-flash
           - name: gemini-2.5-pro
           - name: gemini-3.5-flash
+  ollama:
+    keys:
+      - name: default
+        value: "ollama"
+        models:
+          - name: qwen2.5-coder:7b
+            behavior:
+              tool_call_fallback: true

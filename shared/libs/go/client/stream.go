@@ -12,12 +12,16 @@ import (
 type EventType string
 
 const (
-	EventText       EventType = "text"
-	EventToolUse    EventType = "tool_use"
-	EventToolResult EventType = "tool_result"
-	EventSystem     EventType = "system"
-	EventResult     EventType = "result"
-	EventError      EventType = "error"
+	EventText         EventType = "text"
+	EventToolUse      EventType = "tool_use"
+	EventToolResult   EventType = "tool_result"
+	EventSystem       EventType = "system"
+	EventResult       EventType = "result"
+	EventError        EventType = "error"
+	EventNodeStart    EventType = "node_start"
+	EventNodeComplete EventType = "node_complete"
+	EventNodeFailed   EventType = "node_failed"
+	EventProgress     EventType = "progress"
 )
 
 // Event is a single streaming event from the server.
@@ -61,6 +65,14 @@ func (s *Stream) Output(w io.Writer) error {
 			lastErr = fmt.Errorf("%s", ev.Error)
 		case EventResult:
 			// Result event, no output needed.
+		case EventNodeStart:
+			fmt.Fprintf(w, "\n[Node Start: %s]\n", ev.Text)
+		case EventNodeComplete:
+			fmt.Fprintf(w, "[Node Complete: %s]\n", ev.Text)
+		case EventNodeFailed:
+			fmt.Fprintf(w, "[Node Failed: %s]\n", ev.Text)
+		case EventProgress:
+			fmt.Fprintf(w, "[WBS %s]\n", ev.Text)
 		}
 	}
 	return lastErr

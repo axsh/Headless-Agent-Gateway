@@ -201,6 +201,7 @@ Additional architectural details will be documented separately.
 * [x] Anthropic LLM backend
 * [x] Google LLM backend
 * [x] Ollama LLM backend
+* [x] Wayfinder adapter (Embedded Original Coding Agent - Beta)
 
 ### Phase 2
 
@@ -212,6 +213,7 @@ Additional architectural details will be documented separately.
 * [ ] Context export/import
 * [ ] Agent switching
 * [ ] Model switching
+* [ ] Multimodal LLM support (Vision & Voice)
 
 ### Phase 3
 

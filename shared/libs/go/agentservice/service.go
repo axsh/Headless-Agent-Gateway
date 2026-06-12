@@ -42,6 +42,8 @@ type Server struct {
 	port           int // actual listen port (set after Launch)
 	activeMu       sync.Mutex
 	activeSessions map[string]codingagent.Session
+	execCancelMu   sync.Mutex
+	execCancels    map[string]context.CancelFunc // sessionID -> execution cancel
 }
 
 // ServerOption configures a Server.
@@ -74,6 +76,7 @@ func New(opts ...ServerOption) *Server {
 		agents:         make(map[string]codingagent.CodingAgent),
 		sessions:       NewMemorySessionStore(),
 		activeSessions: make(map[string]codingagent.Session),
+		execCancels:    make(map[string]context.CancelFunc),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -90,6 +93,7 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 		agents:         make(map[string]codingagent.CodingAgent),
 		sessions:       store,
 		activeSessions: make(map[string]codingagent.Session),
+		execCancels:    make(map[string]context.CancelFunc),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -167,6 +171,17 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.activeSessions = make(map[string]codingagent.Session)
 	s.activeMu.Unlock()
 
+	// Cancel all running agent executions.
+	s.execCancelMu.Lock()
+	for id, cancel := range s.execCancels {
+		if s.logger != nil {
+			s.logger.Debug("cancelling execution on shutdown", "session_id", id)
+		}
+		cancel()
+	}
+	s.execCancels = make(map[string]context.CancelFunc)
+	s.execCancelMu.Unlock()
+
 	return s.httpServer.Shutdown(ctx)
 }
 
@@ -180,6 +195,32 @@ func (s *Server) UnregisterActiveSession(id string) {
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
 	delete(s.activeSessions, id)
+}
+
+// RegisterExecCancel registers a cancel function for an agent execution context.
+func (s *Server) RegisterExecCancel(id string, cancel context.CancelFunc) {
+	s.execCancelMu.Lock()
+	defer s.execCancelMu.Unlock()
+	s.execCancels[id] = cancel
+}
+
+// UnregisterExecCancel removes a cancel function for an agent execution context.
+func (s *Server) UnregisterExecCancel(id string) {
+	s.execCancelMu.Lock()
+	defer s.execCancelMu.Unlock()
+	delete(s.execCancels, id)
+}
+
+// CancelExecution cancels the execution context for the given session.
+// Returns true if the session was found and cancelled.
+func (s *Server) CancelExecution(id string) bool {
+	s.execCancelMu.Lock()
+	defer s.execCancelMu.Unlock()
+	if cancel, ok := s.execCancels[id]; ok {
+		cancel()
+		return true
+	}
+	return false
 }
 
 // Port returns the actual port the server is listening on.

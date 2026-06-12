@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/axsh/arctic-tern/codingagent"
 	"github.com/axsh/arctic-tern/llmgateway"
@@ -210,8 +211,15 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if record.SessionDir != "" {
 		opts = append(opts, codingagent.WithSessionDir(record.SessionDir))
 	}
-	session, err := agent.CreateSession(r.Context(), opts...)
+	// Context separation: create an independent execution context
+	// so agent continues running even if the HTTP client disconnects.
+	execCtx, execCancel := context.WithCancel(context.Background())
+	s.RegisterExecCancel(sessionID, execCancel)
+
+	session, err := agent.CreateSession(execCtx, opts...)
 	if err != nil {
+		execCancel()
+		s.UnregisterExecCancel(sessionID)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -219,9 +227,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		session.Close()
 		s.UnregisterActiveSession(sessionID)
+		s.UnregisterExecCancel(sessionID)
 	}()
 
-	ch, err := session.Send(r.Context(), req.Message)
+	ch, err := session.Send(execCtx, req.Message)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -267,6 +276,11 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 	eventCount := 0
 	var hasError bool
 	var errorMsg string
+
+	// Heartbeat ticker: send keepalive comments every 15 seconds.
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -274,6 +288,10 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 				s.logger.Debug("client disconnected, stopping SSE stream", "session_id", sessionID)
 			}
 			return
+		case <-ticker.C:
+			// SSE keepalive comment to prevent intermediate proxy/OS timeouts.
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
 		case ev, ok := <-ch:
 			if !ok {
 				goto done
@@ -415,6 +433,10 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	if s.logger != nil {
 		s.logger.Debug("terminating session", "session_id", sessionID)
 	}
+
+	// Cancel the agent execution context.
+	s.CancelExecution(sessionID)
+
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)
 
