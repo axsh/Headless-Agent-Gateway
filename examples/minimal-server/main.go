@@ -17,8 +17,8 @@ import (
 
 	"github.com/axsh/arctic-tern/tern"
 
-	// Auto-register coding agents.
-	_ "github.com/axsh/arctic-tern/codingagent/claudecode"
+	// Auto-register all built-in coding agents.
+	_ "github.com/axsh/arctic-tern/codingagent/all"
 )
 
 func main() {

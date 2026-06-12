@@ -63,32 +63,110 @@ Developers should be free to choose between hosted services, private deployments
 
 ## Example
 
-The intended developer experience is intentionally simple.
+The `examples/` directory contains working samples that demonstrate Tern's core concepts.
+
+### Server (`examples/minimal-server`)
+
+Start a tern server with a single import-based agent registration:
 
 ```go
-agent := tern.New()
+package main
 
-agent.Use("claude-code")
-agent.Model("claude-sonnet")
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
-result, err := agent.Run(task)
+	"github.com/axsh/arctic-tern/tern"
+
+	// Auto-register all built-in coding agents.
+	_ "github.com/axsh/arctic-tern/codingagent/all"
+)
+
+func main() {
+	srv, err := tern.New(tern.WithConfigPath("config.yaml"))
+	if err != nil {
+		log.Fatalf("failed to initialize: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := srv.Launch(ctx); err != nil {
+		log.Fatalf("failed to launch: %v", err)
+	}
+	defer srv.Shutdown(ctx)
+
+	fmt.Printf("tern server running on http://localhost:%d\n", srv.AgentService().Port())
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	fmt.Println("shutting down...")
+}
 ```
 
-Changing the underlying agent:
+### Client (`examples/minimal-client`)
+
+Connect to a running tern server, create a session, and stream the response:
 
 ```go
-agent.Use("codex")
-agent.Model("gpt-5")
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+
+	"github.com/axsh/arctic-tern/client"
+)
+
+func main() {
+	serverURL := "http://localhost:3100"
+	if len(os.Args) > 1 {
+		serverURL = os.Args[1]
+	}
+
+	ctx := context.Background()
+	c := client.New(serverURL)
+
+	session, err := c.CreateSession(ctx, client.SessionRequest{
+		Agent:   "claudecode",
+		Model:   "sonnet",
+		WorkDir: ".",
+	})
+	if err != nil {
+		log.Fatalf("create session: %v", err)
+	}
+	defer session.Terminate(ctx)
+	log.Printf("Session: %s", session.ID)
+
+	stream, err := session.SendMessage(ctx, "Create a file called hello.txt with the content 'Hello, World!'")
+	if err != nil {
+		log.Fatalf("send message: %v", err)
+	}
+
+	if err := stream.Output(os.Stdout); err != nil {
+		log.Fatalf("stream output: %v", err)
+	}
+}
 ```
 
-Changing the underlying model:
+### Agent and Model Interoperability
+
+The same client code works regardless of the underlying agent or model. Switching is a matter of changing the session parameters:
 
 ```go
-agent.Use("claude-code")
-agent.Model("qwen3-local")
+// Use Claude Code with Sonnet
+client.SessionRequest{Agent: "claudecode", Model: "sonnet"}
+
+// Use Codex with GPT-5
+client.SessionRequest{Agent: "codex", Model: "gpt-5.5"}
 ```
 
-The surrounding application should remain unchanged.
+The surrounding application remains unchanged.
 
 ---
 
@@ -183,7 +261,7 @@ Additional architectural details will be documented separately.
 * [x] Key Vault support
 * [x] Claude Code CLI adapter
 * [x] Codex CLI adapter
-* [ ] Gemini CLI adapter: Antigravity SDKに変わった？
+* [ ] Gemini CLI adapter (replaced by Antigravity SDK?)
 * [x] OpenAI LLM backend
 * [x] Anthropic LLM backend
 * [x] Google LLM backend
@@ -191,7 +269,7 @@ Additional architectural details will be documented separately.
 
 ### Phase 2
 
-* [ ] エージェントとの対話プロトコル
+* [ ] Agent interaction protocol
 * [ ] MCP support
 * [ ] Tern CLI
 * [ ] Tern SDK
@@ -220,25 +298,161 @@ Contributors, reviewers, and early adopters are welcome.
 
 ## Installation
 
-TODO: Write installation instructions.
+### Prerequisites
+
+* Go 1.26 or later
+* A supported Coding Agent CLI installed and available on PATH:
+  * [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
+  * [Codex](https://github.com/openai/codex) (`codex`)
+* API keys for at least one LLM provider (OpenAI, Anthropic, or Google)
+
+### Build from Source
+
+```bash
+git clone https://github.com/axsh/arctic-tern.git
+cd arctic-tern
+
+# Build all features and examples
+./scripts/process/build.sh
+```
+
+Built binaries are placed in the `bin/` directory:
+
+| Binary | Description |
+| --- | --- |
+| `bin/tern` | Tern server (full-featured, production) |
+| `bin/ternctl` | CLI client for interacting with a running tern server |
+| `bin/vault-cli` | Key Vault management CLI |
+| `bin/minimal-server` | Minimal server example |
+| `bin/minimal-client` | Minimal client example |
 
 ---
 
 ## Quick Start
 
-TODO: Write quick start guide.
+### 1. Store API keys in the vault
+
+```bash
+# Store an API key for a provider (e.g. Anthropic)
+./bin/vault-cli set providers/anthropic/default
+# Enter your API key when prompted
+```
+
+### 2. Configure the server
+
+Create a `config.yaml`:
+
+```yaml
+llm_gateway:
+  port: 14000
+  model_profiles_path: "model_profiles.yaml"
+vault:
+  backend: "keyring"
+agent_service:
+  port: 3100
+log:
+  level: "info"
+  outputs:
+    - type: "stdout"
+```
+
+Create a `model_profiles.yaml`:
+
+```yaml
+default_profile:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+
+providers:
+  anthropic:
+    keys:
+      - name: default
+        value: vault://providers/anthropic/default
+        models:
+          - name: claude-sonnet-4-20250514
+          - name: claude-opus-4-20250514
+  openai:
+    keys:
+      - name: default
+        value: vault://providers/openai/default
+        models:
+          - name: gpt-4o
+          - name: gpt-5.5
+```
+
+### 3. Start the server
+
+```bash
+./bin/tern --config config.yaml
+```
+
+### 4. Run a task with ternctl
+
+```bash
+# Check server health
+./bin/ternctl health
+
+# List available agents
+./bin/ternctl agents
+
+# List available models
+./bin/ternctl models
+
+# Run a coding task
+./bin/ternctl run --agent claudecode --prompt "Create hello.txt" --work-dir .
+```
+
+### 5. Or use the Go client library
+
+```go
+c := client.New("http://localhost:3100")
+session, _ := c.CreateSession(ctx, client.SessionRequest{
+    Agent:   "claudecode",
+    WorkDir: ".",
+})
+stream, _ := session.SendMessage(ctx, "Create hello.txt")
+stream.Output(os.Stdout)
+```
 
 ---
 
 ## Documentation
 
-TODO: Add documentation links.
+### Project Structure
+
+```
+tern/
+  features/           # Deployable applications
+    tern/             # Main server (CAWA + LLMGP)
+    ternctl/          # CLI client
+    vault-cli/        # Key Vault management CLI
+  shared/libs/go/     # Shared Go libraries
+    client/           # Go client library
+    tern/             # Server framework
+    codingagent/      # Coding Agent adapters
+    llmgateway/       # LLM Gateway providers
+    config/           # Configuration loading
+    vault/            # Secret management
+  examples/           # Working examples
+    minimal-server/   # Minimal server setup
+    minimal-client/   # Minimal client usage
+  scripts/            # Build and test scripts
+  docs/               # Documentation resources
+```
+
+Detailed API documentation and protocol specifications are planned for a future release.
 
 ---
 
 ## Design Documents
 
-TODO: Publish architecture and protocol specifications.
+Tern is built around two core protocols:
+
+* **CAWA (Coding Agent Web API)** -- A REST/WebSocket API that abstracts Coding Agent lifecycle and communication. Agents register themselves via Go `init()` imports, making it simple to add support for new agents.
+
+* **LLMGP (LLM Gateway Protocol)** -- A reverse-proxy layer that routes LLM requests to configured providers (OpenAI, Anthropic, Google, Ollama). API keys are managed through a secure vault with support for keyring, environment variables, and encrypted storage.
+
+Full protocol specifications are being developed and will be published as the project matures.
 
 ---
 
@@ -252,4 +466,4 @@ Please open an issue to start a conversation.
 
 ## License
 
-TODO: Specify license.
+Apache License 2.0. See [LICENSE](LICENSE) for details.
