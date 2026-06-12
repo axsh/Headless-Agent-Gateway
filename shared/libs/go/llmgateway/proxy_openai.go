@@ -144,12 +144,12 @@ func (p *ProxyServer) handleOpenAIResponses(w http.ResponseWriter, r *http.Reque
 	bifrostReq := oaiReq.ToBifrostResponsesRequest(bifrostCtx)
 
 	// Override provider and model with routing results.
-	providerKey := toBifrostProvider(routed.Provider)
+	providerKey := ToBifrostProvider(routed.Provider)
 	bifrostReq.Provider = providerKey
 	bifrostReq.Model = routed.Model
 
 	// Sanitize tools for cross-provider requests.
-	sanitizeToolsForProvider(bifrostReq, providerKey, p.logger)
+	SanitizeToolsForProvider(bifrostReq, providerKey, p.logger)
 
 	p.logger.Debug("bifrost request constructed",
 		"provider", providerKey, "model", routed.Model,
@@ -288,12 +288,5 @@ func isStreamRequest(body []byte) bool {
 	return raw.Stream != nil && *raw.Stream
 }
 
-// toBifrostProvider converts tern provider name to Bifrost ModelProvider.
-// Uses the Provider Registry first, then falls back to static mapping.
-func toBifrostProvider(provider string) bifrostSchemas.ModelProvider {
-	if mp, ok := resolveProviderName(provider); ok {
-		return mp
-	}
-	return bifrostSchemas.ModelProvider(provider)
-}
+
 

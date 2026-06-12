@@ -6,7 +6,7 @@ import (
 	"github.com/axsh/arctic-tern/logger"
 )
 
-// sanitizeToolsForProvider filters and adjusts tools in a Bifrost request
+// SanitizeToolsForProvider filters and adjusts tools in a Bifrost request
 // for cross-provider compatibility. Two issues are addressed:
 //
 //  1. Codex CLI sends OpenAI-specific tool types (e.g. "namespace") that non-OpenAI
@@ -18,7 +18,7 @@ import (
 //
 // Fix: Filter to compatible tool types, then for Gemini handle the mutual exclusion
 // between web_search and function tools (prioritizing function tools).
-func sanitizeToolsForProvider(
+func SanitizeToolsForProvider(
 	bifrostReq *bifrostSchemas.BifrostResponsesRequest,
 	providerKey bifrostSchemas.ModelProvider,
 	log logger.Logger,

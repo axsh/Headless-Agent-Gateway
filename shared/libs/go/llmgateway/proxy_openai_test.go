@@ -50,9 +50,9 @@ func TestToBifrostProvider(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := toBifrostProvider(tc.provider)
+			got := ToBifrostProvider(tc.provider)
 			if string(got) != tc.wantStr {
-				t.Errorf("toBifrostProvider(%q) = %q, want %q", tc.provider, got, tc.wantStr)
+				t.Errorf("ToBifrostProvider(%q) = %q, want %q", tc.provider, got, tc.wantStr)
 			}
 		})
 	}

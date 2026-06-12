@@ -148,7 +148,7 @@ func (p *ProxyServer) handleAnthropicMessagesViaBifrost(
 		return
 	}
 
-	providerKey := toBifrostProvider(routed.Provider)
+	providerKey := ToBifrostProvider(routed.Provider)
 
 	reqMessagesJSON, _ := json.Marshal(fullReq.Messages)
 	p.logger.Debug("raw anthropic request messages", "json", string(reqMessagesJSON))
@@ -174,7 +174,7 @@ func (p *ProxyServer) handleAnthropicMessagesViaBifrost(
 	p.logger.Debug("converted bifrost request", "json", string(bReqJSON))
 
 	// Sanitize tools for cross-provider requests
-	sanitizeToolsForProvider(bifrostReq, providerKey, p.logger)
+	SanitizeToolsForProvider(bifrostReq, providerKey, p.logger)
 
 	// Create Bifrost context
 	bifrostCtx := bifrostSchemas.NewBifrostContext(r.Context(), bifrostSchemas.NoDeadline)
