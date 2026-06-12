@@ -82,7 +82,7 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 	core.SetRouter(router)
 
 	// 4. WBSPlanner (WBS plan generation).
-	planner := planning.NewWBSPlanner(llmClient)
+	planner := planning.NewWBSPlanner(newPlanningLLMAdapter(llmClient))
 	core.SetPlanner(planner)
 
 	// 5. AgentRunner + SubagentExecutor (child session and tool delegation).
@@ -248,4 +248,43 @@ func (a *subagentLLMAdapter) GenerateMessage(
 		})
 	}
 	return result, nil
+}
+
+// newPlanningLLMAdapter wraps a wayfinder LLMClient as a planning.LLMClient.
+func newPlanningLLMAdapter(llm LLMClient) planning.LLMClient {
+	return &planningLLMAdapter{llm: llm}
+}
+
+// planningLLMAdapter bridges wayfinder.LLMClient to planning.LLMClient.
+type planningLLMAdapter struct {
+	llm LLMClient
+}
+
+func (a *planningLLMAdapter) GenerateMessage(
+	ctx context.Context,
+	model string,
+	msgs []planning.ChatMessage,
+	tools []planning.ToolDefinition,
+) (*planning.LLMResponse, error) {
+	// Convert planning messages to wayfinder messages.
+	wfMsgs := make([]ChatMessage, len(msgs))
+	for i, m := range msgs {
+		wfMsgs[i] = ChatMessage{Role: m.Role, Content: m.Content}
+	}
+
+	// Convert planning tool definitions to wayfinder tool definitions.
+	wfTools := make([]ToolDefinition, len(tools))
+	for i, t := range tools {
+		schema, _ := t.InputSchema.(map[string]any)
+		wfTools[i] = ToolDefinition{
+			Name: t.Name, Description: t.Description, InputSchema: schema,
+		}
+	}
+
+	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools)
+	if err != nil {
+		return nil, err
+	}
+
+	return &planning.LLMResponse{Content: resp.Content}, nil
 }
