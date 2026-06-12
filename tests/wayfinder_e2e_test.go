@@ -177,6 +177,15 @@ func extractPIDFromOutput(output string) (int, error) {
 			}
 		}
 	}
+	// Fallback: if the entire output (trimmed) is a bare number, use it.
+	trimmed := strings.TrimSpace(output)
+	if regexp.MustCompile(`^\d{3,}$`).MatchString(trimmed) {
+		var pid int
+		fmt.Sscanf(trimmed, "%d", &pid)
+		if pid > 0 {
+			return pid, nil
+		}
+	}
 	return 0, fmt.Errorf("no PID found in output: %s", truncate(output, 200))
 }
 
