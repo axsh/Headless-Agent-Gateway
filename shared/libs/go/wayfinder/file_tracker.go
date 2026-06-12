@@ -1,6 +1,11 @@
 package wayfinder
 
-import "sync"
+import (
+	"sync"
+	"time"
+
+	"github.com/axsh/arctic-tern/wayfinder/session"
+)
 
 // TrackedFile records metadata about a file created by the agent.
 type TrackedFile struct {
@@ -103,3 +108,33 @@ func (ft *FileTracker) TrackedProcesses() []*TrackedProcess {
 	}
 	return result
 }
+
+// TrackedFilesSnapshot returns tracked files as session.TrackedFile slice for serialization.
+func (ft *FileTracker) TrackedFilesSnapshot() []session.TrackedFile {
+	ft.mu.RLock()
+	defer ft.mu.RUnlock()
+	result := make([]session.TrackedFile, 0, len(ft.files))
+	for _, f := range ft.files {
+		result = append(result, session.TrackedFile{
+			Path:      f.Path,
+			CreatedAt: time.Now(),
+		})
+	}
+	return result
+}
+
+// TrackedProcessesSnapshot returns tracked processes as session.TrackedProcess slice for serialization.
+func (ft *FileTracker) TrackedProcessesSnapshot() []session.TrackedProcess {
+	ft.mu.RLock()
+	defer ft.mu.RUnlock()
+	result := make([]session.TrackedProcess, 0, len(ft.processes))
+	for _, p := range ft.processes {
+		result = append(result, session.TrackedProcess{
+			PID:       p.PID,
+			Command:   p.CommandLine,
+			StartedAt: time.Now(),
+		})
+	}
+	return result
+}
+

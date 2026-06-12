@@ -2,6 +2,9 @@ package wayfinder
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -164,3 +167,90 @@ func TestAgentCore_MaxIterations(t *testing.T) {
 		t.Fatal("expected error for max iterations exceeded")
 	}
 }
+
+func TestAgentCore_SessionPersistence_SaveOnComplete(t *testing.T) {
+	sessionDir := t.TempDir()
+	mock := &MockLLMClient{
+		Responses: []*LLMResponse{
+			{Content: "Done."},
+		},
+	}
+
+	core := NewAgentCore(mock, &AgentConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   sessionDir,
+		LogicalModel: "test-model",
+	}, nil)
+	core.SetSessionID("persist-test")
+
+	_, err := core.Run(context.Background(), "do something")
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	// Verify session file was created.
+	sessionFile := filepath.Join(sessionDir, "persist-test.json")
+	if _, err := os.Stat(sessionFile); err != nil {
+		t.Fatalf("session file should exist: %v", err)
+	}
+
+	// Verify session content.
+	data, _ := os.ReadFile(sessionFile)
+	var state map[string]any
+	json.Unmarshal(data, &state)
+	if state["status"] != "completed" {
+		t.Errorf("status = %v, want %q", state["status"], "completed")
+	}
+}
+
+func TestAgentCore_SessionPersistence_ResumeSession(t *testing.T) {
+	sessionDir := t.TempDir()
+
+	// First run: create session.
+	mock1 := &MockLLMClient{
+		Responses: []*LLMResponse{
+			{Content: "First response."},
+		},
+	}
+	core1 := NewAgentCore(mock1, &AgentConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   sessionDir,
+		LogicalModel: "test-model",
+	}, nil)
+	core1.SetSessionID("resume-test")
+	_, err := core1.Run(context.Background(), "first prompt")
+	if err != nil {
+		t.Fatalf("First run failed: %v", err)
+	}
+
+	// Second run: resume the session.
+	mock2 := &MockLLMClient{
+		Responses: []*LLMResponse{
+			{Content: "Second response."},
+		},
+	}
+	core2 := NewAgentCore(mock2, &AgentConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   sessionDir,
+		LogicalModel: "test-model",
+	}, nil)
+	core2.SetSessionID("resume-test")
+	result, err := core2.Run(context.Background(), "second prompt")
+	if err != nil {
+		t.Fatalf("Second run failed: %v", err)
+	}
+	if result != "Second response." {
+		t.Errorf("result = %q, want %q", result, "Second response.")
+	}
+
+	// The second call should have received messages from the first session + new prompt.
+	// Messages: [user:first] [assistant:first] [user:second]
+	if mock2.CallCount != 1 {
+		t.Errorf("CallCount = %d, want 1", mock2.CallCount)
+	}
+	sentMessages := mock2.CallArgs[0].Messages
+	if len(sentMessages) < 3 {
+		t.Errorf("expected at least 3 messages (restored + new), got %d", len(sentMessages))
+	}
+}
+
