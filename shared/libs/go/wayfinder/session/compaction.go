@@ -53,8 +53,12 @@ func Compact(messages []Message, cfg *CompactionConfig, summarizer func([]Messag
 		return messages, nil // No compaction needed.
 	}
 
-	oldMessages := unpinned[:len(unpinned)-windowSize]
-	recentMessages := unpinned[len(unpinned)-windowSize:]
+	// Calculate initial boundary and adjust for tool pair protection.
+	boundary := len(unpinned) - windowSize
+	boundary = adjustBoundaryForToolPairs(unpinned, boundary)
+
+	oldMessages := unpinned[:boundary]
+	recentMessages := unpinned[boundary:]
 
 	// Summarize old messages.
 	summary, err := summarizer(oldMessages)
@@ -72,6 +76,13 @@ func Compact(messages []Message, cfg *CompactionConfig, summarizer func([]Messag
 	result = append(result, pinned...)
 	result = append(result, summaryMsg)
 	result = append(result, recentMessages...)
+
+	// Post-compaction validation: ensure tool pairs are intact.
+	if !validateToolPairIntegrity(result) {
+		// Safety fallback: return original messages to avoid API errors.
+		return messages, nil
+	}
+
 	return result, nil
 }
 
@@ -83,4 +94,63 @@ func TrimLongContent(messages []Message, maxLen int) []Message {
 		}
 	}
 	return messages
+}
+
+// adjustBoundaryForToolPairs adjusts the sliding window boundary
+// to avoid splitting tool call pairs (assistant+tool_calls -> tool results).
+// If the boundary falls on a tool message, it shifts backward to include
+// the corresponding assistant message with tool calls.
+func adjustBoundaryForToolPairs(unpinned []Message, boundary int) int {
+	if boundary <= 0 {
+		return 0
+	}
+	if boundary >= len(unpinned) {
+		return boundary
+	}
+
+	// If the boundary message is not a tool message, no adjustment needed.
+	if unpinned[boundary].Role != "tool" {
+		return boundary
+	}
+
+	// Shift backward past all consecutive tool messages.
+	originalBoundary := boundary
+	for boundary > 0 && unpinned[boundary].Role == "tool" {
+		boundary--
+	}
+
+	// Check if we landed on an assistant with tool calls.
+	if boundary >= 0 && unpinned[boundary].Role == "assistant" && len(unpinned[boundary].ToolCalls) > 0 {
+		return boundary
+	}
+
+	// Data inconsistency: return original boundary (safe fallback).
+	return originalBoundary
+}
+
+// validateToolPairIntegrity checks that every tool message has
+// a preceding assistant message with matching tool calls.
+// Returns true if the message list is valid.
+func validateToolPairIntegrity(messages []Message) bool {
+	for i, m := range messages {
+		if m.Role != "tool" {
+			continue
+		}
+		// Walk backward to find the originating assistant message.
+		foundAssistant := false
+		for j := i - 1; j >= 0; j-- {
+			if messages[j].Role == "tool" {
+				// Another tool message -- continue walking back.
+				continue
+			}
+			if messages[j].Role == "assistant" && len(messages[j].ToolCalls) > 0 {
+				foundAssistant = true
+			}
+			break
+		}
+		if !foundAssistant {
+			return false
+		}
+	}
+	return true
 }
