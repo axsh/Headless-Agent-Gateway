@@ -37,3 +37,18 @@ type LLMClient interface {
 	// and returns a response that may contain text and/or tool calls.
 	GenerateMessage(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error)
 }
+
+// StreamingLLMClient extends LLMClient with streaming support.
+type StreamingLLMClient interface {
+	LLMClient
+	// GenerateMessageStream sends a streaming request and calls onDelta
+	// for each text delta chunk. Returns the final complete response
+	// (including any tool calls) after the stream ends.
+	GenerateMessageStream(
+		ctx context.Context,
+		logicalModel string,
+		messages []ChatMessage,
+		tools []ToolDefinition,
+		onDelta func(textDelta string),
+	) (*LLMResponse, error)
+}
