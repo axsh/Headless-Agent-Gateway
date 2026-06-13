@@ -291,9 +291,9 @@ func TestServer_ReloadModelProfiles_And_Skeletons(t *testing.T) {
 	content := []byte(`
 providers:
   openai:
-    keys:
+    api_keys:
       - name: default
-        value: sk-openai-test-key
+        secret: sk-openai-test-key
         models:
           - name: gpt-4o
 `)
