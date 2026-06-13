@@ -1,0 +1,43 @@
+# Minimal model_profiles.yaml example
+# One cost-effective model per provider for quick start.
+
+# Default profile
+default_profile:
+  provider: ollama
+  model: qwen2.5-coder:7b
+
+providers:
+  # OpenAI (cheapest: gpt-4o-mini)
+  openai:
+    api_keys:
+      - name: default
+        secret: vault://providers/openai/default
+        models:
+          - name: gpt-4o-mini
+
+  # Anthropic (cheapest: claude-haiku-4-5)
+  anthropic:
+    api_keys:
+      - name: default
+        secret: vault://providers/anthropic/default
+        models:
+          - name: claude-haiku-4-5
+
+  # Google (cheapest: gemini-2.5-flash)
+  google:
+    api_keys:
+      - name: default
+        secret: vault://providers/google/default
+        models:
+          - name: gemini-2.5-flash
+
+  # Ollama (local inference, no API key required)
+  ollama:
+    api_keys:
+      - name: default
+        models:
+          - name: qwen2.5-coder:7b
+            behavior:
+              tool_call_fallback: true
+    network_config:
+      base_url: "http://localhost:11434"
