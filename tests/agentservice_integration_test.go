@@ -911,10 +911,10 @@ func TestModelPassthroughToLLMGP(t *testing.T) {
 
 		Providers: map[string]config.ProviderConfig{
 			"openai": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
-						Name:  "default",
-						Value: "sk-test",
+						Name:   "default",
+						Secret: "sk-test",
 						Models: []config.ModelConfig{
 							{Name: "gpt-4o"},
 						},
