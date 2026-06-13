@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/axsh/arctic-tern/codingagent"
@@ -277,19 +278,78 @@ func (ac *AgentCore) applyCompaction() {
 	ac.logger.Debug("compaction applied", "messages_after", len(ac.messages))
 }
 
-// defaultSummarizer creates a simple summary of old messages.
+// summarizationSystemPrompt is the system prompt for LLM-based context summarization.
+const summarizationSystemPrompt = `You are a conversation summarizer. Summarize the following conversation concisely.
+Rules:
+- Preserve the meaning and intent of user requests and assistant responses.
+- MUST preserve all tool call names and their outcomes (success/failure/key results).
+- MUST preserve specific file paths, command outputs, and operation results.
+- Keep causal relationships between user requests and assistant actions.
+- Output in the same language as the conversation.
+- Be concise but do not lose important facts.`
+
+// defaultSummarizer creates a summary of old messages using the LLM.
+// Falls back to structured format if LLM call fails.
 func (ac *AgentCore) defaultSummarizer(msgs []session.Message) (string, error) {
-	var summary string
+	conversationLog := ac.buildConversationLog(msgs)
+	summaryPrompt := []ChatMessage{
+		{Role: "system", Content: summarizationSystemPrompt},
+		{Role: "user", Content: "Summarize this conversation:\n\n" + conversationLog},
+	}
+
+	resp, err := ac.llm.GenerateMessage(context.Background(), ac.config.LogicalModel, summaryPrompt, nil)
+	if err != nil {
+		ac.logger.Warn("LLM summarization failed, using structured fallback", "error", err.Error())
+		return ac.structuredFallbackSummary(msgs), nil
+	}
+	return resp.Content, nil
+}
+
+// buildConversationLog converts a message list into structured text for summarization.
+func (ac *AgentCore) buildConversationLog(msgs []session.Message) string {
+	var b strings.Builder
 	for _, m := range msgs {
-		if m.Role == "user" || m.Role == "assistant" {
-			if len(m.Content) > 200 {
-				summary += m.Role + ": " + m.Content[:200] + "...\n"
-			} else {
-				summary += m.Role + ": " + m.Content + "\n"
+		switch m.Role {
+		case "user":
+			b.WriteString(fmt.Sprintf("USER: %s\n", m.Content))
+		case "assistant":
+			b.WriteString(fmt.Sprintf("ASSISTANT: %s\n", m.Content))
+			for _, tc := range m.ToolCalls {
+				b.WriteString(fmt.Sprintf("  [TOOL CALL: %s (id=%s)]\n", tc.Name, tc.ID))
 			}
+		case "tool":
+			b.WriteString(fmt.Sprintf("  [TOOL RESULT (id=%s): %s]\n", m.ToolCallID, m.Content))
 		}
 	}
-	return summary, nil
+	return b.String()
+}
+
+// structuredFallbackSummary produces a structured summary when LLM is unavailable.
+// Unlike simple string clipping, it preserves tool call structure and results.
+func (ac *AgentCore) structuredFallbackSummary(msgs []session.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		switch m.Role {
+		case "user":
+			b.WriteString("USER: " + truncateWithEllipsis(m.Content, 300) + "\n")
+		case "assistant":
+			b.WriteString("ASSISTANT: " + truncateWithEllipsis(m.Content, 300) + "\n")
+			for _, tc := range m.ToolCalls {
+				b.WriteString(fmt.Sprintf("  [TOOL: %s]\n", tc.Name))
+			}
+		case "tool":
+			b.WriteString("  [RESULT: " + truncateWithEllipsis(m.Content, 150) + "]\n")
+		}
+	}
+	return b.String()
+}
+
+// truncateWithEllipsis truncates a string to maxLen and adds ellipsis.
+func truncateWithEllipsis(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // convertToSessionMessages converts ChatMessages to session.Messages.
