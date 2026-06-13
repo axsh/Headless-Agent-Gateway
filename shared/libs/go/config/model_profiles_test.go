@@ -182,8 +182,6 @@ func TestModelProfilesConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "duplicate logical_name",
 		},
-	}
-
 		{
 			name: "empty secret is valid",
 			modify: func(c *ModelProfilesConfig) {
