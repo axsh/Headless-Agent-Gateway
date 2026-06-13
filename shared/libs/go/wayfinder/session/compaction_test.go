@@ -513,3 +513,229 @@ func TestCompact_NoToolMessages_NoAdjustment(t *testing.T) {
 	}
 }
 
+// ---- User Start Guarantee Tests ----
+
+func TestAdjustBoundaryForUserStart(t *testing.T) {
+	tests := []struct {
+		name     string
+		msgs     []Message
+		boundary int
+		want     int
+	}{
+		{
+			name:     "boundary at zero returns zero",
+			msgs:     []Message{{Role: "user"}},
+			boundary: 0,
+			want:     0,
+		},
+		{
+			name:     "negative boundary returns zero",
+			msgs:     []Message{{Role: "user"}},
+			boundary: -1,
+			want:     0,
+		},
+		{
+			name:     "boundary beyond length unchanged",
+			msgs:     []Message{{Role: "user"}, {Role: "assistant"}},
+			boundary: 5,
+			want:     5,
+		},
+		{
+			name: "already user no adjustment",
+			msgs: []Message{
+				{Role: "assistant", Content: "old"},
+				{Role: "user", Content: "new"},
+				{Role: "assistant", Content: "resp"},
+			},
+			boundary: 1,
+			want:     1,
+		},
+		{
+			name: "assistant with tool calls shifts to user",
+			msgs: []Message{
+				{Role: "user", Content: "prompt"},
+				{Role: "assistant", Content: "do tool", ToolCalls: []ToolCallRecord{{ID: "tc1", Name: "edit"}}},
+				{Role: "tool", Content: "result", ToolCallID: "tc1"},
+				{Role: "assistant", Content: "done"},
+				{Role: "user", Content: "next"},
+			},
+			boundary: 1, // starts at assistant(tool_calls)
+			want:     0, // shifts back to user at index 0
+		},
+		{
+			name: "assistant without tool calls shifts to previous user",
+			msgs: []Message{
+				{Role: "user", Content: "p1"},
+				{Role: "assistant", Content: "r1"},
+				{Role: "user", Content: "p2"},
+				{Role: "assistant", Content: "r2"},
+				{Role: "assistant", Content: "r3"}, // boundary here (index 4)
+				{Role: "user", Content: "p3"},
+			},
+			boundary: 4,
+			want:     2, // shifts to user at index 2
+		},
+		{
+			name: "no user in messages returns zero",
+			msgs: []Message{
+				{Role: "assistant", Content: "r1"},
+				{Role: "assistant", Content: "r2"},
+				{Role: "assistant", Content: "r3"},
+			},
+			boundary: 1,
+			want:     0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := adjustBoundaryForUserStart(tt.msgs, tt.boundary)
+			if got != tt.want {
+				t.Errorf("adjustBoundaryForUserStart() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateMessageOrdering(t *testing.T) {
+	tests := []struct {
+		name string
+		msgs []Message
+		want bool
+	}{
+		{
+			name: "system then user is valid",
+			msgs: []Message{
+				{Role: "system", Content: "summary", Pinned: true},
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi"},
+			},
+			want: true,
+		},
+		{
+			name: "system then assistant with tool calls is invalid",
+			msgs: []Message{
+				{Role: "system", Content: "summary", Pinned: true},
+				{Role: "assistant", Content: "do tool", ToolCalls: []ToolCallRecord{{ID: "tc1", Name: "edit"}}},
+				{Role: "tool", Content: "result", ToolCallID: "tc1"},
+			},
+			want: false,
+		},
+		{
+			name: "system then plain assistant is invalid",
+			msgs: []Message{
+				{Role: "system", Content: "summary", Pinned: true},
+				{Role: "assistant", Content: "response"},
+			},
+			want: false,
+		},
+		{
+			name: "pinned only is valid (edge case)",
+			msgs: []Message{
+				{Role: "system", Content: "prompt", Pinned: true},
+			},
+			want: true,
+		},
+		{
+			name: "empty messages is valid",
+			msgs: []Message{},
+			want: true,
+		},
+		{
+			name: "no pinned messages user first is valid",
+			msgs: []Message{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi"},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validateMessageOrdering(tt.msgs)
+			if got != tt.want {
+				t.Errorf("validateMessageOrdering() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCompact_RecentMessagesStartWithUser(t *testing.T) {
+	// Scenario: boundary would naturally fall on assistant(tool_calls).
+	// After adjustment, recentMessages must start with "user".
+	cfg := &CompactionConfig{MaxTurns: 8, MaxContentLen: 5000}
+
+	msgs := []Message{
+		{Role: "user", Content: "p1"},
+		{Role: "assistant", Content: "r1"},
+		{Role: "user", Content: "p2"},
+		{Role: "assistant", Content: "r2"},
+		{Role: "user", Content: "p3"},
+		{Role: "assistant", Content: "do tool", ToolCalls: []ToolCallRecord{{ID: "tc1", Name: "cmd"}}},
+		{Role: "tool", Content: "output", ToolCallID: "tc1"},
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "p4"},
+		{Role: "assistant", Content: "r4"},
+		{Role: "user", Content: "p5"},
+		{Role: "assistant", Content: "r5"},
+	}
+
+	summarizer := func(oldMsgs []Message) (string, error) {
+		return "Summary", nil
+	}
+
+	result, err := Compact(msgs, cfg, summarizer)
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+
+	// Find first non-pinned, non-system message.
+	for _, m := range result {
+		if m.Pinned || m.Role == "system" {
+			continue
+		}
+		if m.Role != "user" {
+			t.Errorf("first non-system message role = %q, want %q", m.Role, "user")
+			for i, msg := range result {
+				contentPreview := msg.Content
+				if len(contentPreview) > 30 {
+					contentPreview = contentPreview[:30]
+				}
+				t.Logf("  [%d] role=%s pinned=%v content=%q", i, msg.Role, msg.Pinned, contentPreview)
+			}
+		}
+		break
+	}
+
+	// Also verify tool pair integrity is maintained.
+	if !validateToolPairIntegrity(result) {
+		t.Error("tool pair integrity broken after compaction")
+	}
+}
+
+func TestCompact_BoundaryReachesZero_SkipsCompaction(t *testing.T) {
+	// All messages are assistant/tool with no user -> boundary reaches 0 -> skip compaction.
+	cfg := &CompactionConfig{MaxTurns: 2, MaxContentLen: 5000}
+
+	msgs := []Message{
+		{Role: "assistant", Content: "r1", ToolCalls: []ToolCallRecord{{ID: "tc1", Name: "cmd"}}},
+		{Role: "tool", Content: "output", ToolCallID: "tc1"},
+		{Role: "assistant", Content: "r2", ToolCalls: []ToolCallRecord{{ID: "tc2", Name: "cmd"}}},
+		{Role: "tool", Content: "output2", ToolCallID: "tc2"},
+		{Role: "assistant", Content: "done"},
+	}
+
+	summarizer := func(oldMsgs []Message) (string, error) {
+		return "Summary", nil
+	}
+
+	result, err := Compact(msgs, cfg, summarizer)
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+
+	// Should return original messages unchanged (compaction skipped).
+	if len(result) != len(msgs) {
+		t.Errorf("expected compaction to be skipped, got %d messages instead of %d", len(result), len(msgs))
+	}
+}
+
