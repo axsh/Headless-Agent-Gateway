@@ -277,9 +277,9 @@ func TestDefaultSummarizer_CallsLLM(t *testing.T) {
 		{Role: "assistant", Content: "I will create it"},
 	}
 
-	summary, err := core.defaultSummarizer(msgs)
+	summary, err := core.compactionSummarizer(msgs)
 	if err != nil {
-		t.Fatalf("defaultSummarizer failed: %v", err)
+		t.Fatalf("compactionSummarizer failed: %v", err)
 	}
 
 	if summary != "This is a summary of the conversation." {
@@ -324,9 +324,9 @@ func TestDefaultSummarizer_FallbackOnLLMError(t *testing.T) {
 		{Role: "tool", Content: "File created", ToolCallID: "tc1"},
 	}
 
-	summary, err := core.defaultSummarizer(msgs)
+	summary, err := core.compactionSummarizer(msgs)
 	if err != nil {
-		t.Fatalf("defaultSummarizer should not fail on LLM error: %v", err)
+		t.Fatalf("compactionSummarizer should not fail on LLM error: %v", err)
 	}
 
 	// Fallback should include tool info.

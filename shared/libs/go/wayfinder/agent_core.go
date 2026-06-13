@@ -286,7 +286,7 @@ func (ac *AgentCore) applyCompaction() {
 	sessionMsgs = session.TrimLongContent(sessionMsgs, ac.compactionCfg.MaxContentLen)
 
 	// Apply compaction with a simple built-in summarizer.
-	compacted, err := session.Compact(sessionMsgs, ac.compactionCfg, ac.defaultSummarizer)
+	compacted, err := session.Compact(sessionMsgs, ac.compactionCfg, ac.compactionSummarizer)
 	if err != nil {
 		ac.logger.Warn("compaction failed, continuing with full history", "error", err.Error())
 		return
@@ -306,9 +306,9 @@ Rules:
 - Output in the same language as the conversation.
 - Be concise but do not lose important facts.`
 
-// defaultSummarizer creates a summary of old messages using the LLM.
-// Falls back to structured format if LLM call fails.
-func (ac *AgentCore) defaultSummarizer(msgs []session.Message) (string, error) {
+// compactionSummarizer creates a summary of old messages using the LLM.
+// Used by the compaction process to compress conversation history.
+func (ac *AgentCore) compactionSummarizer(msgs []session.Message) (string, error) {
 	conversationLog := ac.buildConversationLog(msgs)
 	summaryPrompt := []ChatMessage{
 		{Role: "system", Content: summarizationSystemPrompt},
@@ -543,7 +543,7 @@ func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree)
 			childConfig:     childCfg,
 			runner:          ac.runner,
 			llm:             ac.subagentLLM,
-			summarizer:      subagent.NewSummarizer(ac.subagentLLM),
+			summarizer:      subagent.NewOutcomeSummarizer(ac.subagentLLM),
 			logger:          ac.logger,
 		}
 	} else {
@@ -599,7 +599,7 @@ type agentNodeExecutor struct {
 	childConfig     *subagent.AgentRunnerConfig
 	runner          subagent.AgentRunner
 	llm             subagent.LLMClient
-	summarizer      *subagent.Summarizer
+	summarizer      subagent.SummaryStrategy
 	logger          logger.Logger
 }
 
@@ -617,7 +617,7 @@ func (e *agentNodeExecutor) ExecuteNode(ctx context.Context, node planning.WBSNo
 
 	// Summarize child result for parent.
 	hints := &subagent.Hints{Objective: node.Name, Context: node.Description}
-	summary, err := e.summarizer.SummarizeForParent(ctx, hints, childResult)
+	summary, err := e.summarizer.Summarize(ctx, hints, childResult)
 	if err != nil {
 		e.logger.Warn("WBS node summarization failed, using raw result", "error", err.Error())
 		return childResult, nil

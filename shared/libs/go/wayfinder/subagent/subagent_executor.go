@@ -64,7 +64,7 @@ type SubagentExecutor struct {
 	llm          LLMClient
 	runner       AgentRunner
 	hints        *HintGenerator
-	summarizer   *Summarizer
+	summarizer   SummaryStrategy
 	logger       logger.Logger
 }
 
@@ -134,7 +134,7 @@ func (e *SubagentExecutor) Execute(
 	e.logger.Debug("child session completed", "child_id", childSessionID, "result_len", len(childResult))
 
 	// 5. Summarize child result for parent consumption.
-	summary, err := e.summarizer.SummarizeForParent(ctx, hints, childResult)
+	summary, err := e.summarizer.Summarize(ctx, hints, childResult)
 	if err != nil {
 		e.logger.Warn("summarization failed, returning raw result", "error", err.Error())
 		// Fallback: return raw result if summarization fails.

@@ -83,3 +83,68 @@ func TestSummarizeForParent_TruncatesLongOutput(t *testing.T) {
 		t.Errorf("callCount = %d, want 1", mock.callCount)
 	}
 }
+
+// ---- DetailedSummarizer.Summarize tests ----
+
+func TestDetailedSummarizer_Summarize(t *testing.T) {
+	mock := &mockLLM{
+		responses: []*LLMResponse{
+			{Content: "Status: SUCCESS\nSummary: Build OK.\nKey Findings: None"},
+		},
+	}
+	s := NewDetailedSummarizer(mock)
+
+	hints := &Hints{Objective: "Build project", Context: "User wants to build"}
+	result, err := s.Summarize(context.Background(), hints, "Build passed with 0 errors.")
+	if err != nil {
+		t.Fatalf("Summarize failed: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+}
+
+func TestDetailedSummarizer_ImplementsStrategy(t *testing.T) {
+	var _ SummaryStrategy = (*DetailedSummarizer)(nil)
+}
+
+// ---- OutcomeSummarizer tests ----
+
+func TestOutcomeSummarizer_CompactOutput(t *testing.T) {
+	mock := &mockLLM{
+		responses: []*LLMResponse{
+			{Content: "The build step completed successfully with no errors."},
+		},
+	}
+	s := NewOutcomeSummarizer(mock)
+
+	hints := &Hints{Objective: "Build project", Context: "CI build step"}
+	result, err := s.Summarize(context.Background(), hints, "Build passed. 0 errors, 0 warnings.")
+	if err != nil {
+		t.Fatalf("Summarize failed: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+	// Verify LLM was called once.
+	if mock.callCount != 1 {
+		t.Errorf("callCount = %d, want 1", mock.callCount)
+	}
+}
+
+func TestOutcomeSummarizer_LLMError(t *testing.T) {
+	mock := &mockLLM{
+		err: errors.New("LLM unavailable"),
+	}
+	s := NewOutcomeSummarizer(mock)
+
+	hints := &Hints{Objective: "test"}
+	_, err := s.Summarize(context.Background(), hints, "some output")
+	if err == nil {
+		t.Fatal("expected error when LLM fails")
+	}
+}
+
+func TestOutcomeSummarizer_ImplementsStrategy(t *testing.T) {
+	var _ SummaryStrategy = (*OutcomeSummarizer)(nil)
+}
