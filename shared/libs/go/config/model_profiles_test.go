@@ -13,27 +13,27 @@ default_profile:
 
 providers:
   anthropic:
-    keys:
+    api_keys:
       - name: "primary"
-        value: "vault://providers/anthropic/primary"
+        secret: "vault://providers/anthropic/primary"
         models:
           - name: "claude-sonnet-4-20250514"
           - name: "claude-haiku-3-5-20241022"
     network_config:
       base_url: ""
   openai:
-    keys:
+    api_keys:
       - name: "primary"
-        value: "vault://providers/openai/primary"
+        secret: "vault://providers/openai/primary"
         models:
           - name: "gpt-4o"
           - name: "o3-mini"
     network_config:
       base_url: ""
   ollama:
-    keys:
+    api_keys:
       - name: "default"
-        value: "vault://providers/ollama/default"
+        secret: "vault://providers/ollama/default"
         models:
           - name: "qwen2.5-coder:7b"
             behavior:
@@ -66,25 +66,25 @@ func TestModelProfilesConfig_YAMLUnmarshal(t *testing.T) {
 
 	// Verify anthropic provider.
 	anth := cfg.Providers["anthropic"]
-	if len(anth.Keys) != 1 {
-		t.Fatalf("anthropic keys = %d, want 1", len(anth.Keys))
+	if len(anth.ApiKeys) != 1 {
+		t.Fatalf("anthropic api_keys = %d, want 1", len(anth.ApiKeys))
 	}
-	if anth.Keys[0].Value != "vault://providers/anthropic/primary" {
-		t.Errorf("anthropic key value = %q", anth.Keys[0].Value)
+	if anth.ApiKeys[0].Secret != "vault://providers/anthropic/primary" {
+		t.Errorf("anthropic key secret = %q", anth.ApiKeys[0].Secret)
 	}
-	if len(anth.Keys[0].Models) != 2 {
-		t.Errorf("anthropic models = %d, want 2", len(anth.Keys[0].Models))
+	if len(anth.ApiKeys[0].Models) != 2 {
+		t.Errorf("anthropic models = %d, want 2", len(anth.ApiKeys[0].Models))
 	}
 
 	// Verify ollama with behavior.
 	ollama := cfg.Providers["ollama"]
-	if len(ollama.Keys) != 1 {
-		t.Fatalf("ollama keys = %d, want 1", len(ollama.Keys))
+	if len(ollama.ApiKeys) != 1 {
+		t.Fatalf("ollama api_keys = %d, want 1", len(ollama.ApiKeys))
 	}
-	if len(ollama.Keys[0].Models) != 1 {
-		t.Fatalf("ollama models = %d, want 1", len(ollama.Keys[0].Models))
+	if len(ollama.ApiKeys[0].Models) != 1 {
+		t.Fatalf("ollama models = %d, want 1", len(ollama.ApiKeys[0].Models))
 	}
-	model := ollama.Keys[0].Models[0]
+	model := ollama.ApiKeys[0].Models[0]
 	if model.Name != "qwen2.5-coder:7b" {
 		t.Errorf("model name = %q, want %q", model.Name, "qwen2.5-coder:7b")
 	}
@@ -110,8 +110,8 @@ func TestModelProfilesConfig_Validate(t *testing.T) {
 			DefaultProfile: DefaultProfileConfig{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
 			Providers: map[string]ProviderConfig{
 				"anthropic": {
-					Keys: []KeyConfig{
-						{Name: "primary", Value: "vault://x", Models: []ModelConfig{{Name: "claude-sonnet-4-20250514"}}},
+					ApiKeys: []KeyConfig{
+						{Name: "primary", Secret: "vault://x", Models: []ModelConfig{{Name: "claude-sonnet-4-20250514"}}},
 					},
 				},
 			},
@@ -136,18 +136,18 @@ func TestModelProfilesConfig_Validate(t *testing.T) {
 			errMsg:  "no providers",
 		},
 		{
-			name: "empty keys",
+			name: "empty api_keys",
 			modify: func(c *ModelProfilesConfig) {
-				c.Providers["anthropic"] = ProviderConfig{Keys: nil}
+				c.Providers["anthropic"] = ProviderConfig{ApiKeys: nil}
 			},
 			wantErr: true,
-			errMsg:  "no keys",
+			errMsg:  "no api_keys",
 		},
 		{
 			name: "empty model name",
 			modify: func(c *ModelProfilesConfig) {
 				p := c.Providers["anthropic"]
-				p.Keys[0].Models = []ModelConfig{{Name: ""}}
+				p.ApiKeys[0].Models = []ModelConfig{{Name: ""}}
 				c.Providers["anthropic"] = p
 			},
 			wantErr: true,
@@ -165,15 +165,15 @@ func TestModelProfilesConfig_Validate(t *testing.T) {
 			name: "duplicate logical_name",
 			modify: func(c *ModelProfilesConfig) {
 				c.Providers["anthropic"] = ProviderConfig{
-					Keys: []KeyConfig{
-						{Name: "primary", Value: "vault://x", Models: []ModelConfig{
+					ApiKeys: []KeyConfig{
+						{Name: "primary", Secret: "vault://x", Models: []ModelConfig{
 							{Name: "claude-sonnet-4-20250514", LogicalName: "fast-coder"},
 						}},
 					},
 				}
 				c.Providers["openai"] = ProviderConfig{
-					Keys: []KeyConfig{
-						{Name: "primary", Value: "vault://y", Models: []ModelConfig{
+					ApiKeys: []KeyConfig{
+						{Name: "primary", Secret: "vault://y", Models: []ModelConfig{
 							{Name: "gpt-4o", LogicalName: "fast-coder"},
 						}},
 					},
@@ -181,6 +181,19 @@ func TestModelProfilesConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "duplicate logical_name",
+		},
+	}
+
+		{
+			name: "empty secret is valid",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["anthropic"] = ProviderConfig{
+					ApiKeys: []KeyConfig{
+						{Name: "default", Secret: "", Models: []ModelConfig{{Name: "claude-sonnet-4-20250514"}}},
+					},
+				}
+			},
+			wantErr: false,
 		},
 	}
 

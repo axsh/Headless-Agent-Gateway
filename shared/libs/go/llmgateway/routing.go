@@ -59,7 +59,7 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 	// 1. Try to resolve modelName from profiles.
 	var resolved *RoutedModel
 	for providerName, provider := range r.profiles.Providers {
-		for _, key := range provider.Keys {
+		for _, key := range provider.ApiKeys {
 			for _, model := range key.Models {
 				if model.Name == modelName {
 					var fallback bool
@@ -69,7 +69,7 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 					resolved = &RoutedModel{
 						Provider:         providerName,
 						KeyName:          key.Name,
-						KeyValue:         key.Value,
+						KeyValue:         key.Secret,
 						Model:            modelName,
 						Mode:             model.Mode,
 						ToolCallFallback: fallback,
