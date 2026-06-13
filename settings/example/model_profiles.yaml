@@ -30,6 +30,8 @@ providers:
         secret: vault://providers/google/default
         models:
           - name: gemini-2.5-flash
+            behavior:
+              structured_output: true
 
   # Ollama (local inference, no API key required)
   ollama:

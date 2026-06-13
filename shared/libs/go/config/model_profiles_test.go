@@ -236,3 +236,42 @@ func TestModelConfigLogicalName(t *testing.T) {
 		})
 	}
 }
+
+func TestModelBehavior_StructuredOutput(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{
+			name:  "structured_output true",
+			input: "name: gemini-2.5-flash\nbehavior:\n  structured_output: true",
+			want:  true,
+		},
+		{
+			name:  "structured_output false",
+			input: "name: claude-sonnet-4\nbehavior:\n  structured_output: false",
+			want:  false,
+		},
+		{
+			name:  "structured_output not set defaults to false",
+			input: "name: gpt-4o",
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mc ModelConfig
+			if err := yaml.Unmarshal([]byte(tt.input), &mc); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			got := false
+			if mc.Behavior != nil {
+				got = mc.Behavior.StructuredOutput
+			}
+			if got != tt.want {
+				t.Errorf("StructuredOutput = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

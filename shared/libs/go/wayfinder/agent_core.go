@@ -494,11 +494,13 @@ func (ac *AgentCore) Tracker() *FileTracker {
 // SetRouter configures the execution router.
 func (ac *AgentCore) SetRouter(router *ExecutionRouter) {
 	ac.router = router
+	router.SetStructuredOutput(ac.config.StructuredOutput)
 }
 
 // SetPlanner configures the WBS planner.
 func (ac *AgentCore) SetPlanner(planner *planning.WBSPlanner) {
 	ac.planner = planner
+	planner.SetStructuredOutput(ac.config.StructuredOutput)
 }
 
 // SetRunner configures the AgentRunner for child session creation.

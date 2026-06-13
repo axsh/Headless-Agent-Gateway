@@ -32,8 +32,8 @@ func NewBifrostClient(baseURL, token string) *BifrostClient {
 }
 
 // GenerateMessage sends a request to the Bifrost proxy and returns the response.
-func (bc *BifrostClient) GenerateMessage(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error) {
-	body := bc.buildRequestBody(logicalModel, messages, tools)
+func (bc *BifrostClient) GenerateMessage(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition, opts ...GenerateOptions) (*LLMResponse, error) {
+	body := bc.buildRequestBody(logicalModel, messages, tools, opts...)
 
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
@@ -71,7 +71,7 @@ func (bc *BifrostClient) GenerateMessage(ctx context.Context, logicalModel strin
 }
 
 // buildRequestBody constructs the Anthropic messages API request body.
-func (bc *BifrostClient) buildRequestBody(model string, messages []ChatMessage, toolDefs []ToolDefinition) map[string]any {
+func (bc *BifrostClient) buildRequestBody(model string, messages []ChatMessage, toolDefs []ToolDefinition, opts ...GenerateOptions) map[string]any {
 	body := map[string]any{
 		"model":      model,
 		"max_tokens": 4096,
@@ -143,6 +143,21 @@ func (bc *BifrostClient) buildRequestBody(model string, messages []ChatMessage, 
 		body["tools"] = apiTools
 	}
 
+	// Apply response_format if specified.
+	if len(opts) > 0 && opts[0].ResponseFormat != nil {
+		rf := opts[0].ResponseFormat
+		if rf.Type == "json_schema" && rf.JSONSchema != nil {
+			body["response_format"] = map[string]any{
+				"type":        "json_schema",
+				"json_schema": rf.JSONSchema,
+			}
+		} else if rf.Type == "json_object" {
+			body["response_format"] = map[string]any{
+				"type": "json_object",
+			}
+		}
+	}
+
 	return body
 }
 
@@ -190,8 +205,8 @@ func safeString(v any) string {
 }
 
 // buildStreamRequestBody constructs an Anthropic streaming request body.
-func (bc *BifrostClient) buildStreamRequestBody(model string, messages []ChatMessage, toolDefs []ToolDefinition) map[string]any {
-	body := bc.buildRequestBody(model, messages, toolDefs)
+func (bc *BifrostClient) buildStreamRequestBody(model string, messages []ChatMessage, toolDefs []ToolDefinition, opts ...GenerateOptions) map[string]any {
+	body := bc.buildRequestBody(model, messages, toolDefs, opts...)
 	body["stream"] = true
 	return body
 }

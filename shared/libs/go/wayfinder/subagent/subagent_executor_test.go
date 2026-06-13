@@ -237,7 +237,7 @@ type failFirstLLM struct {
 	callCount int
 }
 
-func (m *failFirstLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition) (*LLMResponse, error) {
+func (m *failFirstLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition, _ ...GenerateOptions) (*LLMResponse, error) {
 	m.callCount++
 	if m.callCount <= m.failCount {
 		return nil, fmt.Errorf("simulated failure %d", m.callCount)
@@ -255,7 +255,7 @@ type failLastLLM struct {
 	callCount        int
 }
 
-func (m *failLastLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition) (*LLMResponse, error) {
+func (m *failLastLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition, _ ...GenerateOptions) (*LLMResponse, error) {
 	m.callCount++
 	if m.callCount <= len(m.successResponses) {
 		return m.successResponses[m.callCount-1], nil

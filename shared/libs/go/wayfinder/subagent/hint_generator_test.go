@@ -13,7 +13,7 @@ type mockLLM struct {
 	callCount int
 }
 
-func (m *mockLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition) (*LLMResponse, error) {
+func (m *mockLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition, _ ...GenerateOptions) (*LLMResponse, error) {
 	m.callCount++
 	if m.err != nil {
 		return nil, m.err

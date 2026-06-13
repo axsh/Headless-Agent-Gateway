@@ -20,7 +20,7 @@ type mockCallArgs struct {
 	Tools    []ToolDefinition
 }
 
-func (m *MockLLMClient) GenerateMessage(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error) {
+func (m *MockLLMClient) GenerateMessage(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition, opts ...GenerateOptions) (*LLMResponse, error) {
 	idx := m.CallCount
 	m.CallCount++
 	m.CallArgs = append(m.CallArgs, mockCallArgs{

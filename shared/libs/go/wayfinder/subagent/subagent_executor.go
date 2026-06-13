@@ -12,7 +12,18 @@ import (
 // LLMClient is the interface for LLM communication.
 // Defined locally to avoid cyclic import with the wayfinder root package.
 type LLMClient interface {
-	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error)
+	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition, opts ...GenerateOptions) (*LLMResponse, error)
+}
+
+// GenerateOptions holds optional parameters for LLM generation.
+type GenerateOptions struct {
+	ResponseFormat *ResponseFormat
+}
+
+// ResponseFormat specifies the desired response format.
+type ResponseFormat struct {
+	Type       string
+	JSONSchema any
 }
 
 // ChatMessage is a message in the LLM conversation.

@@ -46,6 +46,8 @@ type ModelConfig struct {
 type ModelBehavior struct {
 	// ToolCallFallback enables text-to-tool-call conversion for local LLMs.
 	ToolCallFallback bool `yaml:"tool_call_fallback"`
+	// StructuredOutput indicates the model supports structured output (JSON schema).
+	StructuredOutput bool `yaml:"structured_output"`
 }
 
 // NetworkConfig holds provider-specific network settings.

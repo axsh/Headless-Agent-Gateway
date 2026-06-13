@@ -22,6 +22,7 @@
 #               mode: <string>          # API mode: "chat" (default) / "responses"
 #               behavior:               # Model-specific behavior settings (optional)
 #                 tool_call_fallback: <bool>  # Text-to-tool-call conversion (for local LLMs)
+#                 structured_output: <bool>   # Model supports structured output (JSON schema)
 #       network_config:          # Network settings (optional)
 #         base_url: <string>     # API base URL (overrides provider default)
 #         request_timeout_seconds: <int>  # Request timeout in seconds
@@ -68,8 +69,14 @@ providers:
         secret: vault://providers/google/default
         models:
           - name: gemini-2.5-flash
+            behavior:
+              structured_output: true
           - name: gemini-2.5-pro
+            behavior:
+              structured_output: true
           - name: gemini-3.5-flash
+            behavior:
+              structured_output: true
 
   # --- Ollama (local inference) ---
   # secret is not required (no authentication)
