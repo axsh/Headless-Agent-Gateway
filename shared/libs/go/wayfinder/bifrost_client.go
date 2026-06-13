@@ -1,6 +1,7 @@
 package wayfinder
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -176,4 +177,144 @@ func (bc *BifrostClient) parseResponse(respBody map[string]any) (*LLMResponse, e
 func safeString(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// buildStreamRequestBody constructs an Anthropic streaming request body.
+func (bc *BifrostClient) buildStreamRequestBody(model string, messages []ChatMessage, toolDefs []ToolDefinition) map[string]any {
+	body := bc.buildRequestBody(model, messages, toolDefs)
+	body["stream"] = true
+	return body
+}
+
+// GenerateMessageStream sends a streaming request and calls onDelta for each text delta.
+// Returns the final complete response (with tool calls if any) after the stream ends.
+func (bc *BifrostClient) GenerateMessageStream(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition, onDelta func(textDelta string)) (*LLMResponse, error) {
+	body := bc.buildStreamRequestBody(logicalModel, messages, tools)
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("bifrost stream: marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, bc.baseURL+"/v1/messages", bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("bifrost stream: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-Gateway-Token", bc.token)
+
+	resp, err := bc.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("bifrost stream: HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("bifrost stream: HTTP %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	return bc.parseSSEStream(resp.Body, onDelta)
+}
+
+// parseSSEStream parses an Anthropic SSE stream, calling onDelta for text deltas
+// and collecting tool calls. Returns the final assembled LLMResponse.
+func (bc *BifrostClient) parseSSEStream(body io.Reader, onDelta func(textDelta string)) (*LLMResponse, error) {
+	scanner := bufio.NewScanner(body)
+
+	var textParts []string
+	var toolCalls []ToolCall
+
+	// Track current tool_use block being assembled.
+	type pendingTool struct {
+		ID       string
+		Name     string
+		InputBuf strings.Builder
+	}
+	var currentTool *pendingTool
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var event map[string]any
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			continue
+		}
+
+		eventType, _ := event["type"].(string)
+
+		switch eventType {
+		case "content_block_start":
+			// Check if this is a tool_use block.
+			cb, _ := event["content_block"].(map[string]any)
+			if cb != nil {
+				blockType, _ := cb["type"].(string)
+				if blockType == "tool_use" {
+					currentTool = &pendingTool{
+						ID:   safeString(cb["id"]),
+						Name: safeString(cb["name"]),
+					}
+				}
+			}
+
+		case "content_block_delta":
+			delta, _ := event["delta"].(map[string]any)
+			if delta == nil {
+				continue
+			}
+			deltaType, _ := delta["type"].(string)
+
+			switch deltaType {
+			case "text_delta":
+				text, _ := delta["text"].(string)
+				if text != "" {
+					textParts = append(textParts, text)
+					if onDelta != nil {
+						onDelta(text)
+					}
+				}
+			case "input_json_delta":
+				// Buffer tool input JSON fragments.
+				partial, _ := delta["partial_json"].(string)
+				if currentTool != nil && partial != "" {
+					currentTool.InputBuf.WriteString(partial)
+				}
+			}
+
+		case "content_block_stop":
+			// Finalize any pending tool_use block.
+			if currentTool != nil {
+				tc := ToolCall{
+					ID:   currentTool.ID,
+					Name: currentTool.Name,
+				}
+				inputJSON := currentTool.InputBuf.String()
+				if inputJSON != "" {
+					var input map[string]any
+					if err := json.Unmarshal([]byte(inputJSON), &input); err == nil {
+						tc.Input = input
+					}
+				}
+				toolCalls = append(toolCalls, tc)
+				currentTool = nil
+			}
+
+		case "message_stop":
+			// Stream complete.
+		}
+	}
+
+	return &LLMResponse{
+		Content:   strings.Join(textParts, ""),
+		ToolCalls: toolCalls,
+	}, nil
 }

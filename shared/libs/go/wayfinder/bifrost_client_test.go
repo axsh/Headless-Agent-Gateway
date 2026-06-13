@@ -2,11 +2,19 @@ package wayfinder
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 func TestBifrostClient_ImplementsLLMClient(t *testing.T) {
 	var _ LLMClient = (*BifrostClient)(nil)
+}
+
+func TestBifrostClient_ImplementsStreamingLLMClient(t *testing.T) {
+	var _ StreamingLLMClient = (*BifrostClient)(nil)
 }
 
 func TestBifrostClient_NewWithDefaults(t *testing.T) {
@@ -123,5 +131,187 @@ func TestBifrostClient_GenerateMessage_Integration(t *testing.T) {
 	}
 	if resp.Content == "" {
 		t.Error("expected non-empty response")
+	}
+}
+
+// ---- Streaming Tests ----
+
+func TestBifrostClient_BuildRequestBody_WithStream(t *testing.T) {
+	client := NewBifrostClient("http://127.0.0.1:8080", "test-token")
+	messages := []ChatMessage{
+		{Role: "user", Content: "Hello"},
+	}
+
+	body := client.buildStreamRequestBody("test-model", messages, nil)
+	if body["stream"] != true {
+		t.Errorf("stream = %v, want true", body["stream"])
+	}
+	if body["model"] != "test-model" {
+		t.Errorf("model = %v, want %q", body["model"], "test-model")
+	}
+}
+
+func TestBifrostClient_GenerateMessageStream_TextOnly(t *testing.T) {
+	// Mock SSE server that returns text deltas.
+	sseResponse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[]}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" World"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, sseResponse)
+	}))
+	defer server.Close()
+
+	client := NewBifrostClient(server.URL, "test-token")
+
+	var deltas []string
+	resp, err := client.GenerateMessageStream(
+		context.Background(),
+		"test-model",
+		[]ChatMessage{{Role: "user", Content: "Hi"}},
+		nil,
+		func(delta string) { deltas = append(deltas, delta) },
+	)
+	if err != nil {
+		t.Fatalf("GenerateMessageStream failed: %v", err)
+	}
+
+	// Verify deltas were received.
+	if len(deltas) != 2 {
+		t.Errorf("delta count = %d, want 2, got %v", len(deltas), deltas)
+	}
+	if len(deltas) >= 2 {
+		if deltas[0] != "Hello" {
+			t.Errorf("delta[0] = %q, want %q", deltas[0], "Hello")
+		}
+		if deltas[1] != " World" {
+			t.Errorf("delta[1] = %q, want %q", deltas[1], " World")
+		}
+	}
+
+	// Verify final response.
+	if resp.Content != "Hello World" {
+		t.Errorf("Content = %q, want %q", resp.Content, "Hello World")
+	}
+	if len(resp.ToolCalls) != 0 {
+		t.Errorf("len(ToolCalls) = %d, want 0", len(resp.ToolCalls))
+	}
+}
+
+func TestBifrostClient_GenerateMessageStream_WithToolCalls(t *testing.T) {
+	// Mock SSE server that returns text + tool_use.
+	sseResponse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[]}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Let me read that."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_abc","name":"read_file"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"test.txt\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, sseResponse)
+	}))
+	defer server.Close()
+
+	client := NewBifrostClient(server.URL, "test-token")
+
+	var deltas []string
+	resp, err := client.GenerateMessageStream(
+		context.Background(),
+		"test-model",
+		[]ChatMessage{{Role: "user", Content: "Read a file"}},
+		nil,
+		func(delta string) { deltas = append(deltas, delta) },
+	)
+	if err != nil {
+		t.Fatalf("GenerateMessageStream failed: %v", err)
+	}
+
+	// Verify text deltas.
+	if len(deltas) != 1 {
+		t.Errorf("text delta count = %d, want 1", len(deltas))
+	}
+
+	// Verify text content.
+	if resp.Content != "Let me read that." {
+		t.Errorf("Content = %q, want %q", resp.Content, "Let me read that.")
+	}
+
+	// Verify tool calls.
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("len(ToolCalls) = %d, want 1", len(resp.ToolCalls))
+	}
+	tc := resp.ToolCalls[0]
+	if tc.ID != "call_abc" {
+		t.Errorf("ToolCalls[0].ID = %q, want %q", tc.ID, "call_abc")
+	}
+	if tc.Name != "read_file" {
+		t.Errorf("ToolCalls[0].Name = %q, want %q", tc.Name, "read_file")
+	}
+	if path, ok := tc.Input["path"].(string); !ok || path != "test.txt" {
+		t.Errorf("ToolCalls[0].Input[path] = %v, want %q", tc.Input["path"], "test.txt")
+	}
+}
+
+func TestBifrostClient_GenerateMessageStream_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"error":"internal server error"}`)
+	}))
+	defer server.Close()
+
+	client := NewBifrostClient(server.URL, "test-token")
+
+	_, err := client.GenerateMessageStream(
+		context.Background(),
+		"test-model",
+		[]ChatMessage{{Role: "user", Content: "Hi"}},
+		nil,
+		func(delta string) {},
+	)
+	if err == nil {
+		t.Fatal("expected error for server error response")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error should mention status 500, got %q", err.Error())
 	}
 }
