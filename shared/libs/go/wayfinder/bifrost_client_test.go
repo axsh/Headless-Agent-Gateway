@@ -315,3 +315,71 @@ func TestBifrostClient_GenerateMessageStream_ServerError(t *testing.T) {
 		t.Errorf("error should mention status 500, got %q", err.Error())
 	}
 }
+
+// ---- Empty Content Sanitization Tests ----
+
+func TestBuildRequestBody_EmptyToolContent(t *testing.T) {
+	client := NewBifrostClient("http://127.0.0.1:8080", "test-token")
+	messages := []ChatMessage{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "I'll use a tool.", ToolCalls: []ToolCall{
+			{ID: "tc1", Name: "execute_command", Input: map[string]any{"command": "echo"}},
+		}},
+		{Role: "tool", Content: "", ToolCallID: "tc1"},
+	}
+
+	body := client.buildRequestBody("test-model", messages, nil)
+	msgList := body["messages"].([]map[string]any)
+
+	// Third message (index 2) is the tool result.
+	toolMsg := msgList[2]
+	contentBlocks, ok := toolMsg["content"].([]map[string]any)
+	if !ok {
+		t.Fatalf("tool message content is not []map[string]any: %T", toolMsg["content"])
+	}
+	if len(contentBlocks) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(contentBlocks))
+	}
+	toolContent, _ := contentBlocks[0]["content"].(string)
+	if toolContent != "(no output)" {
+		t.Errorf("empty tool content should be sanitized to %q, got %q", "(no output)", toolContent)
+	}
+}
+
+func TestBuildRequestBody_EmptyAssistantContent(t *testing.T) {
+	client := NewBifrostClient("http://127.0.0.1:8080", "test-token")
+	messages := []ChatMessage{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: ""},
+	}
+
+	body := client.buildRequestBody("test-model", messages, nil)
+	msgList := body["messages"].([]map[string]any)
+
+	// Second message (index 1) is the assistant with empty content.
+	assistantContent, _ := msgList[1]["content"].(string)
+	if assistantContent != "(empty)" {
+		t.Errorf("empty assistant content should be sanitized to %q, got %q", "(empty)", assistantContent)
+	}
+}
+
+func TestBuildRequestBody_NonEmptyToolContentUnchanged(t *testing.T) {
+	client := NewBifrostClient("http://127.0.0.1:8080", "test-token")
+	messages := []ChatMessage{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Using tool.", ToolCalls: []ToolCall{
+			{ID: "tc1", Name: "read_file", Input: map[string]any{"path": "test.txt"}},
+		}},
+		{Role: "tool", Content: "file contents here", ToolCallID: "tc1"},
+	}
+
+	body := client.buildRequestBody("test-model", messages, nil)
+	msgList := body["messages"].([]map[string]any)
+
+	toolMsg := msgList[2]
+	contentBlocks := toolMsg["content"].([]map[string]any)
+	toolContent, _ := contentBlocks[0]["content"].(string)
+	if toolContent != "file contents here" {
+		t.Errorf("non-empty tool content should be unchanged, got %q", toolContent)
+	}
+}

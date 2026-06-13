@@ -86,12 +86,17 @@ func (bc *BifrostClient) buildRequestBody(model string, messages []ChatMessage, 
 
 		if msg.Role == "tool" {
 			// Tool results use tool_result content block format.
+			// Sanitize empty content to prevent upstream API errors (e.g. Gemini HTTP 400).
+			content := msg.Content
+			if content == "" {
+				content = "(no output)"
+			}
 			apiMsg["role"] = "user"
 			apiMsg["content"] = []map[string]any{
 				{
 					"type":        "tool_result",
 					"tool_use_id": msg.ToolCallID,
-					"content":     msg.Content,
+					"content":     content,
 				},
 			}
 		} else if len(msg.ToolCalls) > 0 {
@@ -113,7 +118,12 @@ func (bc *BifrostClient) buildRequestBody(model string, messages []ChatMessage, 
 			}
 			apiMsg["content"] = content
 		} else {
-			apiMsg["content"] = msg.Content
+			// Sanitize empty content to prevent upstream API errors.
+			content := msg.Content
+			if content == "" {
+				content = "(empty)"
+			}
+			apiMsg["content"] = content
 		}
 
 		apiMessages = append(apiMessages, apiMsg)
