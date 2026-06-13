@@ -149,7 +149,22 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		// Apply compaction if needed before LLM call.
 		ac.applyCompaction()
 
-		resp, err := ac.llm.GenerateMessage(ctx, ac.config.LogicalModel, ac.messages, toolDefs)
+		// Use streaming if the client supports it.
+		var resp *LLMResponse
+		var err error
+		streamed := false
+		if streamClient, ok := ac.llm.(StreamingLLMClient); ok && ac.emitter != nil {
+			onDelta := func(delta string) {
+				ac.emitter.Emit(codingagent.StreamEvent{
+					Type:    codingagent.EventText,
+					Content: delta,
+				})
+			}
+			resp, err = streamClient.GenerateMessageStream(ctx, ac.config.LogicalModel, ac.messages, toolDefs, onDelta)
+			streamed = true
+		} else {
+			resp, err = ac.llm.GenerateMessage(ctx, ac.config.LogicalModel, ac.messages, toolDefs)
+		}
 		if err != nil {
 			ac.logger.Error("LLM call failed", "iteration", iteration, "error", err.Error())
 			ac.saveSession(session.StatusFailed)
@@ -159,10 +174,13 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		// If no tool calls, return the text response.
 		if len(resp.ToolCalls) == 0 {
 			ac.logger.Debug("agent core completed", "iteration", iteration, "response_len", len(resp.Content))
-			ac.emitter.Emit(codingagent.StreamEvent{
-				Type:    codingagent.EventText,
-				Content: resp.Content,
-			})
+			// Only emit full text for non-streaming (streaming already emitted deltas).
+			if !streamed {
+				ac.emitter.Emit(codingagent.StreamEvent{
+					Type:    codingagent.EventText,
+					Content: resp.Content,
+				})
+			}
 			ac.messages = append(ac.messages, ChatMessage{
 				Role:    "assistant",
 				Content: resp.Content,
