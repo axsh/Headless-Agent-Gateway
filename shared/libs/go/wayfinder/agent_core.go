@@ -536,6 +536,7 @@ func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree)
 			SessionDir:          ac.config.SessionDir,
 			LogicalModel:        ac.config.LogicalModel,
 			AllowedPathPatterns: ac.config.AllowedPathPatterns,
+			Emitter:             ac.emitter, // Relay parent EventEmitter to child sessions.
 		}
 		nodeExec = &agentNodeExecutor{
 			parentSessionID: ac.sessionID,

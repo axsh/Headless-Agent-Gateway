@@ -49,6 +49,7 @@ type AgentRunnerConfig struct {
 	SessionDir          string
 	LogicalModel        string
 	AllowedPathPatterns []string
+	Emitter             any // Parent EventEmitter (any to avoid cyclic import)
 }
 
 // AgentRunner creates and runs child AgentCore instances.
@@ -111,6 +112,7 @@ func (e *SubagentExecutor) Execute(
 		SessionDir:          e.parentConfig.SessionDir,
 		LogicalModel:        e.parentConfig.LogicalModel,
 		AllowedPathPatterns: e.parentConfig.AllowedPathPatterns,
+		Emitter:             e.parentConfig.Emitter,
 	}
 
 	e.logger.Debug("child session created", "child_id", childSessionID, "parent_work_dir", childConfig.WorkDir)

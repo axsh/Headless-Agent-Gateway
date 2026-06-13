@@ -262,3 +262,42 @@ func (m *failLastLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessa
 	}
 	return nil, fmt.Errorf("simulated failure at call %d", m.callCount)
 }
+
+func TestSubagentExecutor_EmitterPropagation(t *testing.T) {
+	// Verify that Emitter from parent config is propagated to child config.
+	sentinel := "test-emitter-sentinel"
+
+	runner := &configCapturingRunner{result: "Done."}
+	mock := &mockLLM{
+		responses: []*LLMResponse{
+			{Content: `{"objective":"test","context":"","constraints":""}`},
+			{Content: "Status: SUCCESS\nSummary: Done."},
+		},
+	}
+
+	cfg := &AgentRunnerConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   t.TempDir(),
+		LogicalModel: "test-model",
+		Emitter:      sentinel,
+	}
+
+	executor := NewSubagentExecutor(cfg, mock, runner, nil)
+
+	_, err := executor.Execute(
+		context.Background(),
+		[]ParentMessage{{Role: "user", Content: "test"}},
+		"list_directory",
+		map[string]any{"path": "."},
+	)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if runner.capturedConfig == nil {
+		t.Fatal("runner should have received config")
+	}
+	if runner.capturedConfig.Emitter != sentinel {
+		t.Errorf("child Emitter = %v, want %v", runner.capturedConfig.Emitter, sentinel)
+	}
+}

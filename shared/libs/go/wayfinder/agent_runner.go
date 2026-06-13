@@ -47,6 +47,13 @@ func (r *AgentRunnerImpl) RunChild(
 	child := NewAgentCore(wrappedLLM, childCfg, log)
 	child.SetSessionID(sessionID)
 
+	// Relay parent emitter to child for streaming event propagation.
+	if cfg.Emitter != nil {
+		if emitter, ok := cfg.Emitter.(*EventEmitter); ok {
+			child.SetEmitter(emitter)
+		}
+	}
+
 	return child.Run(ctx, prompt)
 }
 
