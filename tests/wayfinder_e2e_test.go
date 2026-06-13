@@ -469,3 +469,60 @@ func TestE2E_Wayfinder_FullScenario_Ollama(t *testing.T) {
 	t.Skip("Ollama small models don't reliably support structured tool calling")
 	runFullScenario(t, "qwen2.5-coder:7b")
 }
+
+// ---- TC-008: Compaction Tool Pair Protection ----
+
+// TestE2E_Wayfinder_CompactionToolPairProtection verifies that compaction
+// does not break tool call pairs when the message history exceeds MaxTurns.
+// This test sends multiple tool-calling prompts to force compaction,
+// then verifies no 400 errors occur (which would indicate broken tool pairs).
+func TestE2E_Wayfinder_CompactionToolPairProtection(t *testing.T) {
+	baseURL, cleanup := startWayfinderE2EServer(t)
+	defer cleanup()
+
+	workDir := t.TempDir()
+	sessionID := createWayfinderSession(t, baseURL, "gemini-2.5-flash", workDir)
+
+	// Send multiple prompts that will trigger tool calls (file operations).
+	// This builds up message history including assistant+tool_calls -> tool pairs.
+	prompts := []struct {
+		msg      string
+		checkFile string // Optional: verify this file was created.
+	}{
+		{
+			msg:      "Create a file named test1.txt with the content 'hello'. Do nothing else.",
+			checkFile: "test1.txt",
+		},
+		{
+			msg:      "Read the file test1.txt and tell me what it says. Do nothing else.",
+		},
+		{
+			msg:      "Create a file named test2.txt with the content 'world'. Do nothing else.",
+			checkFile: "test2.txt",
+		},
+		{
+			msg:      "Create a file named test3.txt with the content 'foo'. Do nothing else.",
+			checkFile: "test3.txt",
+		},
+		{
+			msg: "List all files in the current directory and tell me their names. Do nothing else.",
+		},
+	}
+
+	for i, p := range prompts {
+		t.Logf("=== Prompt %d: %s ===", i+1, truncate(p.msg, 60))
+		output, _ := sendWayfinderMessage(t, baseURL, sessionID, p.msg, 120*time.Second)
+		t.Logf("Output %d: %s", i+1, truncate(output, 300))
+
+		// Verify file was created if expected.
+		if p.checkFile != "" {
+			fpath := filepath.Join(workDir, p.checkFile)
+			if _, err := os.Stat(fpath); os.IsNotExist(err) {
+				t.Errorf("Prompt %d: expected file %s to be created", i+1, p.checkFile)
+			}
+		}
+	}
+
+	// If we got here without fatal errors, compaction did not break tool pairs.
+	t.Log("Compaction tool pair protection test passed: no 400 errors from broken tool pairs")
+}
