@@ -56,3 +56,18 @@ type SessionState struct {
 	CreatedAt        time.Time        `json:"created_at"`
 	LastActivityAt   time.Time        `json:"last_activity_at"`
 }
+
+// SessionMetadata is persisted as metadata.json in the session folder.
+// It holds session-level metadata separately from the message context.
+type SessionMetadata struct {
+	SessionID        string           `json:"session_id"`
+	ParentID         *string          `json:"parent_id,omitempty"`
+	Status           string           `json:"status"`
+	Latest           int              `json:"latest"`        // Last history sequence number.
+	ContextStart     int              `json:"context_start"` // First seq in current context (before = summarized).
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
+	WBSTreeJSON      json.RawMessage  `json:"wbs_tree,omitempty"`
+	CreatedFiles     []TrackedFile    `json:"created_files"`
+	RunningProcesses []TrackedProcess `json:"running_processes"`
+}
