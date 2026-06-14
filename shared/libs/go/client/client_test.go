@@ -31,3 +31,11 @@ func TestNew_WithHTTPClient(t *testing.T) {
 		t.Errorf("timeout = %v, want %v", c.httpClient.Timeout, 60*time.Second)
 	}
 }
+
+func TestWithNoTimeout(t *testing.T) {
+	c := New("http://example.com", WithNoTimeout())
+	if c.httpClient.Timeout != 0 {
+		t.Errorf("Timeout = %v, want 0 (no timeout)", c.httpClient.Timeout)
+	}
+}
+

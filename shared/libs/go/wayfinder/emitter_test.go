@@ -40,3 +40,11 @@ func TestEventEmitter_NilChannel(t *testing.T) {
 	emitter := &EventEmitter{ch: nil}
 	emitter.Emit(codingagent.StreamEvent{Type: codingagent.EventText})
 }
+
+func TestEventEmitter_ClosedChannel(t *testing.T) {
+	// Calling Emit after the channel is closed must not panic.
+	ch := make(chan codingagent.StreamEvent, 1)
+	close(ch)
+	emitter := NewEventEmitter(ch)
+	emitter.Emit(codingagent.StreamEvent{Type: codingagent.EventText, Content: "test"})
+}

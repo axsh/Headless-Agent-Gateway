@@ -13,10 +13,13 @@ func NewEventEmitter(ch chan<- codingagent.StreamEvent) *EventEmitter {
 	return &EventEmitter{ch: ch}
 }
 
-// Emit sends a single event. Safe to call on nil receiver.
+// Emit sends a single event. Safe to call on nil receiver or closed channel.
 func (e *EventEmitter) Emit(ev codingagent.StreamEvent) {
 	if e == nil || e.ch == nil {
 		return
 	}
+	defer func() {
+		recover() // Silently ignore send-on-closed-channel panic.
+	}()
 	e.ch <- ev
 }
