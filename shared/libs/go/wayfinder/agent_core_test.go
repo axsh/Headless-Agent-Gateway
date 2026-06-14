@@ -192,14 +192,14 @@ func TestAgentCore_SessionPersistence_SaveOnComplete(t *testing.T) {
 		t.Fatalf("Run failed: %v", err)
 	}
 
-	// Verify session file was created.
-	sessionFile := filepath.Join(sessionDir, "persist-test.json")
-	if _, err := os.Stat(sessionFile); err != nil {
-		t.Fatalf("session file should exist: %v", err)
+	// Verify session folder was created.
+	sessionFolder := filepath.Join(sessionDir, "persist-test", "metadata.json")
+	if _, err := os.Stat(sessionFolder); err != nil {
+		t.Fatalf("session metadata.json should exist: %v", err)
 	}
 
 	// Verify session content.
-	data, _ := os.ReadFile(sessionFile)
+	data, _ := os.ReadFile(sessionFolder)
 	var state map[string]any
 	json.Unmarshal(data, &state)
 	if state["status"] != "completed" {
