@@ -306,9 +306,21 @@ Rules:
 - Output in the same language as the conversation.
 - Be concise but do not lose important facts.`
 
-// compactionSummarizer creates a summary of old messages using the LLM.
-// Used by the compaction process to compress conversation history.
+// compactionSummarizer creates a summary of old messages using Map&Reduce approach.
+// Messages are split into small chunks, each chunk is summarized independently,
+// and the summaries are merged pairwise until a single summary remains.
 func (ac *AgentCore) compactionSummarizer(msgs []session.Message) (string, error) {
+	summarizer := session.NewMapReduceSummarizer(
+		ac.llmSummarizeChunk,
+		ac.llmMergeSummaries,
+		ac.structuredFallbackSummary,
+		20, // maxChunkMsgs
+	)
+	return summarizer.Summarize(msgs)
+}
+
+// llmSummarizeChunk summarizes a single chunk of messages using LLM.
+func (ac *AgentCore) llmSummarizeChunk(msgs []session.Message) (string, error) {
 	conversationLog := ac.buildConversationLog(msgs)
 	summaryPrompt := []ChatMessage{
 		{Role: "system", Content: summarizationSystemPrompt},
@@ -317,8 +329,32 @@ func (ac *AgentCore) compactionSummarizer(msgs []session.Message) (string, error
 
 	resp, err := ac.llm.GenerateMessage(context.Background(), ac.config.LogicalModel, summaryPrompt, nil)
 	if err != nil {
-		ac.logger.Warn("LLM summarization failed, using structured fallback", "error", err.Error())
-		return ac.structuredFallbackSummary(msgs), nil
+		return "", err
+	}
+	return resp.Content, nil
+}
+
+// mergeSystemPrompt is the system prompt for merging two conversation summaries.
+const mergeSystemPrompt = `You are a conversation summarizer.
+Merge the following two conversation summaries into a single, cohesive summary.
+Rules:
+- Preserve all tool call names and their outcomes from both summaries.
+- Maintain chronological order (Summary A happened before Summary B).
+- Preserve specific file paths, command outputs, and operation results.
+- Keep causal relationships between user requests and assistant actions.
+- Be concise but do not lose important facts.
+- Output in the same language as the summaries.`
+
+// llmMergeSummaries merges two summaries into one using LLM.
+func (ac *AgentCore) llmMergeSummaries(summaryA, summaryB string) (string, error) {
+	mergePrompt := []ChatMessage{
+		{Role: "system", Content: mergeSystemPrompt},
+		{Role: "user", Content: "Summary A:\n" + summaryA + "\n\nSummary B:\n" + summaryB},
+	}
+
+	resp, err := ac.llm.GenerateMessage(context.Background(), ac.config.LogicalModel, mergePrompt, nil)
+	if err != nil {
+		return "", err
 	}
 	return resp.Content, nil
 }
@@ -569,9 +605,11 @@ func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree)
 
 	orch := planning.NewWBSOrchestrator(nodeExec, persister, ac.logger, orchOpts...)
 	if err := orch.Execute(ctx, tree); err != nil {
+		ac.saveSession(session.StatusFailed)
 		return "", fmt.Errorf("WBS orchestration failed: %w", err)
 	}
 
+	ac.saveSession(session.StatusCompleted)
 	return planning.CollectResults(tree), nil
 }
 
