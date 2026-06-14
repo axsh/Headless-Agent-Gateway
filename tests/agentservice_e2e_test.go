@@ -417,7 +417,19 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		t.Fatalf("expected hello.txt in %s, got files: %v, error: %v", workDir, names, err)
+		// Inspect tool_use events to determine the actual path the LLM used.
+		// Claude CLI may write to a sandbox path (e.g. /tmp/claude_code_sandbox/)
+		// even when CLAUDE_CODE_SKIP_SANDBOX=1, because the LLM model itself
+		// generates the file_path argument based on its system prompt.
+		var writePaths []string
+		for _, ev := range events {
+			if ev.Type == codingagent.EventToolUse && ev.Content != "" {
+				writePaths = append(writePaths, ev.Content)
+			}
+		}
+		t.Fatalf("expected hello.txt in %s, got files: %v, error: %v\n"+
+			"tool_use events (check for sandbox paths): %v",
+			workDir, names, err, writePaths)
 	}
 	if !strings.Contains(string(content), "Hello World") {
 		t.Errorf("hello.txt content = %q, want to contain 'Hello World'", string(content))
@@ -712,15 +724,16 @@ func TestE2E_SessionDirFallback(t *testing.T) {
 func TestE2E_ClaudeCode_TernctlRealCommand(t *testing.T) {
 	// Resolve ternctl binary path (handles Windows .exe extension)
 	ternctlName := "../bin/ternctl"
-	if runtime.GOOS == "windows" {
-		// On Windows, exec.Command requires .exe extension.
-		if _, err := os.Stat(ternctlName + ".exe"); err == nil {
-			ternctlName = ternctlName + ".exe"
-		}
-	}
 	ternctlBin, err := filepath.Abs(ternctlName)
 	if err != nil {
 		t.Fatalf("resolve ternctl path: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		// On Windows, exec.Command requires .exe extension.
+		// Check after Abs so the stat uses the correct absolute path.
+		if _, err := os.Stat(ternctlBin + ".exe"); err == nil {
+			ternctlBin = ternctlBin + ".exe"
+		}
 	}
 	if _, err := os.Stat(ternctlBin); err != nil {
 		t.Fatalf("ternctl binary not found at %s: %v", ternctlBin, err)
