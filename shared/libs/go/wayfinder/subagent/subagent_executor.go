@@ -12,7 +12,18 @@ import (
 // LLMClient is the interface for LLM communication.
 // Defined locally to avoid cyclic import with the wayfinder root package.
 type LLMClient interface {
-	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error)
+	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition, opts ...GenerateOptions) (*LLMResponse, error)
+}
+
+// GenerateOptions holds optional parameters for LLM generation.
+type GenerateOptions struct {
+	ResponseFormat *ResponseFormat
+}
+
+// ResponseFormat specifies the desired response format.
+type ResponseFormat struct {
+	Type       string
+	JSONSchema any
 }
 
 // ChatMessage is a message in the LLM conversation.
@@ -49,6 +60,7 @@ type AgentRunnerConfig struct {
 	SessionDir          string
 	LogicalModel        string
 	AllowedPathPatterns []string
+	Emitter             any // Parent EventEmitter (any to avoid cyclic import)
 }
 
 // AgentRunner creates and runs child AgentCore instances.
@@ -63,7 +75,7 @@ type SubagentExecutor struct {
 	llm          LLMClient
 	runner       AgentRunner
 	hints        *HintGenerator
-	summarizer   *Summarizer
+	summarizer   SummaryStrategy
 	logger       logger.Logger
 }
 
@@ -111,6 +123,7 @@ func (e *SubagentExecutor) Execute(
 		SessionDir:          e.parentConfig.SessionDir,
 		LogicalModel:        e.parentConfig.LogicalModel,
 		AllowedPathPatterns: e.parentConfig.AllowedPathPatterns,
+		Emitter:             e.parentConfig.Emitter,
 	}
 
 	e.logger.Debug("child session created", "child_id", childSessionID, "parent_work_dir", childConfig.WorkDir)
@@ -132,7 +145,7 @@ func (e *SubagentExecutor) Execute(
 	e.logger.Debug("child session completed", "child_id", childSessionID, "result_len", len(childResult))
 
 	// 5. Summarize child result for parent consumption.
-	summary, err := e.summarizer.SummarizeForParent(ctx, hints, childResult)
+	summary, err := e.summarizer.Summarize(ctx, hints, childResult)
 	if err != nil {
 		e.logger.Warn("summarization failed, returning raw result", "error", err.Error())
 		// Fallback: return raw result if summarization fails.

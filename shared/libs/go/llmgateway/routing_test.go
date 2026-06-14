@@ -13,10 +13,10 @@ func testProfiles() *config.ModelProfilesConfig {
 	return &config.ModelProfilesConfig{
 		Providers: map[string]config.ProviderConfig{
 			"anthropic": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
 						Name:  "primary",
-						Value: "sk-ant-test-key",
+						Secret: "sk-ant-test-key",
 						Models: []config.ModelConfig{
 							{Name: "claude-sonnet-4-20250514"},
 							{Name: "claude-haiku-3-20240307"},
@@ -25,10 +25,10 @@ func testProfiles() *config.ModelProfilesConfig {
 				},
 			},
 			"openai": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
 						Name:  "default",
-						Value: "sk-openai-test-key",
+						Secret: "sk-openai-test-key",
 						Models: []config.ModelConfig{
 							{Name: "gpt-4o"},
 							{Name: "gpt-4o-mini"},
@@ -38,10 +38,10 @@ func testProfiles() *config.ModelProfilesConfig {
 				},
 			},
 			"google": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
 						Name:  "default",
-						Value: "AIzaSy-test-key",
+						Secret: "AIzaSy-test-key",
 						Models: []config.ModelConfig{
 							{Name: "gemini-3.5-flash"},
 						},

@@ -18,12 +18,18 @@ const (
 
 // ExecutionRouter determines the execution path based on task complexity.
 type ExecutionRouter struct {
-	llm LLMClient
+	llm                 LLMClient
+	useStructuredOutput bool
 }
 
 // NewExecutionRouter creates a new ExecutionRouter.
 func NewExecutionRouter(llm LLMClient) *ExecutionRouter {
 	return &ExecutionRouter{llm: llm}
+}
+
+// SetStructuredOutput enables/disables structured output.
+func (r *ExecutionRouter) SetStructuredOutput(enabled bool) {
+	r.useStructuredOutput = enabled
 }
 
 const routerSystemPrompt = `You are a task complexity analyzer.
@@ -53,13 +59,26 @@ func (r *ExecutionRouter) Route(ctx context.Context, model string, prompt string
 		{Role: "user", Content: prompt},
 	}
 
-	resp, err := r.llm.GenerateMessage(ctx, model, messages, nil)
+	var opts []GenerateOptions
+	if r.useStructuredOutput {
+		opts = append(opts, GenerateOptions{
+			ResponseFormat: &ResponseFormat{
+				Type: "json_object",
+			},
+		})
+	}
+
+	resp, err := r.llm.GenerateMessage(ctx, model, messages, nil, opts...)
 	if err != nil {
 		// Default to simple on error.
 		return RouteSimple, "routing failed, defaulting to simple", nil
 	}
 
-	jsonStr := extractRouterJSON(resp.Content)
+	jsonStr := resp.Content
+	if !r.useStructuredOutput {
+		jsonStr = extractRouterJSON(jsonStr)
+	}
+
 	var result struct {
 		Route  string `json:"route"`
 		Reason string `json:"reason"`

@@ -22,14 +22,14 @@ type DefaultProfileConfig struct {
 
 // ProviderConfig holds per-provider configuration.
 type ProviderConfig struct {
-	Keys          []KeyConfig    `yaml:"keys"`
+	ApiKeys       []KeyConfig    `yaml:"api_keys"`
 	NetworkConfig *NetworkConfig `yaml:"network_config,omitempty"`
 }
 
 // KeyConfig holds an API key configuration.
 type KeyConfig struct {
 	Name   string        `yaml:"name"`
-	Value  string        `yaml:"value"`
+	Secret string        `yaml:"secret,omitempty"`
 	Weight float64       `yaml:"weight,omitempty"`
 	Models []ModelConfig `yaml:"models"`
 }
@@ -46,6 +46,8 @@ type ModelConfig struct {
 type ModelBehavior struct {
 	// ToolCallFallback enables text-to-tool-call conversion for local LLMs.
 	ToolCallFallback bool `yaml:"tool_call_fallback"`
+	// StructuredOutput indicates the model supports structured output (JSON schema).
+	StructuredOutput bool `yaml:"structured_output"`
 }
 
 // NetworkConfig holds provider-specific network settings.
@@ -67,10 +69,10 @@ func (c *ModelProfilesConfig) Validate() error {
 	}
 
 	for provName, prov := range c.Providers {
-		if len(prov.Keys) == 0 {
-			return fmt.Errorf("provider %q has no keys defined", provName)
+		if len(prov.ApiKeys) == 0 {
+			return fmt.Errorf("provider %q has no api_keys defined", provName)
 		}
-		for _, key := range prov.Keys {
+		for _, key := range prov.ApiKeys {
 			for _, model := range key.Models {
 				if model.Name == "" {
 					return fmt.Errorf("provider %q key %q has empty model name", provName, key.Name)
@@ -89,7 +91,7 @@ func (c *ModelProfilesConfig) Validate() error {
 	// Validate logical_name uniqueness across all providers.
 	logicalNames := make(map[string]string) // logical_name -> "provider/model"
 	for provName, prov := range c.Providers {
-		for _, key := range prov.Keys {
+		for _, key := range prov.ApiKeys {
 			for _, model := range key.Models {
 				if model.LogicalName != "" {
 					ref := provName + "/" + model.Name

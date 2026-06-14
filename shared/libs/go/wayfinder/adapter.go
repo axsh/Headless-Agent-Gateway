@@ -215,6 +215,7 @@ func (a *subagentLLMAdapter) GenerateMessage(
 	model string,
 	msgs []subagent.ChatMessage,
 	tools []subagent.ToolDefinition,
+	opts ...subagent.GenerateOptions,
 ) (*subagent.LLMResponse, error) {
 	// Convert subagent messages to wayfinder messages.
 	wfMsgs := make([]ChatMessage, len(msgs))
@@ -241,7 +242,20 @@ func (a *subagentLLMAdapter) GenerateMessage(
 		}
 	}
 
-	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools)
+	// Convert subagent GenerateOptions to wayfinder GenerateOptions.
+	var wfOpts []GenerateOptions
+	for _, opt := range opts {
+		wfOpt := GenerateOptions{}
+		if opt.ResponseFormat != nil {
+			wfOpt.ResponseFormat = &ResponseFormat{
+				Type:       opt.ResponseFormat.Type,
+				JSONSchema: opt.ResponseFormat.JSONSchema,
+			}
+		}
+		wfOpts = append(wfOpts, wfOpt)
+	}
+
+	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools, wfOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +285,7 @@ func (a *planningLLMAdapter) GenerateMessage(
 	model string,
 	msgs []planning.ChatMessage,
 	tools []planning.ToolDefinition,
+	opts ...planning.GenerateOptions,
 ) (*planning.LLMResponse, error) {
 	// Convert planning messages to wayfinder messages.
 	wfMsgs := make([]ChatMessage, len(msgs))
@@ -287,7 +302,20 @@ func (a *planningLLMAdapter) GenerateMessage(
 		}
 	}
 
-	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools)
+	// Convert planning GenerateOptions to wayfinder GenerateOptions.
+	var wfOpts []GenerateOptions
+	for _, opt := range opts {
+		wfOpt := GenerateOptions{}
+		if opt.ResponseFormat != nil {
+			wfOpt.ResponseFormat = &ResponseFormat{
+				Type:       opt.ResponseFormat.Type,
+				JSONSchema: opt.ResponseFormat.JSONSchema,
+			}
+		}
+		wfOpts = append(wfOpts, wfOpt)
+	}
+
+	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools, wfOpts...)
 	if err != nil {
 		return nil, err
 	}

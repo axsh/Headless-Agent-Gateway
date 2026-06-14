@@ -47,6 +47,13 @@ func (r *AgentRunnerImpl) RunChild(
 	child := NewAgentCore(wrappedLLM, childCfg, log)
 	child.SetSessionID(sessionID)
 
+	// Relay parent emitter to child for streaming event propagation.
+	if cfg.Emitter != nil {
+		if emitter, ok := cfg.Emitter.(*EventEmitter); ok {
+			child.SetEmitter(emitter)
+		}
+	}
+
 	return child.Run(ctx, prompt)
 }
 
@@ -60,6 +67,7 @@ func (a *subagentToWayfinderLLM) GenerateMessage(
 	model string,
 	msgs []ChatMessage,
 	tools []ToolDefinition,
+	opts ...GenerateOptions,
 ) (*LLMResponse, error) {
 	// Convert wayfinder messages to subagent messages.
 	subMsgs := make([]subagent.ChatMessage, len(msgs))
@@ -84,7 +92,20 @@ func (a *subagentToWayfinderLLM) GenerateMessage(
 		}
 	}
 
-	resp, err := a.inner.GenerateMessage(ctx, model, subMsgs, subTools)
+	// Convert wayfinder GenerateOptions to subagent GenerateOptions.
+	var subOpts []subagent.GenerateOptions
+	for _, opt := range opts {
+		subOpt := subagent.GenerateOptions{}
+		if opt.ResponseFormat != nil {
+			subOpt.ResponseFormat = &subagent.ResponseFormat{
+				Type:       opt.ResponseFormat.Type,
+				JSONSchema: opt.ResponseFormat.JSONSchema,
+			}
+		}
+		subOpts = append(subOpts, subOpt)
+	}
+
+	resp, err := a.inner.GenerateMessage(ctx, model, subMsgs, subTools, subOpts...)
 	if err != nil {
 		return nil, err
 	}

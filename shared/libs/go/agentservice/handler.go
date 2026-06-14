@@ -285,7 +285,9 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 		select {
 		case <-ctx.Done():
 			if s.logger != nil {
-				s.logger.Debug("client disconnected, stopping SSE stream", "session_id", sessionID)
+				s.logger.Warn("client disconnected during SSE stream",
+					"session_id", sessionID,
+					"events_sent", eventCount)
 			}
 			return
 		case <-ticker.C:

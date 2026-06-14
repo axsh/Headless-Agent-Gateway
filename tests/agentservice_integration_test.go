@@ -648,7 +648,7 @@ func TestCawaClientErrorPropagation(t *testing.T) {
 	}
 	ternctlPath := filepath.Join(projectRoot, "bin", ternctlBin)
 
-	ternctlDir := filepath.Join(projectRoot, "examples", "ternctl")
+	ternctlDir := filepath.Join(projectRoot, "features", "ternctl")
 	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", ternctlBin), ".")
 	buildCmd.Dir = ternctlDir
 	if output, err := buildCmd.CombinedOutput(); err != nil {
@@ -911,10 +911,10 @@ func TestModelPassthroughToLLMGP(t *testing.T) {
 
 		Providers: map[string]config.ProviderConfig{
 			"openai": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
-						Name:  "default",
-						Value: "sk-test",
+						Name:   "default",
+						Secret: "sk-test",
 						Models: []config.ModelConfig{
 							{Name: "gpt-4o"},
 						},

@@ -237,7 +237,7 @@ type failFirstLLM struct {
 	callCount int
 }
 
-func (m *failFirstLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition) (*LLMResponse, error) {
+func (m *failFirstLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition, _ ...GenerateOptions) (*LLMResponse, error) {
 	m.callCount++
 	if m.callCount <= m.failCount {
 		return nil, fmt.Errorf("simulated failure %d", m.callCount)
@@ -255,10 +255,49 @@ type failLastLLM struct {
 	callCount        int
 }
 
-func (m *failLastLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition) (*LLMResponse, error) {
+func (m *failLastLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition, _ ...GenerateOptions) (*LLMResponse, error) {
 	m.callCount++
 	if m.callCount <= len(m.successResponses) {
 		return m.successResponses[m.callCount-1], nil
 	}
 	return nil, fmt.Errorf("simulated failure at call %d", m.callCount)
+}
+
+func TestSubagentExecutor_EmitterPropagation(t *testing.T) {
+	// Verify that Emitter from parent config is propagated to child config.
+	sentinel := "test-emitter-sentinel"
+
+	runner := &configCapturingRunner{result: "Done."}
+	mock := &mockLLM{
+		responses: []*LLMResponse{
+			{Content: `{"objective":"test","context":"","constraints":""}`},
+			{Content: "Status: SUCCESS\nSummary: Done."},
+		},
+	}
+
+	cfg := &AgentRunnerConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   t.TempDir(),
+		LogicalModel: "test-model",
+		Emitter:      sentinel,
+	}
+
+	executor := NewSubagentExecutor(cfg, mock, runner, nil)
+
+	_, err := executor.Execute(
+		context.Background(),
+		[]ParentMessage{{Role: "user", Content: "test"}},
+		"list_directory",
+		map[string]any{"path": "."},
+	)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if runner.capturedConfig == nil {
+		t.Fatal("runner should have received config")
+	}
+	if runner.capturedConfig.Emitter != sentinel {
+		t.Errorf("child Emitter = %v, want %v", runner.capturedConfig.Emitter, sentinel)
+	}
 }

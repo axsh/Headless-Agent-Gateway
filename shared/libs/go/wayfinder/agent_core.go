@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/axsh/arctic-tern/codingagent"
@@ -148,7 +149,22 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		// Apply compaction if needed before LLM call.
 		ac.applyCompaction()
 
-		resp, err := ac.llm.GenerateMessage(ctx, ac.config.LogicalModel, ac.messages, toolDefs)
+		// Use streaming if the client supports it.
+		var resp *LLMResponse
+		var err error
+		streamed := false
+		if streamClient, ok := ac.llm.(StreamingLLMClient); ok && ac.emitter != nil {
+			onDelta := func(delta string) {
+				ac.emitter.Emit(codingagent.StreamEvent{
+					Type:    codingagent.EventText,
+					Content: delta,
+				})
+			}
+			resp, err = streamClient.GenerateMessageStream(ctx, ac.config.LogicalModel, ac.messages, toolDefs, onDelta)
+			streamed = true
+		} else {
+			resp, err = ac.llm.GenerateMessage(ctx, ac.config.LogicalModel, ac.messages, toolDefs)
+		}
 		if err != nil {
 			ac.logger.Error("LLM call failed", "iteration", iteration, "error", err.Error())
 			ac.saveSession(session.StatusFailed)
@@ -158,10 +174,13 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		// If no tool calls, return the text response.
 		if len(resp.ToolCalls) == 0 {
 			ac.logger.Debug("agent core completed", "iteration", iteration, "response_len", len(resp.Content))
-			ac.emitter.Emit(codingagent.StreamEvent{
-				Type:    codingagent.EventText,
-				Content: resp.Content,
-			})
+			// Only emit full text for non-streaming (streaming already emitted deltas).
+			if !streamed {
+				ac.emitter.Emit(codingagent.StreamEvent{
+					Type:    codingagent.EventText,
+					Content: resp.Content,
+				})
+			}
 			ac.messages = append(ac.messages, ChatMessage{
 				Role:    "assistant",
 				Content: resp.Content,
@@ -267,7 +286,7 @@ func (ac *AgentCore) applyCompaction() {
 	sessionMsgs = session.TrimLongContent(sessionMsgs, ac.compactionCfg.MaxContentLen)
 
 	// Apply compaction with a simple built-in summarizer.
-	compacted, err := session.Compact(sessionMsgs, ac.compactionCfg, ac.defaultSummarizer)
+	compacted, err := session.Compact(sessionMsgs, ac.compactionCfg, ac.compactionSummarizer)
 	if err != nil {
 		ac.logger.Warn("compaction failed, continuing with full history", "error", err.Error())
 		return
@@ -277,19 +296,78 @@ func (ac *AgentCore) applyCompaction() {
 	ac.logger.Debug("compaction applied", "messages_after", len(ac.messages))
 }
 
-// defaultSummarizer creates a simple summary of old messages.
-func (ac *AgentCore) defaultSummarizer(msgs []session.Message) (string, error) {
-	var summary string
+// summarizationSystemPrompt is the system prompt for LLM-based context summarization.
+const summarizationSystemPrompt = `You are a conversation summarizer. Summarize the following conversation concisely.
+Rules:
+- Preserve the meaning and intent of user requests and assistant responses.
+- MUST preserve all tool call names and their outcomes (success/failure/key results).
+- MUST preserve specific file paths, command outputs, and operation results.
+- Keep causal relationships between user requests and assistant actions.
+- Output in the same language as the conversation.
+- Be concise but do not lose important facts.`
+
+// compactionSummarizer creates a summary of old messages using the LLM.
+// Used by the compaction process to compress conversation history.
+func (ac *AgentCore) compactionSummarizer(msgs []session.Message) (string, error) {
+	conversationLog := ac.buildConversationLog(msgs)
+	summaryPrompt := []ChatMessage{
+		{Role: "system", Content: summarizationSystemPrompt},
+		{Role: "user", Content: "Summarize this conversation:\n\n" + conversationLog},
+	}
+
+	resp, err := ac.llm.GenerateMessage(context.Background(), ac.config.LogicalModel, summaryPrompt, nil)
+	if err != nil {
+		ac.logger.Warn("LLM summarization failed, using structured fallback", "error", err.Error())
+		return ac.structuredFallbackSummary(msgs), nil
+	}
+	return resp.Content, nil
+}
+
+// buildConversationLog converts a message list into structured text for summarization.
+func (ac *AgentCore) buildConversationLog(msgs []session.Message) string {
+	var b strings.Builder
 	for _, m := range msgs {
-		if m.Role == "user" || m.Role == "assistant" {
-			if len(m.Content) > 200 {
-				summary += m.Role + ": " + m.Content[:200] + "...\n"
-			} else {
-				summary += m.Role + ": " + m.Content + "\n"
+		switch m.Role {
+		case "user":
+			b.WriteString(fmt.Sprintf("USER: %s\n", m.Content))
+		case "assistant":
+			b.WriteString(fmt.Sprintf("ASSISTANT: %s\n", m.Content))
+			for _, tc := range m.ToolCalls {
+				b.WriteString(fmt.Sprintf("  [TOOL CALL: %s (id=%s)]\n", tc.Name, tc.ID))
 			}
+		case "tool":
+			b.WriteString(fmt.Sprintf("  [TOOL RESULT (id=%s): %s]\n", m.ToolCallID, m.Content))
 		}
 	}
-	return summary, nil
+	return b.String()
+}
+
+// structuredFallbackSummary produces a structured summary when LLM is unavailable.
+// Unlike simple string clipping, it preserves tool call structure and results.
+func (ac *AgentCore) structuredFallbackSummary(msgs []session.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		switch m.Role {
+		case "user":
+			b.WriteString("USER: " + truncateWithEllipsis(m.Content, 300) + "\n")
+		case "assistant":
+			b.WriteString("ASSISTANT: " + truncateWithEllipsis(m.Content, 300) + "\n")
+			for _, tc := range m.ToolCalls {
+				b.WriteString(fmt.Sprintf("  [TOOL: %s]\n", tc.Name))
+			}
+		case "tool":
+			b.WriteString("  [RESULT: " + truncateWithEllipsis(m.Content, 150) + "]\n")
+		}
+	}
+	return b.String()
+}
+
+// truncateWithEllipsis truncates a string to maxLen and adds ellipsis.
+func truncateWithEllipsis(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // convertToSessionMessages converts ChatMessages to session.Messages.
@@ -416,11 +494,13 @@ func (ac *AgentCore) Tracker() *FileTracker {
 // SetRouter configures the execution router.
 func (ac *AgentCore) SetRouter(router *ExecutionRouter) {
 	ac.router = router
+	router.SetStructuredOutput(ac.config.StructuredOutput)
 }
 
 // SetPlanner configures the WBS planner.
 func (ac *AgentCore) SetPlanner(planner *planning.WBSPlanner) {
 	ac.planner = planner
+	planner.SetStructuredOutput(ac.config.StructuredOutput)
 }
 
 // SetRunner configures the AgentRunner for child session creation.
@@ -458,13 +538,14 @@ func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree)
 			SessionDir:          ac.config.SessionDir,
 			LogicalModel:        ac.config.LogicalModel,
 			AllowedPathPatterns: ac.config.AllowedPathPatterns,
+			Emitter:             ac.emitter, // Relay parent EventEmitter to child sessions.
 		}
 		nodeExec = &agentNodeExecutor{
 			parentSessionID: ac.sessionID,
 			childConfig:     childCfg,
 			runner:          ac.runner,
 			llm:             ac.subagentLLM,
-			summarizer:      subagent.NewSummarizer(ac.subagentLLM),
+			summarizer:      subagent.NewOutcomeSummarizer(ac.subagentLLM),
 			logger:          ac.logger,
 		}
 	} else {
@@ -520,7 +601,7 @@ type agentNodeExecutor struct {
 	childConfig     *subagent.AgentRunnerConfig
 	runner          subagent.AgentRunner
 	llm             subagent.LLMClient
-	summarizer      *subagent.Summarizer
+	summarizer      subagent.SummaryStrategy
 	logger          logger.Logger
 }
 
@@ -538,7 +619,7 @@ func (e *agentNodeExecutor) ExecuteNode(ctx context.Context, node planning.WBSNo
 
 	// Summarize child result for parent.
 	hints := &subagent.Hints{Objective: node.Name, Context: node.Description}
-	summary, err := e.summarizer.SummarizeForParent(ctx, hints, childResult)
+	summary, err := e.summarizer.Summarize(ctx, hints, childResult)
 	if err != nil {
 		e.logger.Warn("WBS node summarization failed, using raw result", "error", err.Error())
 		return childResult, nil

@@ -12,7 +12,7 @@ type mockLLM struct {
 	callCount int
 }
 
-func (m *mockLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition) (*LLMResponse, error) {
+func (m *mockLLM) GenerateMessage(_ context.Context, _ string, _ []ChatMessage, _ []ToolDefinition, _ ...GenerateOptions) (*LLMResponse, error) {
 	m.callCount++
 	if m.err != nil {
 		return nil, m.err
@@ -131,5 +131,46 @@ func TestExtractJSON(t *testing.T) {
 				t.Errorf("extractJSON() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGenerateWBS_WithStructuredOutput(t *testing.T) {
+	// When structured output is enabled, the planner should use the response directly
+	// without extractJSON processing.
+	wbsJSON := `{"root_nodes":[{"id":"1","name":"Deploy","description":"Deploy app","status":"pending","dependencies":[]}]}`
+	mock := &mockLLM{
+		responses: []*LLMResponse{{Content: wbsJSON}},
+	}
+	planner := NewWBSPlanner(mock)
+	planner.SetStructuredOutput(true)
+
+	tree, err := planner.GenerateWBS(context.Background(), "test-model", "Deploy application")
+	if err != nil {
+		t.Fatalf("GenerateWBS failed: %v", err)
+	}
+	if len(tree.RootNodes) != 1 {
+		t.Fatalf("expected 1 root node, got %d", len(tree.RootNodes))
+	}
+	if tree.RootNodes[0].Name != "Deploy" {
+		t.Errorf("node name = %q, want %q", tree.RootNodes[0].Name, "Deploy")
+	}
+}
+
+func TestGenerateWBS_FallbackWithoutStructuredOutput(t *testing.T) {
+	// Without structured output, the planner should use extractJSON to unwrap
+	// markdown code blocks.
+	wrapped := "```json\n{\"root_nodes\":[{\"id\":\"1\",\"name\":\"Test\",\"description\":\"d\",\"status\":\"pending\",\"dependencies\":[]}]}\n```"
+	mock := &mockLLM{
+		responses: []*LLMResponse{{Content: wrapped}},
+	}
+	planner := NewWBSPlanner(mock)
+	// useStructuredOutput defaults to false
+
+	tree, err := planner.GenerateWBS(context.Background(), "test-model", "task")
+	if err != nil {
+		t.Fatalf("GenerateWBS failed: %v", err)
+	}
+	if len(tree.RootNodes) != 1 {
+		t.Fatalf("expected 1 root node, got %d", len(tree.RootNodes))
 	}
 }

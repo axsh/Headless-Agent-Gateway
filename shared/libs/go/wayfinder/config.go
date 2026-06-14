@@ -28,6 +28,10 @@ type AgentConfig struct {
 	// EnableSubagent enables subagent delegation for heavy tool calls
 	// and child session creation for WBS node execution.
 	EnableSubagent bool
+
+	// StructuredOutput enables structured output (JSON schema) for models
+	// that support it. Retrieved from model_profiles.yaml.
+	StructuredOutput bool
 }
 
 // InitConfig resolves paths and applies defaults.

@@ -84,8 +84,8 @@ Create a session, send a message, and stream the response:
 c := client.New("http://localhost:3100")
 
 session, _ := c.CreateSession(ctx, client.SessionRequest{
-    Agent:   "claudecode",        // Use Claude Code as the coding agent
-    Model:   "devstral",          // ...but route LLM calls to a local model via Ollama
+    Agent:   "wayfinder",           // Use Wayfinder as the coding agent
+    Model:   "qwen2.5-coder:7b",   // ...route LLM calls to a local model via Ollama
     WorkDir: ".",
 })
 defer session.Terminate(ctx)
@@ -306,12 +306,17 @@ Vault references in `model_profiles.yaml` are mapped to environment variable nam
 export TERN_VAULT_OPENAI_DEFAULT="sk-proj-your-openai-api-key"
 export TERN_VAULT_ANTHROPIC_PRIMARY="sk-ant-your-anthropic-api-key"
 
-$ ./bin/tern --config config.yaml
+$ ./bin/tern --config settings/demo/config.yaml
 ```
 
 The mapping rule is: `vault://providers/{provider}/{key}` becomes `TERN_VAULT_{PROVIDER}_{KEY}` (uppercased, hyphens replaced with underscores).
 
 ### 2. Configure the server
+
+Configuration files are located in the `settings/` directory:
+
+* `settings/example/` -- Minimal configuration for getting started
+* `settings/demo/` -- Full-featured configuration for development
 
 Create a `config.yaml`:
 
@@ -338,19 +343,28 @@ default_profile:
 
 providers:
   anthropic:
-    keys:
+    api_keys:
       - name: default
-        value: vault://providers/anthropic/default
+        secret: vault://providers/anthropic/default
         models:
           - name: claude-sonnet-4-20250514
           - name: claude-opus-4-20250514
   openai:
-    keys:
+    api_keys:
       - name: default
-        value: vault://providers/openai/default
+        secret: vault://providers/openai/default
         models:
           - name: gpt-4o
           - name: gpt-5.5
+  ollama:
+    api_keys:
+      - name: default
+        models:
+          - name: qwen2.5-coder:7b
+            behavior:
+              tool_call_fallback: true
+    network_config:
+      base_url: "http://localhost:11434"
 ```
 
 ### 3. Start the server
@@ -358,7 +372,7 @@ providers:
 In one terminal, start the tern server:
 
 ```bash
-$ ./bin/tern --config ./features/tern/config.yaml
+$ ./bin/tern --config ./settings/demo/config.yaml
 tern server started and running...
 ```
 
@@ -439,6 +453,9 @@ tern/
     llmgateway/       # LLM Gateway providers
     config/           # Configuration loading
     vault/            # Secret management
+  settings/           # Configuration files
+    example/          # Minimal config for getting started
+    demo/             # Full-featured config for development
   examples/           # Working examples
     minimal-server/   # Minimal server setup
     minimal-client/   # Minimal client usage

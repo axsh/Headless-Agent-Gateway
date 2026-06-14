@@ -30,7 +30,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	c := client.New(serverURL)
+	c := client.New(serverURL, client.WithNoTimeout())
 
 	switch args[0] {
 	case "health":
@@ -190,6 +190,14 @@ func cmdRun(c *client.Client, args []string) {
 	if err == nil {
 		out, _ := json.MarshalIndent(details, "", "  ")
 		fmt.Println(string(out))
+
+		// Warn if session did not complete successfully.
+		if status, ok := details["status"].(string); ok && status != "completed" {
+			fmt.Fprintf(os.Stderr, "\nWarning: session ended with status %q (expected \"completed\")\n", status)
+			if errMsg, ok := details["error"].(string); ok && errMsg != "" {
+				fmt.Fprintf(os.Stderr, "Error details: %s\n", errMsg)
+			}
+		}
 	}
 
 	if streamErr != nil {

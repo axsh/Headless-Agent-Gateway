@@ -2,6 +2,17 @@ package wayfinder
 
 import "context"
 
+// GenerateOptions holds optional parameters for LLM generation.
+type GenerateOptions struct {
+	ResponseFormat *ResponseFormat
+}
+
+// ResponseFormat specifies the desired response format.
+type ResponseFormat struct {
+	Type       string // "json_object" or "json_schema"
+	JSONSchema any    // JSON Schema definition (optional)
+}
+
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
 	Role       string     `json:"role"`                  // "system", "user", "assistant", "tool"
@@ -35,5 +46,20 @@ type LLMResponse struct {
 type LLMClient interface {
 	// GenerateMessage sends messages to the specified logical model
 	// and returns a response that may contain text and/or tool calls.
-	GenerateMessage(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error)
+	GenerateMessage(ctx context.Context, logicalModel string, messages []ChatMessage, tools []ToolDefinition, opts ...GenerateOptions) (*LLMResponse, error)
+}
+
+// StreamingLLMClient extends LLMClient with streaming support.
+type StreamingLLMClient interface {
+	LLMClient
+	// GenerateMessageStream sends a streaming request and calls onDelta
+	// for each text delta chunk. Returns the final complete response
+	// (including any tool calls) after the stream ends.
+	GenerateMessageStream(
+		ctx context.Context,
+		logicalModel string,
+		messages []ChatMessage,
+		tools []ToolDefinition,
+		onDelta func(textDelta string),
+	) (*LLMResponse, error)
 }

@@ -66,9 +66,9 @@ default_profile:
   model: "claude-sonnet-4-20250514"
 providers:
   anthropic:
-    keys:
+    api_keys:
       - name: "primary"
-        value: "vault://providers/anthropic/primary"
+        secret: "vault://providers/anthropic/primary"
         models:
           - name: "claude-sonnet-4-20250514"
 `
@@ -85,8 +85,8 @@ providers:
 	}
 
 	// Verify vault:// references are preserved as strings (not resolved).
-	if cfg.Providers["anthropic"].Keys[0].Value != "vault://providers/anthropic/primary" {
-		t.Errorf("key value = %q, expected vault:// reference to be preserved", cfg.Providers["anthropic"].Keys[0].Value)
+	if cfg.Providers["anthropic"].ApiKeys[0].Secret != "vault://providers/anthropic/primary" {
+		t.Errorf("key secret = %q, expected vault:// reference to be preserved", cfg.Providers["anthropic"].ApiKeys[0].Secret)
 	}
 }
 
