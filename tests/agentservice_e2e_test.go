@@ -29,7 +29,7 @@ import (
 )
 
 // e2eDefaultModel is the model used for E2E tests.
-// Must match a model registered in features/tern/model_profiles.yaml.
+// Must match a model registered in tests/testdata/model_profiles.yaml.
 const e2eDefaultModel = "claude-sonnet-4-20250514"
 
 // freePort returns a free TCP port by briefly listening on :0.
@@ -45,7 +45,7 @@ func freePort(t *testing.T) int {
 }
 
 // startE2EServer starts a real tern server with LLM Gateway and claudecode agent.
-// It uses the tern model_profiles.yaml and dynamically-assigned ports.
+// It uses tests/testdata/model_profiles.yaml and dynamically-assigned ports.
 // Agents are auto-registered via codingagent.CreateAll() in tern.New().
 // Returns the AgentService base URL and a cleanup function.
 func startE2EServer(t *testing.T) (string, func()) {
@@ -56,7 +56,7 @@ func startE2EServer(t *testing.T) (string, func()) {
 		t.Fatalf("E2E test requires claude CLI on PATH: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 
 	// Discover free ports for all services.
 	gwPort := freePort(t)
@@ -452,7 +452,7 @@ func TestE2E_CodingAgentError(t *testing.T) {
 		t.Fatalf("E2E test requires claude CLI on PATH: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 
 	gwPort := freePort(t)
 	wsPort := freePort(t)

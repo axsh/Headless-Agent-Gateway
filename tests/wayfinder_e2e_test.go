@@ -26,12 +26,12 @@ import (
 )
 
 // startWayfinderE2EServer starts a real tern server with wayfinder agent registered.
-// It uses the tern model_profiles.yaml and dynamically-assigned ports.
+// It uses tests/testdata/model_profiles.yaml and dynamically-assigned ports.
 // Returns the AgentService base URL and a cleanup function.
 func startWayfinderE2EServer(t *testing.T) (string, func()) {
 	t.Helper()
 
-	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 
 	// Discover free ports for all services.
 	gwPort := freePort(t)

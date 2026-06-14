@@ -648,7 +648,7 @@ func TestCawaClientErrorPropagation(t *testing.T) {
 	}
 	ternctlPath := filepath.Join(projectRoot, "bin", ternctlBin)
 
-	ternctlDir := filepath.Join(projectRoot, "examples", "ternctl")
+	ternctlDir := filepath.Join(projectRoot, "features", "ternctl")
 	buildCmd := exec.Command("go", "build", "-o", filepath.Join("..", "..", "bin", ternctlBin), ".")
 	buildCmd.Dir = ternctlDir
 	if output, err := buildCmd.CombinedOutput(); err != nil {
