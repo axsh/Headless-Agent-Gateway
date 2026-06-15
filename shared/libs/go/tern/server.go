@@ -154,7 +154,7 @@ func New(opts ...Option) (*Server, error) {
 		caCertPath = tlsMgr.CACertFilePath()
 	}
 
-	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg.AgentService.DisableSandbox)
+	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent)
 
 	wsPort := cfg.WebSocket.Port
 	ws := wsserver.New(wsPort, tl, log)
@@ -360,7 +360,7 @@ func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log 
 // resolveAgentService returns the externally provided AgentService or builds one.
 // When building internally, it also auto-registers all coding agents that
 // self-registered via init() in the codingagent global registry.
-func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, disableSandbox bool) *agentservice.Server {
+func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, disableSandbox bool, enableSubagent bool) *agentservice.Server {
 	if o.agentService != nil {
 		return o.agentService
 	}
@@ -396,6 +396,7 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		DefaultModel:     defaultModel,
 		ToolCallFallback: toolCallFallback,
 		DisableSandbox:   disableSandbox,
+		EnableSubagent:   enableSubagent,
 	}
 
 	for _, agent := range codingagent.CreateAll(adapterCfg) {
