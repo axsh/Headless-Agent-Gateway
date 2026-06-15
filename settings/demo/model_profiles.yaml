@@ -23,6 +23,7 @@
 #               behavior:               # Model-specific behavior settings (optional)
 #                 tool_call_fallback: <bool>  # Text-to-tool-call conversion (for local LLMs)
 #                 structured_output: <bool>   # Model supports structured output (JSON schema)
+#                 max_output_tokens: <int>    # Override default max_tokens for LLM responses
 #       network_config:          # Network settings (optional)
 #         base_url: <string>     # API base URL (overrides provider default)
 #         request_timeout_seconds: <int>  # Request timeout in seconds
@@ -71,12 +72,15 @@ providers:
           - name: gemini-2.5-flash
             behavior:
               structured_output: true
+              max_output_tokens: 65536
           - name: gemini-2.5-pro
             behavior:
               structured_output: true
+              max_output_tokens: 65536
           - name: gemini-3.5-flash
             behavior:
               structured_output: true
+              max_output_tokens: 65536
 
   # --- Ollama (local inference) ---
   # secret is not required (no authentication)

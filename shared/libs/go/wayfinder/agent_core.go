@@ -143,8 +143,14 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		}
 	}
 
+	emptyRetried := false // R3: empty response retry flag (max 1 retry)
+
 	for iteration := range maxIterations {
-		ac.logger.Debug("LLM call", "iteration", iteration, "messages_count", len(ac.messages))
+		// R5: LLM request info log.
+		ac.logger.Info("LLM request",
+			"iteration", iteration,
+			"model", ac.config.LogicalModel,
+			"messages_count", len(ac.messages))
 
 		// Apply compaction if needed before LLM call.
 		ac.applyCompaction()
@@ -153,6 +159,7 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		var resp *LLMResponse
 		var err error
 		streamed := false
+		llmStartTime := time.Now()
 		if streamClient, ok := ac.llm.(StreamingLLMClient); ok && ac.emitter != nil {
 			onDelta := func(delta string) {
 				ac.emitter.Emit(codingagent.StreamEvent{
@@ -171,8 +178,34 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 			return "", fmt.Errorf("agent core: LLM call failed at iteration %d: %w", iteration, err)
 		}
 
+		// R5: LLM response info log.
+		llmElapsed := time.Since(llmStartTime)
+		ac.logger.Info("LLM response",
+			"iteration", iteration,
+			"duration_ms", llmElapsed.Milliseconds(),
+			"stop_reason", resp.StopReason,
+			"content_len", len(resp.Content),
+			"tool_calls_count", len(resp.ToolCalls))
+
 		// If no tool calls, return the text response.
 		if len(resp.ToolCalls) == 0 {
+			// R3: Detect empty response and retry once.
+			if resp.Content == "" {
+				ac.logger.Warn("LLM returned empty response",
+					"iteration", iteration,
+					"stop_reason", resp.StopReason,
+					"model", ac.config.LogicalModel)
+				if resp.StopReason == "max_tokens" {
+					ac.logger.Warn("output may have been truncated; consider increasing max_output_tokens in model_profiles.yaml")
+				}
+				if !emptyRetried {
+					emptyRetried = true
+					continue
+				}
+				ac.saveSession(session.StatusFailed)
+				return "", fmt.Errorf("agent core: LLM returned empty response at iteration %d (stop_reason=%s)", iteration, resp.StopReason)
+			}
+
 			ac.logger.Debug("agent core completed", "iteration", iteration, "response_len", len(resp.Content))
 			// Only emit full text for non-streaming (streaming already emitted deltas).
 			if !streamed {
@@ -188,6 +221,9 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 			ac.saveSession(session.StatusCompleted)
 			return resp.Content, nil
 		}
+
+		// Reset empty retry flag on successful tool call iteration.
+		emptyRetried = false
 
 		// Append the assistant message with tool calls.
 		ac.messages = append(ac.messages, ChatMessage{

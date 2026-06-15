@@ -48,6 +48,9 @@ type ModelBehavior struct {
 	ToolCallFallback bool `yaml:"tool_call_fallback"`
 	// StructuredOutput indicates the model supports structured output (JSON schema).
 	StructuredOutput bool `yaml:"structured_output"`
+	// MaxOutputTokens overrides the default max_tokens for LLM responses.
+	// When set to 0 (default), the system default is used.
+	MaxOutputTokens int `yaml:"max_output_tokens,omitempty"`
 }
 
 // NetworkConfig holds provider-specific network settings.

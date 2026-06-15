@@ -275,3 +275,43 @@ func TestModelBehavior_StructuredOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestModelBehavior_MaxOutputTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{
+			name:  "max_output_tokens set",
+			input: "name: gemini-2.5-flash\nbehavior:\n  max_output_tokens: 65536",
+			want:  65536,
+		},
+		{
+			name:  "max_output_tokens not set defaults to zero",
+			input: "name: gpt-4o",
+			want:  0,
+		},
+		{
+			name:  "max_output_tokens with other behavior fields",
+			input: "name: gemini-2.5-flash\nbehavior:\n  structured_output: true\n  max_output_tokens: 32768",
+			want:  32768,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mc ModelConfig
+			if err := yaml.Unmarshal([]byte(tt.input), &mc); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			got := 0
+			if mc.Behavior != nil {
+				got = mc.Behavior.MaxOutputTokens
+			}
+			if got != tt.want {
+				t.Errorf("MaxOutputTokens = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
