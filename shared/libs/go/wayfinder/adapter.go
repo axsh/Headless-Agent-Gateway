@@ -57,9 +57,10 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 	}
 
 	agentCfg := &AgentConfig{
-		WorkDir:      cfg.WorkDir,
-		SessionDir:   cfg.SessionDir,
-		LogicalModel: cfg.Model,
+		WorkDir:        cfg.WorkDir,
+		SessionDir:     cfg.SessionDir,
+		LogicalModel:   cfg.Model,
+		EnableSubagent: a.adapterCfg.EnableSubagent,
 	}
 	if err := InitConfig(agentCfg); err != nil {
 		return nil, fmt.Errorf("wayfinder: init config: %w", err)
