@@ -95,4 +95,13 @@ func RegisterAllTools(reg *Registry, tc *ToolContext) {
 			},
 			"required": []string{"pid"},
 		}, newKillProcess(tc))
+
+	reg.Register("ask_user", "Ask the user a question and wait for their response. Use this when you need user feedback, confirmation, or input before proceeding.",
+		map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"prompt": map[string]any{"type": "string", "description": "The question or instruction to present to the user"},
+			},
+			"required": []string{"prompt"},
+		}, newAskUser(tc))
 }
