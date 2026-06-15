@@ -18,7 +18,7 @@ func TestAppendHistory_HexFilenames(t *testing.T) {
 		{Role: "user", Content: "bye", Seq: 3, Timestamp: time.Now()},
 	}
 
-	err := AppendHistory(histDir, msgs, "")
+	err := AppendHistory(histDir, msgs)
 	if err != nil {
 		t.Fatalf("AppendHistory failed: %v", err)
 	}
@@ -49,24 +49,36 @@ func TestAppendHistory_HexFilenames(t *testing.T) {
 	}
 }
 
-func TestAppendHistory_WithPrefix(t *testing.T) {
+func TestAppendHistory_SubDir(t *testing.T) {
 	histDir := t.TempDir()
+	subDir := filepath.Join(histDir, "000000a")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create subdir: %v", err)
+	}
 	msgs := []Message{
 		{Role: "user", Content: "sub-hello", Seq: 1, Timestamp: time.Now()},
 		{Role: "assistant", Content: "sub-hi", Seq: 2, Timestamp: time.Now()},
 	}
 
-	err := AppendHistory(histDir, msgs, "000000a")
+	err := AppendHistory(subDir, msgs)
 	if err != nil {
-		t.Fatalf("AppendHistory with prefix failed: %v", err)
+		t.Fatalf("AppendHistory in subdir failed: %v", err)
 	}
 
-	// Verify files exist with prefix-hex format.
-	expectedFiles := []string{"000000a-0000001.json", "000000a-0000002.json"}
+	// Verify files exist inside subdirectory (not with prefix).
+	expectedFiles := []string{"0000001.json", "0000002.json"}
 	for _, f := range expectedFiles {
-		path := filepath.Join(histDir, f)
+		path := filepath.Join(subDir, f)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			t.Errorf("expected file %s to exist", f)
+			t.Errorf("expected file %s in subdir", f)
+		}
+	}
+
+	// Verify no files leaked to parent directory.
+	entries, _ := os.ReadDir(histDir)
+	for _, e := range entries {
+		if !e.IsDir() {
+			t.Errorf("unexpected file in parent dir: %s", e.Name())
 		}
 	}
 }
@@ -85,7 +97,7 @@ func TestAppendHistory_SkipExisting(t *testing.T) {
 		{Role: "assistant", Content: "new", Seq: 2, Timestamp: time.Now()},
 	}
 
-	err := AppendHistory(histDir, msgs, "")
+	err := AppendHistory(histDir, msgs)
 	if err != nil {
 		t.Fatalf("AppendHistory failed: %v", err)
 	}
@@ -116,7 +128,7 @@ func TestAppendHistory_HexFilenamePattern(t *testing.T) {
 		{Role: "user", Content: "test", Seq: 255, Timestamp: time.Now()},
 	}
 
-	err := AppendHistory(histDir, msgs, "")
+	err := AppendHistory(histDir, msgs)
 	if err != nil {
 		t.Fatalf("AppendHistory failed: %v", err)
 	}
@@ -245,15 +257,51 @@ func TestStore_SaveAfterCompaction_NoOverwrite(t *testing.T) {
 	}
 }
 
-func TestStore_WithPrefix(t *testing.T) {
+func TestStore_WithSubDir(t *testing.T) {
 	rootDir := t.TempDir()
 	store := NewStore(rootDir)
-	childStore := store.WithPrefix("000000a")
+	childStore := store.WithSubDir("000000a")
 
-	if childStore.prefix != "000000a" {
-		t.Errorf("expected prefix=000000a, got %s", childStore.prefix)
+	if childStore.subDir != "000000a" {
+		t.Errorf("expected subDir=000000a, got %s", childStore.subDir)
 	}
 	if childStore.rootDir != rootDir {
 		t.Errorf("expected rootDir=%s, got %s", rootDir, childStore.rootDir)
+	}
+}
+
+func TestStore_SaveWithSubDir(t *testing.T) {
+	rootDir := t.TempDir()
+	store := NewStore(rootDir).WithSubDir("000000a")
+
+	state := &SessionState{
+		SessionID: "test-session",
+		Status:    StatusActive,
+		Messages: []Message{
+			{Role: "user", Content: "child msg", Seq: 1, Timestamp: time.Now()},
+			{Role: "assistant", Content: "child reply", Seq: 2, Timestamp: time.Now()},
+		},
+		CreatedAt: time.Now(),
+	}
+
+	if err := store.Save(state); err != nil {
+		t.Fatalf("save with subDir failed: %v", err)
+	}
+
+	// Verify history files are in subdirectory.
+	for _, seq := range []int{1, 2} {
+		histPath := filepath.Join(rootDir, "test-session", "history", "000000a", fmt.Sprintf("%07x.json", seq))
+		if _, err := os.Stat(histPath); os.IsNotExist(err) {
+			t.Errorf("expected history file at %s", histPath)
+		}
+	}
+
+	// Verify no files at root history level.
+	rootHistDir := filepath.Join(rootDir, "test-session", "history")
+	entries, _ := os.ReadDir(rootHistDir)
+	for _, e := range entries {
+		if !e.IsDir() {
+			t.Errorf("unexpected file at root history level: %s", e.Name())
+		}
 	}
 }
