@@ -40,8 +40,8 @@ func TestBifrostClient_BuildRequestBody(t *testing.T) {
 	if body["model"] != "test-model" {
 		t.Errorf("model = %v, want %q", body["model"], "test-model")
 	}
-	if body["max_tokens"] != 4096 {
-		t.Errorf("max_tokens = %v, want 4096", body["max_tokens"])
+	if body["max_tokens"] != 16384 {
+		t.Errorf("max_tokens = %v, want 16384", body["max_tokens"])
 	}
 	msgList, ok := body["messages"].([]map[string]any)
 	if !ok {
@@ -383,3 +383,115 @@ func TestBuildRequestBody_NonEmptyToolContentUnchanged(t *testing.T) {
 		t.Errorf("non-empty tool content should be unchanged, got %q", toolContent)
 	}
 }
+
+// ---- StopReason Tests ----
+
+func TestBifrostClient_ParseResponse_StopReason(t *testing.T) {
+	client := NewBifrostClient("http://127.0.0.1:8080", "test-token")
+
+	tests := []struct {
+		name       string
+		respBody   map[string]any
+		wantReason string
+	}{
+		{
+			name: "end_turn",
+			respBody: map[string]any{
+				"stop_reason": "end_turn",
+				"content":     []any{map[string]any{"type": "text", "text": "hello"}},
+			},
+			wantReason: "end_turn",
+		},
+		{
+			name: "max_tokens",
+			respBody: map[string]any{
+				"stop_reason": "max_tokens",
+				"content":     []any{map[string]any{"type": "text", "text": "truncated"}},
+			},
+			wantReason: "max_tokens",
+		},
+		{
+			name: "no stop_reason",
+			respBody: map[string]any{
+				"content": []any{map[string]any{"type": "text", "text": "hi"}},
+			},
+			wantReason: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := client.parseResponse(tt.respBody)
+			if err != nil {
+				t.Fatalf("parseResponse failed: %v", err)
+			}
+			if resp.StopReason != tt.wantReason {
+				t.Errorf("StopReason = %q, want %q", resp.StopReason, tt.wantReason)
+			}
+		})
+	}
+}
+
+func TestBifrostClient_ParseSSEStream_StopReason(t *testing.T) {
+	sseResponse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[]}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	client := NewBifrostClient("http://127.0.0.1:8080", "test-token")
+	resp, err := client.parseSSEStream(strings.NewReader(sseResponse), nil)
+	if err != nil {
+		t.Fatalf("parseSSEStream failed: %v", err)
+	}
+	if resp.StopReason != "end_turn" {
+		t.Errorf("StopReason = %q, want %q", resp.StopReason, "end_turn")
+	}
+	if resp.Content != "Hi" {
+		t.Errorf("Content = %q, want %q", resp.Content, "Hi")
+	}
+}
+
+func TestBifrostClient_ParseSSEStream_StopReason_MaxTokens(t *testing.T) {
+	sseResponse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[]}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial output"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4096}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	client := NewBifrostClient("http://127.0.0.1:8080", "test-token")
+	resp, err := client.parseSSEStream(strings.NewReader(sseResponse), nil)
+	if err != nil {
+		t.Fatalf("parseSSEStream failed: %v", err)
+	}
+	if resp.StopReason != "max_tokens" {
+		t.Errorf("StopReason = %q, want %q", resp.StopReason, "max_tokens")
+	}
+}
+

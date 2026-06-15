@@ -37,8 +37,9 @@ type ToolDefinition struct {
 
 // LLMResponse is the response from the LLM.
 type LLMResponse struct {
-	Content   string     `json:"content"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	StopReason string     `json:"stop_reason,omitempty"`
 }
 
 // LLMClient is the abstract interface for LLM communication.

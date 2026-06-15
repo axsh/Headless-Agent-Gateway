@@ -74,7 +74,7 @@ func (bc *BifrostClient) GenerateMessage(ctx context.Context, logicalModel strin
 func (bc *BifrostClient) buildRequestBody(model string, messages []ChatMessage, toolDefs []ToolDefinition, opts ...GenerateOptions) map[string]any {
 	body := map[string]any{
 		"model":      model,
-		"max_tokens": 4096,
+		"max_tokens": 16384,
 	}
 
 	// Convert messages to Anthropic format.
@@ -165,6 +165,11 @@ func (bc *BifrostClient) buildRequestBody(model string, messages []ChatMessage, 
 func (bc *BifrostClient) parseResponse(respBody map[string]any) (*LLMResponse, error) {
 	result := &LLMResponse{}
 
+	// Extract stop_reason.
+	if sr, ok := respBody["stop_reason"].(string); ok {
+		result.StopReason = sr
+	}
+
 	contentArr, ok := respBody["content"].([]any)
 	if !ok {
 		return result, nil
@@ -250,6 +255,7 @@ func (bc *BifrostClient) parseSSEStream(body io.Reader, onDelta func(textDelta s
 
 	var textParts []string
 	var toolCalls []ToolCall
+	var stopReason string
 
 	// Track current tool_use block being assembled.
 	type pendingTool struct {
@@ -333,13 +339,23 @@ func (bc *BifrostClient) parseSSEStream(body io.Reader, onDelta func(textDelta s
 				currentTool = nil
 			}
 
+		case "message_delta":
+			// Extract stop_reason from message_delta event.
+			delta, _ := event["delta"].(map[string]any)
+			if delta != nil {
+				if sr, ok := delta["stop_reason"].(string); ok {
+					stopReason = sr
+				}
+			}
+
 		case "message_stop":
 			// Stream complete.
 		}
 	}
 
 	return &LLMResponse{
-		Content:   strings.Join(textParts, ""),
-		ToolCalls: toolCalls,
+		Content:    strings.Join(textParts, ""),
+		ToolCalls:  toolCalls,
+		StopReason: stopReason,
 	}, nil
 }
