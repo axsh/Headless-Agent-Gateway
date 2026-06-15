@@ -439,8 +439,8 @@ None.
 2. Edit [model_profiles.go](file:///shared/libs/go/config/model_profiles.go): `ModelBehavior` に `MaxOutputTokens int` フィールドを追加。
 3. `git commit -m "feat(config): add MaxOutputTokens to ModelBehavior"`
 
-- [ ] テスト先行: テストを書いて fail を確認
-- [ ] 実装して pass を確認
+- [x] テスト先行: テストを書いて fail を確認
+- [x] 実装して pass を確認
 
 ### Step 2: handlerctx/routing -- MaxOutputTokens 伝達
 
@@ -449,15 +449,15 @@ None.
 3. Edit [routing.go](file:///shared/libs/go/llmgateway/routing.go): `ResolveModel` で `model.Behavior.MaxOutputTokens` を `RoutedModel.MaxOutputTokens` にコピー。
 4. `git commit -m "feat(llmgateway): propagate MaxOutputTokens through routing"`
 
-- [ ] テスト先行: テストを書いて fail を確認
-- [ ] 実装して pass を確認
+- [x] テスト先行: テストを書いて fail を確認
+- [x] 実装して pass を確認
 
 ### Step 3: anthropic/handler -- MaxTokens オーバーライド
 
 1. Edit [handler.go](file:///shared/libs/go/llmgateway/anthropic/handler.go): `handleMessagesViaBifrost` 内で `routed.MaxOutputTokens > 0` の場合に `fullReq.MaxTokens` をオーバーライド。
 2. `git commit -m "feat(anthropic): override max_tokens from model profile"`
 
-- [ ] 実装後にビルド確認
+- [x] 実装後にビルド確認
 
 ### Step 4: wayfinder -- StopReason 伝達
 
@@ -466,8 +466,8 @@ None.
 3. Edit [bifrost_client.go](file:///shared/libs/go/wayfinder/bifrost_client.go): (a) デフォルト `max_tokens` を `16384` に変更、(b) `parseResponse` で `stop_reason` を取得、(c) `parseSSEStream` で `message_delta` の `stop_reason` を取得。
 4. `git commit -m "feat(wayfinder): add StopReason to LLMResponse, update default max_tokens"`
 
-- [ ] テスト先行: テストを書いて fail を確認
-- [ ] 実装して pass を確認
+- [x] テスト先行: テストを書いて fail を確認
+- [x] 実装して pass を確認
 
 ### Step 5: wayfinder -- 空レスポンス対策とログ追加
 
@@ -475,15 +475,15 @@ None.
 2. Edit [agent_core.go](file:///shared/libs/go/wayfinder/agent_core.go): (a) `emptyRetried` フラグとリトライロジック、(b) LLM request/response の Info ログ、(c) 空レスポンス時の Warn ログ。
 3. `git commit -m "feat(wayfinder): add empty response retry and LLM request/response logging"`
 
-- [ ] テスト先行: テストを書いて fail を確認
-- [ ] 実装して pass を確認
+- [x] テスト先行: テストを書いて fail を確認
+- [x] 実装して pass を確認
 
 ### Step 6: ログレベル改善
 
 1. Edit [handler.go](file:///shared/libs/go/llmgateway/anthropic/handler.go): (a) L170, L190 の `log.Debug` を `log.Trace` に変更、(b) `handleMessagesBifrostStream` 冒頭に `startTime := time.Now()` を追加し完了ログを `log.Info` に昇格。
 2. `git commit -m "refactor(llmgateway): improve log levels (Debug->Trace) and add stream duration"`
 
-- [ ] 実装後にビルド確認
+- [x] 実装後にビルド確認
 
 ### Step 7: Settings / Testdata 更新
 
@@ -492,7 +492,7 @@ None.
 3. Edit [testdata/model_profiles.yaml](file:///tests/testdata/model_profiles.yaml): google プロバイダの gemini-2.5-flash に `behavior.max_output_tokens: 65536` を追加。
 4. `git commit -m "docs: add max_output_tokens to model_profiles examples and testdata"`
 
-- [ ] 設定ファイル更新
+- [x] 設定ファイル更新
 
 ### Step 8: ビルドとテスト
 
