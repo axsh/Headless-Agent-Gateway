@@ -3,6 +3,7 @@ package wayfinder
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -250,7 +251,7 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 				ToolName: tc.Name,
 				ToolInput: tc.Input,
 			})
-			result := ac.executeTool(ctx, tc)
+			result, toolErr := ac.executeTool(ctx, tc)
 			ac.emitter.Emit(codingagent.StreamEvent{
 				Type:    codingagent.EventToolResult,
 				Content: result,
@@ -260,6 +261,12 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 				Content:    result,
 				ToolCallID: tc.ID,
 			})
+			// Handle ask_user: suspend and return.
+			if errors.Is(toolErr, tools.ErrFeedbackRequired) {
+				ac.logger.Info("ask_user invoked, suspending session")
+				ac.saveSession(session.StatusSuspended)
+				return result, tools.ErrFeedbackRequired
+			}
 		}
 
 		// Save session after each tool round.
@@ -550,8 +557,9 @@ func (ac *AgentCore) SetSubagentExecutor(exec SubagentRunner) {
 	ac.subagent = exec
 }
 
-// executeTool runs a single tool call and returns the result string.
-func (ac *AgentCore) executeTool(ctx context.Context, tc ToolCall) string {
+// executeTool runs a single tool call and returns the result string and any error.
+// If the tool returns tools.ErrFeedbackRequired, it is propagated to the caller.
+func (ac *AgentCore) executeTool(ctx context.Context, tc ToolCall) (string, error) {
 	ac.logger.Debug("executing tool", "tool", tc.Name, "id", tc.ID)
 
 	// Delegate execute_command to subagent if configured and enabled.
@@ -570,27 +578,31 @@ func (ac *AgentCore) executeTool(ctx context.Context, tc ToolCall) string {
 		result, err := ac.subagent.Execute(ctx, parentMsgs, tc.Name, tc.Input)
 		if err != nil {
 			ac.logger.Debug("subagent execution failed", "tool", tc.Name, "error", err.Error())
-			return fmt.Sprintf("Error: %v", err)
+			return fmt.Sprintf("Error: %v", err), nil
 		}
 		ac.logger.Debug("subagent execution completed", "tool", tc.Name, "result_len", len(result))
-		return result
+		return result, nil
 	}
 
 	tool, ok := ac.registry.Get(tc.Name)
 	if !ok {
 		errMsg := fmt.Sprintf("Error: unknown tool %q", tc.Name)
 		ac.logger.Warn("unknown tool requested", "tool", tc.Name)
-		return errMsg
+		return errMsg, nil
 	}
 
 	result, err := tool.Handler(ctx, tc.Input)
 	if err != nil {
+		// Propagate ErrFeedbackRequired to the caller.
+		if errors.Is(err, tools.ErrFeedbackRequired) {
+			return result, err
+		}
 		ac.logger.Debug("tool execution failed", "tool", tc.Name, "error", err.Error())
-		return fmt.Sprintf("Error: %v", err)
+		return fmt.Sprintf("Error: %v", err), nil
 	}
 
 	ac.logger.Debug("tool execution completed", "tool", tc.Name, "result_len", len(result))
-	return result
+	return result, nil
 }
 
 // Messages returns the current conversation messages (for session persistence).
@@ -686,6 +698,11 @@ func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree)
 
 	orch := planning.NewWBSOrchestrator(nodeExec, persister, ac.logger, orchOpts...)
 	if err := orch.Execute(ctx, tree); err != nil {
+		// Handle suspended state (ask_user during WBS).
+		if errors.Is(err, planning.ErrSuspended) {
+			ac.saveSession(session.StatusSuspended)
+			return planning.CollectResults(tree), tools.ErrFeedbackRequired
+		}
 		ac.saveSession(session.StatusFailed)
 		return "", fmt.Errorf("WBS orchestration failed: %w", err)
 	}
@@ -753,7 +770,15 @@ type agentNodeExecutorSimple struct {
 
 func (e *agentNodeExecutorSimple) ExecuteNode(ctx context.Context, node planning.WBSNode) (string, error) {
 	prompt := fmt.Sprintf("[WBS Step %s: %s]\n%s", node.ID, node.Name, node.Description)
-	return e.core.runSimple(ctx, prompt)
+	result, err := e.core.runSimple(ctx, prompt)
+	if err != nil {
+		// Convert ErrFeedbackRequired to ErrSuspended for the orchestrator.
+		if errors.Is(err, tools.ErrFeedbackRequired) {
+			return result, planning.ErrSuspended
+		}
+		return result, err
+	}
+	return result, nil
 }
 
 // agentWBSPersister implements planning.StatePersister using the session store.
