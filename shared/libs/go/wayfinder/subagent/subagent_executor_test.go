@@ -301,3 +301,77 @@ func TestSubagentExecutor_EmitterPropagation(t *testing.T) {
 		t.Errorf("child Emitter = %v, want %v", runner.capturedConfig.Emitter, sentinel)
 	}
 }
+
+func TestSubagentExecutor_Execute_SetsHistorySubDir(t *testing.T) {
+	// WithParentSeqFunc returns 10 (= "000000a" in hex).
+	runner := &configCapturingRunner{result: "Done."}
+	mock := &mockLLM{
+		responses: []*LLMResponse{
+			{Content: `{"objective":"test","context":"","constraints":""}`},
+			{Content: "Status: SUCCESS\nSummary: Done."},
+		},
+	}
+
+	cfg := &AgentRunnerConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   t.TempDir(),
+		LogicalModel: "test-model",
+	}
+
+	executor := NewSubagentExecutor(cfg, mock, runner, nil,
+		WithParentSeqFunc(func() int { return 10 }),
+	)
+
+	_, err := executor.Execute(
+		context.Background(),
+		[]ParentMessage{{Role: "user", Content: "test"}},
+		"execute_command",
+		map[string]any{"command": "echo hi"},
+	)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if runner.capturedConfig == nil {
+		t.Fatal("runner should have received config")
+	}
+	if runner.capturedConfig.HistorySubDir != "000000a" {
+		t.Errorf("HistorySubDir = %q, want %q", runner.capturedConfig.HistorySubDir, "000000a")
+	}
+}
+
+func TestSubagentExecutor_Execute_NoParentSeqFunc(t *testing.T) {
+	// Without WithParentSeqFunc, HistorySubDir should be empty.
+	runner := &configCapturingRunner{result: "Done."}
+	mock := &mockLLM{
+		responses: []*LLMResponse{
+			{Content: `{"objective":"test","context":"","constraints":""}`},
+			{Content: "Status: SUCCESS\nSummary: Done."},
+		},
+	}
+
+	cfg := &AgentRunnerConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   t.TempDir(),
+		LogicalModel: "test-model",
+	}
+
+	executor := NewSubagentExecutor(cfg, mock, runner, nil)
+
+	_, err := executor.Execute(
+		context.Background(),
+		[]ParentMessage{{Role: "user", Content: "test"}},
+		"execute_command",
+		map[string]any{"command": "echo hi"},
+	)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if runner.capturedConfig == nil {
+		t.Fatal("runner should have received config")
+	}
+	if runner.capturedConfig.HistorySubDir != "" {
+		t.Errorf("HistorySubDir = %q, want empty", runner.capturedConfig.HistorySubDir)
+	}
+}
