@@ -151,8 +151,8 @@ func TestStore_SaveAndLoad_FolderStructure(t *testing.T) {
 		SessionID: "folder-test",
 		Status:    StatusActive,
 		Messages: []Message{
-			{Role: "user", Content: "hello"},
-			{Role: "assistant", Content: "world"},
+			{Role: "user", Content: "hello", Seq: 1},
+			{Role: "assistant", Content: "world", Seq: 2},
 		},
 	}
 	if err := store.Save(state); err != nil {
@@ -188,8 +188,8 @@ func TestStore_SaveAndLoad_RoundTrip(t *testing.T) {
 		SessionID: "roundtrip-test",
 		Status:    StatusActive,
 		Messages: []Message{
-			{Role: "user", Content: "hello", Timestamp: now},
-			{Role: "assistant", Content: "world", Timestamp: now},
+			{Role: "user", Content: "hello", Timestamp: now, Seq: 1},
+			{Role: "assistant", Content: "world", Timestamp: now, Seq: 2},
 		},
 		CreatedAt: now,
 	}
@@ -265,9 +265,9 @@ func TestStore_MigrateLegacy_DataIntegrity(t *testing.T) {
 		SessionID: "integrity-test",
 		Status:    StatusCompleted,
 		Messages: []Message{
-			{Role: "user", Content: "first", Timestamp: now},
-			{Role: "assistant", Content: "second", Timestamp: now},
-			{Role: "user", Content: "third", Timestamp: now},
+			{Role: "user", Content: "first", Timestamp: now, Seq: 1},
+			{Role: "assistant", Content: "second", Timestamp: now, Seq: 2},
+			{Role: "user", Content: "third", Timestamp: now, Seq: 3},
 		},
 		CreatedAt: now,
 	}
@@ -305,8 +305,8 @@ func TestStore_MultipleSaves_HistoryAppend(t *testing.T) {
 		SessionID: "multi-save",
 		Status:    StatusActive,
 		Messages: []Message{
-			{Role: "user", Content: "msg1"},
-			{Role: "assistant", Content: "msg2"},
+			{Role: "user", Content: "msg1", Seq: 1},
+			{Role: "assistant", Content: "msg2", Seq: 2},
 		},
 	}
 	if err := store.Save(state); err != nil {
@@ -314,7 +314,7 @@ func TestStore_MultipleSaves_HistoryAppend(t *testing.T) {
 	}
 
 	// Second save: 3 messages (1 new).
-	state.Messages = append(state.Messages, Message{Role: "user", Content: "msg3"})
+	state.Messages = append(state.Messages, Message{Role: "user", Content: "msg3", Seq: 3})
 	if err := store.Save(state); err != nil {
 		t.Fatalf("Save 2: %v", err)
 	}

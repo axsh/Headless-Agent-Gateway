@@ -16,11 +16,17 @@ import (
 //	{rootDir}/{sessionID}/history/NNN.json -- individual message history
 type Store struct {
 	rootDir string
+	prefix  string // Hex prefix for hierarchical history naming (empty for root session).
 }
 
 // NewStore creates a new Store for the given root directory.
 func NewStore(rootDir string) *Store {
 	return &Store{rootDir: rootDir}
+}
+
+// WithPrefix returns a child Store that writes history with the given prefix.
+func (s *Store) WithPrefix(prefix string) *Store {
+	return &Store{rootDir: s.rootDir, prefix: prefix}
 }
 
 // sessionDir returns the directory path for a session.
@@ -63,6 +69,7 @@ func (s *Store) Load(sessionID string) (*SessionState, error) {
 }
 
 // Save writes session state to the folder structure.
+// History files are appended based on message Seq numbers (never overwritten).
 func (s *Store) Save(state *SessionState) error {
 	dir := s.sessionDir(state.SessionID)
 	histDir := filepath.Join(dir, "history")
@@ -70,23 +77,34 @@ func (s *Store) Save(state *SessionState) error {
 		return fmt.Errorf("failed to create session dir: %w", err)
 	}
 
-	// Determine how many new messages to append to history.
-	prevLatest := 0
+	// Read previous TotalSeq to determine which messages are new.
+	prevTotalSeq := 0
 	metaPath := filepath.Join(dir, "metadata.json")
 	if data, err := os.ReadFile(metaPath); err == nil {
 		var prevMeta SessionMetadata
 		if json.Unmarshal(data, &prevMeta) == nil {
-			prevLatest = prevMeta.Latest
+			prevTotalSeq = prevMeta.TotalSeq
 		}
 	}
 
-	// Append new messages to history.
-	// Messages beyond prevLatest count are considered new.
-	newMsgCount := len(state.Messages) - prevLatest
-	if newMsgCount > 0 && newMsgCount <= len(state.Messages) {
-		newMsgs := state.Messages[len(state.Messages)-newMsgCount:]
-		if err := AppendHistory(histDir, newMsgs, prevLatest); err != nil {
+	// Filter messages with Seq > prevTotalSeq for history append.
+	var newMsgs []Message
+	for _, msg := range state.Messages {
+		if msg.Seq > prevTotalSeq {
+			newMsgs = append(newMsgs, msg)
+		}
+	}
+	if len(newMsgs) > 0 {
+		if err := AppendHistory(histDir, newMsgs, s.prefix); err != nil {
 			return fmt.Errorf("failed to append history: %w", err)
+		}
+	}
+
+	// Calculate max Seq across all messages.
+	maxSeq := prevTotalSeq
+	for _, msg := range state.Messages {
+		if msg.Seq > maxSeq {
+			maxSeq = msg.Seq
 		}
 	}
 
@@ -98,6 +116,7 @@ func (s *Store) Save(state *SessionState) error {
 		ParentID:         state.ParentID,
 		Status:           state.Status,
 		Latest:           len(state.Messages),
+		TotalSeq:         maxSeq,
 		ContextStart:     0, // Updated by compaction.
 		CreatedAt:        state.CreatedAt,
 		UpdatedAt:        now,
@@ -178,7 +197,7 @@ func (s *Store) migrateToFolder(state *SessionState) error {
 	}
 
 	// Write all messages to history/.
-	if err := AppendHistory(histDir, state.Messages, 0); err != nil {
+	if err := AppendHistory(histDir, state.Messages, ""); err != nil {
 		return fmt.Errorf("migrate: append history: %w", err)
 	}
 
