@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -310,5 +311,42 @@ func TestAskUser_MissingPrompt(t *testing.T) {
 	}
 	if err == ErrFeedbackRequired {
 		t.Error("should not return ErrFeedbackRequired for missing prompt")
+	}
+}
+
+func TestExecuteCommand_Timeout(t *testing.T) {
+	workDir := t.TempDir()
+	tc := testContext(workDir)
+	handler := newExecuteCommand(tc)
+
+	// Use a short timeout (2 seconds) with a command that would run longer.
+	result, err := handler(context.Background(), map[string]any{
+		"command":         "sleep 30",
+		"timeout_seconds": float64(2),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "Command timed out after 2 seconds") {
+		t.Errorf("expected timeout message in result, got: %s", result)
+	}
+}
+
+func TestExecuteCommand_NoTimeout(t *testing.T) {
+	workDir := t.TempDir()
+	tc := testContext(workDir)
+	handler := newExecuteCommand(tc)
+
+	result, err := handler(context.Background(), map[string]any{
+		"command": "echo hello",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result, "timed out") {
+		t.Errorf("unexpected timeout message in result: %s", result)
+	}
+	if !strings.Contains(result, "hello") {
+		t.Errorf("expected 'hello' in result, got: %s", result)
 	}
 }

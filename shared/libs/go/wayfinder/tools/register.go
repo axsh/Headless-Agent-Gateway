@@ -73,7 +73,8 @@ func RegisterAllTools(reg *Registry, tc *ToolContext) {
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"command": map[string]any{"type": "string", "description": "Shell command to execute"},
+				"command":         map[string]any{"type": "string", "description": "Shell command to execute"},
+				"timeout_seconds": map[string]any{"type": "integer", "description": "Maximum execution time in seconds (default: 120)"},
 			},
 			"required": []string{"command"},
 		}, newExecuteCommand(tc))

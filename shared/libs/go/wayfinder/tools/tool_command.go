@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // newExecuteCommand creates the execute_command tool handler.
@@ -24,8 +25,18 @@ func newExecuteCommand(tc *ToolContext) ToolHandler {
 			return "", fmt.Errorf("execute_command: command is blocked for safety: %s", commandLine)
 		}
 
+		// Determine timeout (default: 120 seconds).
+		timeout := 120 * time.Second
+		if t, ok := input["timeout_seconds"].(float64); ok && t > 0 {
+			timeout = time.Duration(t) * time.Second
+		}
+
+		// Create timeout context.
+		execCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+
 		// Foreground execution with combined output.
-		cmd := exec.CommandContext(ctx, "sh", "-c", commandLine)
+		cmd := exec.CommandContext(execCtx, "sh", "-c", commandLine)
 		cmd.Dir = tc.WorkDir
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
@@ -36,7 +47,9 @@ func newExecuteCommand(tc *ToolContext) ToolHandler {
 		if stderr.Len() > 0 {
 			result += "\nSTDERR:\n" + stderr.String()
 		}
-		if err != nil {
+		if execCtx.Err() == context.DeadlineExceeded {
+			result += fmt.Sprintf("\nCommand timed out after %d seconds", int(timeout.Seconds()))
+		} else if err != nil {
 			result += fmt.Sprintf("\nExit error: %v", err)
 		}
 
