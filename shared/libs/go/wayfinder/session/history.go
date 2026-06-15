@@ -18,21 +18,14 @@ type HistoryEntry struct {
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
-// AppendHistory writes new messages to history/ as individual JSON files.
+// AppendHistory writes new messages to histDir as individual JSON files.
 // Files are named with 7-digit zero-padded hex sequence numbers (e.g. 0000001.json).
-// prefix is the parent session's hex sequence (e.g. "000000a") for hierarchical naming.
-// If prefix is "", files are named directly as "{seq_hex}.json".
-// If prefix is "000000a", files are named as "000000a-{seq_hex}.json".
+// The caller is responsible for constructing histDir with any subdirectory path
+// (e.g. "history/000000a/" for child sessions).
 // Existing files are never modified (append-only).
-func AppendHistory(histDir string, msgs []Message, prefix string) error {
+func AppendHistory(histDir string, msgs []Message) error {
 	for _, msg := range msgs {
-		seqHex := fmt.Sprintf("%07x", msg.Seq)
-		var filename string
-		if prefix == "" {
-			filename = seqHex + ".json"
-		} else {
-			filename = prefix + "-" + seqHex + ".json"
-		}
+		filename := fmt.Sprintf("%07x.json", msg.Seq)
 		entry := HistoryEntry{
 			Seq:        msg.Seq,
 			Role:       msg.Role,

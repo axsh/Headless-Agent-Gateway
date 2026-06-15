@@ -16,7 +16,7 @@ import (
 //	{rootDir}/{sessionID}/history/NNN.json -- individual message history
 type Store struct {
 	rootDir string
-	prefix  string // Hex prefix for hierarchical history naming (empty for root session).
+	subDir  string // Subdirectory path for hierarchical history (empty for root session).
 }
 
 // NewStore creates a new Store for the given root directory.
@@ -24,9 +24,9 @@ func NewStore(rootDir string) *Store {
 	return &Store{rootDir: rootDir}
 }
 
-// WithPrefix returns a child Store that writes history with the given prefix.
-func (s *Store) WithPrefix(prefix string) *Store {
-	return &Store{rootDir: s.rootDir, prefix: prefix}
+// WithSubDir returns a child Store that writes history into a subdirectory.
+func (s *Store) WithSubDir(subDir string) *Store {
+	return &Store{rootDir: s.rootDir, subDir: subDir}
 }
 
 // sessionDir returns the directory path for a session.
@@ -72,7 +72,8 @@ func (s *Store) Load(sessionID string) (*SessionState, error) {
 // History files are appended based on message Seq numbers (never overwritten).
 func (s *Store) Save(state *SessionState) error {
 	dir := s.sessionDir(state.SessionID)
-	histDir := filepath.Join(dir, "history")
+	// Build history directory with optional subdirectory for child sessions.
+	histDir := filepath.Join(dir, "history", s.subDir)
 	if err := os.MkdirAll(histDir, 0755); err != nil {
 		return fmt.Errorf("failed to create session dir: %w", err)
 	}
@@ -95,7 +96,7 @@ func (s *Store) Save(state *SessionState) error {
 		}
 	}
 	if len(newMsgs) > 0 {
-		if err := AppendHistory(histDir, newMsgs, s.prefix); err != nil {
+		if err := AppendHistory(histDir, newMsgs); err != nil {
 			return fmt.Errorf("failed to append history: %w", err)
 		}
 	}
@@ -197,7 +198,7 @@ func (s *Store) migrateToFolder(state *SessionState) error {
 	}
 
 	// Write all messages to history/.
-	if err := AppendHistory(histDir, state.Messages, ""); err != nil {
+	if err := AppendHistory(histDir, state.Messages); err != nil {
 		return fmt.Errorf("migrate: append history: %w", err)
 	}
 
