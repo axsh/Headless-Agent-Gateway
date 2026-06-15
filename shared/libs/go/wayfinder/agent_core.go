@@ -558,6 +558,12 @@ func (ac *AgentCore) SetStore(store *session.Store) {
 	ac.store = store
 }
 
+// NextSeq returns the current next sequence number.
+// Used by SubagentExecutor to determine history subdirectory naming.
+func (ac *AgentCore) NextSeq() int {
+	return ac.nextSeq
+}
+
 // SetSubagentExecutor configures the subagent executor for delegating heavy tool calls.
 func (ac *AgentCore) SetSubagentExecutor(exec SubagentRunner) {
 	ac.subagent = exec
