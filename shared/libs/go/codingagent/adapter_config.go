@@ -48,4 +48,8 @@ type AdapterConfig struct {
 	// GatewayToken is the internal authentication token for LLMGP.
 	// Injected by tern.Server on startup.
 	GatewayToken string
+
+	// EnableSubagent enables subagent delegation for WBS node execution.
+	// When true, each WBS node runs in an independent child session.
+	EnableSubagent bool
 }
