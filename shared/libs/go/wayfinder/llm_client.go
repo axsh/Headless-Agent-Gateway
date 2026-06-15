@@ -19,6 +19,7 @@ type ChatMessage struct {
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Seq        int        `json:"seq,omitempty"` // Global sequence number.
 }
 
 // ToolCall represents a tool invocation requested by the LLM.
