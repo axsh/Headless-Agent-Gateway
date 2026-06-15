@@ -1,37 +1,86 @@
 package session
 
 import (
+	"fmt"
 	"testing"
 )
 
-func TestNeedsCompaction_BelowThreshold(t *testing.T) {
-	cfg := DefaultCompactionConfig()
-	messages := make([]Message, 0)
-	for range 10 {
-		messages = append(messages, Message{Role: "user", Content: "hi"})
-		messages = append(messages, Message{Role: "assistant", Content: "hello"})
+func TestCompact_RatioBased_Half(t *testing.T) {
+	// 20 unpinned messages with ratio=0.5 should compact the oldest 10.
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
+	var messages []Message
+	for i := range 10 {
+		messages = append(messages, Message{Role: "user", Content: fmt.Sprintf("msg %d", i*2)})
+		messages = append(messages, Message{Role: "assistant", Content: fmt.Sprintf("resp %d", i*2+1)})
 	}
-	// 20 messages = 20 turns, but cfg.MaxTurns is 15, so it should need compaction.
-	// Let's test below threshold first.
-	fewMessages := messages[:6] // 6 messages = 6 turns
-	if NeedsCompaction(fewMessages, cfg) {
-		t.Error("NeedsCompaction should be false for 6 turns (threshold=15)")
+
+	summarizer := func(msgs []Message) (string, error) {
+		return fmt.Sprintf("Summary of %d messages", len(msgs)), nil
+	}
+
+	result, err := Compact(messages, cfg, summarizer)
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+
+	// Should have fewer messages than original.
+	if len(result) >= len(messages) {
+		t.Errorf("expected compaction, got %d messages (original: %d)", len(result), len(messages))
+	}
+
+	// Should have summary message.
+	foundSummary := false
+	for _, m := range result {
+		if m.Role == "system" && m.Pinned {
+			foundSummary = true
+			if m.Content != "[COMPACTED CONTEXT SUMMARY]\nSummary of 10 messages" {
+				t.Errorf("unexpected summary content: %s", m.Content)
+			}
+		}
+	}
+	if !foundSummary {
+		t.Error("summary message not found")
 	}
 }
 
-func TestNeedsCompaction_AboveThreshold(t *testing.T) {
-	cfg := DefaultCompactionConfig()
+func TestCompact_RatioBased_ThreeQuarters(t *testing.T) {
+	// 20 unpinned messages with ratio=0.75 should compact the oldest ~15.
+	cfg := &CompactionConfig{Ratio: 0.75, MaxContentLen: 5000}
 	var messages []Message
-	for range 20 {
-		messages = append(messages, Message{Role: "user", Content: "hi"})
+	for i := range 10 {
+		messages = append(messages, Message{Role: "user", Content: fmt.Sprintf("msg %d", i*2)})
+		messages = append(messages, Message{Role: "assistant", Content: fmt.Sprintf("resp %d", i*2+1)})
 	}
-	if !NeedsCompaction(messages, cfg) {
-		t.Error("NeedsCompaction should be true for 20 turns (threshold=15)")
+
+	summarizer := func(msgs []Message) (string, error) {
+		return fmt.Sprintf("Summary of %d messages", len(msgs)), nil
+	}
+
+	result, err := Compact(messages, cfg, summarizer)
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+
+	// With ratio=0.75, ceil(20*0.75)=15 messages compacted, 5 remain.
+	// After boundary adjustments, we should have summary + 5 recent + possibly adjusted.
+	if len(result) >= len(messages) {
+		t.Errorf("expected compaction, got %d messages (original: %d)", len(result), len(messages))
+	}
+
+	// Recent messages should be preserved.
+	foundRecent := false
+	for _, m := range result {
+		if m.Content == "resp 19" {
+			foundRecent = true
+		}
+	}
+	if !foundRecent {
+		t.Error("most recent messages should be preserved")
 	}
 }
 
 func TestCompact_PinnedPreserved(t *testing.T) {
-	cfg := &CompactionConfig{MaxTurns: 4, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 	messages := []Message{
 		{Role: "system", Content: "System prompt", Pinned: true},
 		{Role: "user", Content: "old message 1"},
@@ -68,7 +117,7 @@ func TestCompact_PinnedPreserved(t *testing.T) {
 }
 
 func TestCompact_OldMessagesReplaced(t *testing.T) {
-	cfg := &CompactionConfig{MaxTurns: 4, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 	messages := []Message{
 		{Role: "user", Content: "old 1"},
 		{Role: "assistant", Content: "old 2"},
@@ -111,7 +160,7 @@ func TestCompact_OldMessagesReplaced(t *testing.T) {
 }
 
 func TestCompact_RecentWindowPreserved(t *testing.T) {
-	cfg := &CompactionConfig{MaxTurns: 4, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 	messages := []Message{
 		{Role: "user", Content: "old 1"},
 		{Role: "assistant", Content: "old 2"},
@@ -346,14 +395,7 @@ func TestValidateToolPairIntegrity(t *testing.T) {
 }
 
 func TestCompact_ToolPairNotSplit(t *testing.T) {
-	// MaxTurns=4, windowSize=max(4/2,4)=4
-	// Messages: user -> assistant(tool_use) -> tool -> assistant -> user -> assistant -> user -> assistant
-	// 8 unpinned, boundary=8-4=4, recent=[4,5,6,7] -- no split.
-	// But with windowSize=2 boundary would be 6. Let's use MaxTurns=8, windowSize=4.
-	// Actually, let's craft a scenario where the initial boundary would split.
-	// Use MaxTurns=10, which gives windowSize=5.
-	// Build 12 unpinned messages where tool pair is at indices 7-9 (assistant+tool+tool).
-	cfg := &CompactionConfig{MaxTurns: 10, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 
 	msgs := []Message{
 		{Role: "user", Content: "prompt1"},
@@ -389,7 +431,7 @@ func TestCompact_ToolPairNotSplit(t *testing.T) {
 }
 
 func TestCompact_MultipleToolResultsNotSplit(t *testing.T) {
-	cfg := &CompactionConfig{MaxTurns: 10, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 
 	msgs := []Message{
 		{Role: "user", Content: "prompt1"},
@@ -428,8 +470,7 @@ func TestCompact_MultipleToolResultsNotSplit(t *testing.T) {
 }
 
 func TestCompact_BoundaryAdjustmentWithConsecutiveToolMessages(t *testing.T) {
-	// Force a small window that would normally cut into tool messages.
-	cfg := &CompactionConfig{MaxTurns: 8, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 
 	msgs := []Message{
 		{Role: "user", Content: "p1"},
@@ -470,7 +511,7 @@ func TestCompact_BoundaryAdjustmentWithConsecutiveToolMessages(t *testing.T) {
 }
 
 func TestCompact_NoToolMessages_NoAdjustment(t *testing.T) {
-	cfg := &CompactionConfig{MaxTurns: 4, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 
 	msgs := []Message{
 		{Role: "user", Content: "old 1"},
@@ -660,9 +701,7 @@ func TestValidateMessageOrdering(t *testing.T) {
 }
 
 func TestCompact_RecentMessagesStartWithUser(t *testing.T) {
-	// Scenario: boundary would naturally fall on assistant(tool_calls).
-	// After adjustment, recentMessages must start with "user".
-	cfg := &CompactionConfig{MaxTurns: 8, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 
 	msgs := []Message{
 		{Role: "user", Content: "p1"},
@@ -714,7 +753,7 @@ func TestCompact_RecentMessagesStartWithUser(t *testing.T) {
 
 func TestCompact_BoundaryReachesZero_SkipsCompaction(t *testing.T) {
 	// All messages are assistant/tool with no user -> boundary reaches 0 -> skip compaction.
-	cfg := &CompactionConfig{MaxTurns: 2, MaxContentLen: 5000}
+	cfg := &CompactionConfig{Ratio: 0.5, MaxContentLen: 5000}
 
 	msgs := []Message{
 		{Role: "assistant", Content: "r1", ToolCalls: []ToolCallRecord{{ID: "tc1", Name: "cmd"}}},
@@ -738,4 +777,5 @@ func TestCompact_BoundaryReachesZero_SkipsCompaction(t *testing.T) {
 		t.Errorf("expected compaction to be skipped, got %d messages instead of %d", len(result), len(msgs))
 	}
 }
+
 
