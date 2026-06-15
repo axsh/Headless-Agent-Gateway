@@ -37,6 +37,7 @@ type AgentCore struct {
 	store          *session.Store
 	sessionID      string
 	compactionCfg  *session.CompactionConfig
+	nextSeq        int                // Global sequence counter for messages.
 	subagent       SubagentRunner     // nil if subagent is disabled
 	router         *ExecutionRouter   // nil if routing is disabled
 	planner        *planning.WBSPlanner // nil if planning is disabled
@@ -127,7 +128,7 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 	}
 
 	// Append new user prompt.
-	ac.messages = append(ac.messages, ChatMessage{
+	ac.appendMessage(ChatMessage{
 		Role:    "user",
 		Content: prompt,
 	})
@@ -152,9 +153,6 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 			"model", ac.config.LogicalModel,
 			"messages_count", len(ac.messages))
 
-		// Apply compaction if needed before LLM call.
-		ac.applyCompaction()
-
 		// Use streaming if the client supports it.
 		var resp *LLMResponse
 		var err error
@@ -173,6 +171,18 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 			resp, err = ac.llm.GenerateMessage(ctx, ac.config.LogicalModel, ac.messages, toolDefs)
 		}
 		if err != nil {
+			// Check if this is a context length exceeded error -> reactive compaction.
+			if isContextLengthExceeded(err) {
+				ac.logger.Info("context length exceeded, applying reactive compaction",
+					"messages_before", len(ac.messages))
+				if ac.applyReactiveCompaction() {
+					ac.logger.Info("reactive compaction applied, retrying",
+						"messages_after", len(ac.messages))
+					continue // Retry the same iteration.
+				}
+				// Compaction failed or not possible.
+				ac.logger.Error("reactive compaction failed, cannot continue", "error", err.Error())
+			}
 			ac.logger.Error("LLM call failed", "iteration", iteration, "error", err.Error())
 			ac.saveSession(session.StatusFailed)
 			return "", fmt.Errorf("agent core: LLM call failed at iteration %d: %w", iteration, err)
@@ -214,7 +224,7 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 					Content: resp.Content,
 				})
 			}
-			ac.messages = append(ac.messages, ChatMessage{
+			ac.appendMessage(ChatMessage{
 				Role:    "assistant",
 				Content: resp.Content,
 			})
@@ -226,7 +236,7 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		emptyRetried = false
 
 		// Append the assistant message with tool calls.
-		ac.messages = append(ac.messages, ChatMessage{
+		ac.appendMessage(ChatMessage{
 			Role:      "assistant",
 			Content:   resp.Content,
 			ToolCalls: resp.ToolCalls,
@@ -245,7 +255,7 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 				Type:    codingagent.EventToolResult,
 				Content: result,
 			})
-			ac.messages = append(ac.messages, ChatMessage{
+			ac.appendMessage(ChatMessage{
 				Role:       "tool",
 				Content:    result,
 				ToolCallID: tc.ID,
@@ -278,6 +288,13 @@ func (ac *AgentCore) restoreSession() error {
 	// Restore messages.
 	ac.messages = convertFromSessionMessages(state.Messages)
 
+	// Restore nextSeq from max Seq in restored messages.
+	for _, m := range ac.messages {
+		if m.Seq > ac.nextSeq {
+			ac.nextSeq = m.Seq
+		}
+	}
+
 	// Restore file tracker.
 	for _, f := range state.CreatedFiles {
 		ac.tracker.TrackFile(f.Path)
@@ -309,30 +326,53 @@ func (ac *AgentCore) saveSession(status string) {
 	}
 }
 
-// applyCompaction applies context compaction if the message history is too long.
-// NOTE: This is transitional. Will be replaced with reactive compaction in Step 3.
-func (ac *AgentCore) applyCompaction() {
+// applyReactiveCompaction applies ratio-based compaction triggered by context length exceeded error.
+// Returns true if compaction was successfully applied.
+func (ac *AgentCore) applyReactiveCompaction() bool {
 	sessionMsgs := convertToSessionMessages(ac.messages)
-
-	// Simple check: only compact if there are enough messages to warrant it.
-	if len(sessionMsgs) < 10 {
-		return
-	}
-
-	ac.logger.Debug("applying compaction", "messages_before", len(ac.messages))
-
-	// Trim long content first.
 	sessionMsgs = session.TrimLongContent(sessionMsgs, ac.compactionCfg.MaxContentLen)
 
-	// Apply compaction with a simple built-in summarizer.
 	compacted, err := session.Compact(sessionMsgs, ac.compactionCfg, ac.compactionSummarizer)
 	if err != nil {
-		ac.logger.Warn("compaction failed, continuing with full history", "error", err.Error())
-		return
+		ac.logger.Warn("reactive compaction failed", "error", err.Error())
+		return false
 	}
-
+	if len(compacted) >= len(sessionMsgs) {
+		ac.logger.Warn("reactive compaction produced no reduction")
+		return false
+	}
 	ac.messages = convertFromSessionMessages(compacted)
-	ac.logger.Debug("compaction applied", "messages_after", len(ac.messages))
+	ac.logger.Info("reactive compaction applied",
+		"messages_before", len(sessionMsgs),
+		"messages_after", len(compacted))
+	return true
+}
+
+// isContextLengthExceeded checks if an LLM error indicates context length exceeded.
+func isContextLengthExceeded(err error) bool {
+	msg := strings.ToLower(err.Error())
+	patterns := []string{
+		"context_length_exceeded",
+		"max_context_length",
+		"context_limit",
+		"too many tokens",
+		"maximum context length",
+		"token limit",
+		"exceeds the model's maximum context",
+	}
+	for _, p := range patterns {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// appendMessage appends a message with a globally unique Seq number.
+func (ac *AgentCore) appendMessage(msg ChatMessage) {
+	ac.nextSeq++
+	msg.Seq = ac.nextSeq
+	ac.messages = append(ac.messages, msg)
 }
 
 // summarizationSystemPrompt is the system prompt for LLM-based context summarization.
@@ -453,6 +493,7 @@ func convertToSessionMessages(msgs []ChatMessage) []session.Message {
 			Role:       m.Role,
 			Content:    m.Content,
 			Timestamp:  time.Now(),
+			Seq:        m.Seq,
 			ToolCallID: m.ToolCallID,
 		}
 		for _, tc := range m.ToolCalls {
@@ -474,6 +515,7 @@ func convertFromSessionMessages(msgs []session.Message) []ChatMessage {
 		cm := ChatMessage{
 			Role:       m.Role,
 			Content:    m.Content,
+			Seq:        m.Seq,
 			ToolCallID: m.ToolCallID,
 		}
 		for _, tc := range m.ToolCalls {
