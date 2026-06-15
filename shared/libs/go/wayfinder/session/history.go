@@ -19,14 +19,22 @@ type HistoryEntry struct {
 }
 
 // AppendHistory writes new messages to history/ as individual JSON files.
-// Files are named with 9-digit zero-padded sequence numbers (e.g. 000000001.json).
+// Files are named with 7-digit zero-padded hex sequence numbers (e.g. 0000001.json).
+// prefix is the parent session's hex sequence (e.g. "000000a") for hierarchical naming.
+// If prefix is "", files are named directly as "{seq_hex}.json".
+// If prefix is "000000a", files are named as "000000a-{seq_hex}.json".
 // Existing files are never modified (append-only).
-// startSeq is the last known sequence number; new messages start at startSeq+1.
-func AppendHistory(histDir string, msgs []Message, startSeq int) error {
-	for i, msg := range msgs {
-		seq := startSeq + i + 1
+func AppendHistory(histDir string, msgs []Message, prefix string) error {
+	for _, msg := range msgs {
+		seqHex := fmt.Sprintf("%07x", msg.Seq)
+		var filename string
+		if prefix == "" {
+			filename = seqHex + ".json"
+		} else {
+			filename = prefix + "-" + seqHex + ".json"
+		}
 		entry := HistoryEntry{
-			Seq:        seq,
+			Seq:        msg.Seq,
 			Role:       msg.Role,
 			Content:    msg.Content,
 			Timestamp:  msg.Timestamp,
@@ -35,11 +43,15 @@ func AppendHistory(histDir string, msgs []Message, startSeq int) error {
 		}
 		data, err := json.MarshalIndent(entry, "", "  ")
 		if err != nil {
-			return fmt.Errorf("marshal history entry %d: %w", seq, err)
+			return fmt.Errorf("marshal history entry %d: %w", msg.Seq, err)
 		}
-		filename := fmt.Sprintf("%09d.json", seq)
-		if err := atomicWrite(filepath.Join(histDir, filename), data); err != nil {
-			return fmt.Errorf("write history entry %d: %w", seq, err)
+		targetPath := filepath.Join(histDir, filename)
+		// Skip if file already exists (append-only, never overwrite).
+		if _, err := os.Stat(targetPath); err == nil {
+			continue
+		}
+		if err := atomicWrite(targetPath, data); err != nil {
+			return fmt.Errorf("write history entry %d: %w", msg.Seq, err)
 		}
 	}
 	return nil
@@ -73,6 +85,7 @@ func entryToMessage(entry HistoryEntry) Message {
 		Role:       entry.Role,
 		Content:    entry.Content,
 		Timestamp:  entry.Timestamp,
+		Seq:        entry.Seq,
 		ToolCalls:  entry.ToolCalls,
 		ToolCallID: entry.ToolCallID,
 	}
