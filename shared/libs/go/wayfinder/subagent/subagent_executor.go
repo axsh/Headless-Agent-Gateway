@@ -60,7 +60,8 @@ type AgentRunnerConfig struct {
 	SessionDir          string
 	LogicalModel        string
 	AllowedPathPatterns []string
-	Emitter             any // Parent EventEmitter (any to avoid cyclic import)
+	Emitter             any    // Parent EventEmitter (any to avoid cyclic import)
+	HistorySubDir       string // Subdirectory path for child session history (e.g. "000000a")
 }
 
 // AgentRunner creates and runs child AgentCore instances.

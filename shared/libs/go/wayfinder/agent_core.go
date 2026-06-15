@@ -552,6 +552,12 @@ func (ac *AgentCore) SetEmitter(emitter *EventEmitter) {
 	ac.emitter = emitter
 }
 
+// SetStore sets the session store for this AgentCore.
+// Used by RunChild to inject a subdirectory-scoped store for child sessions.
+func (ac *AgentCore) SetStore(store *session.Store) {
+	ac.store = store
+}
+
 // SetSubagentExecutor configures the subagent executor for delegating heavy tool calls.
 func (ac *AgentCore) SetSubagentExecutor(exec SubagentRunner) {
 	ac.subagent = exec
@@ -671,6 +677,7 @@ func (ac *AgentCore) runWithWBSTree(ctx context.Context, tree *planning.WBSTree)
 		}
 		nodeExec = &agentNodeExecutor{
 			parentSessionID: ac.sessionID,
+			parentCore:      ac,
 			childConfig:     childCfg,
 			runner:          ac.runner,
 			llm:             ac.subagentLLM,
@@ -734,6 +741,7 @@ func (ac *AgentCore) loadWBSFromSession() *planning.WBSTree {
 // agentNodeExecutor executes WBS nodes in child sessions via AgentRunner.
 type agentNodeExecutor struct {
 	parentSessionID string
+	parentCore      *AgentCore
 	childConfig     *subagent.AgentRunnerConfig
 	runner          subagent.AgentRunner
 	llm             subagent.LLMClient
@@ -745,10 +753,15 @@ func (e *agentNodeExecutor) ExecuteNode(ctx context.Context, node planning.WBSNo
 	prompt := fmt.Sprintf("[WBS Step %s: %s]\n%s", node.ID, node.Name, node.Description)
 	childSessionID := fmt.Sprintf("%s-wbs-%s", e.parentSessionID, node.ID)
 
-	e.logger.Debug("executing WBS node in child session",
-		"node_id", node.ID, "child_session", childSessionID)
+	// Copy child config and set HistorySubDir from parent's current nextSeq.
+	childCfg := *e.childConfig
+	childCfg.HistorySubDir = fmt.Sprintf("%07x", e.parentCore.nextSeq)
 
-	childResult, err := e.runner.RunChild(ctx, e.childConfig, childSessionID, e.llm, e.logger, prompt)
+	e.logger.Debug("executing WBS node in child session",
+		"node_id", node.ID, "child_session", childSessionID,
+		"history_subdir", childCfg.HistorySubDir)
+
+	childResult, err := e.runner.RunChild(ctx, &childCfg, childSessionID, e.llm, e.logger, prompt)
 	if err != nil {
 		return "", err
 	}

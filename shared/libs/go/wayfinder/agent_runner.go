@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/wayfinder/session"
 	"github.com/axsh/arctic-tern/wayfinder/subagent"
 )
 
@@ -46,6 +47,12 @@ func (r *AgentRunnerImpl) RunChild(
 	// Create child AgentCore.
 	child := NewAgentCore(wrappedLLM, childCfg, log)
 	child.SetSessionID(sessionID)
+
+	// Inject subdirectory-scoped Store for child session history.
+	if cfg.HistorySubDir != "" {
+		parentStore := session.NewStore(cfg.SessionDir)
+		child.SetStore(parentStore.WithSubDir(cfg.HistorySubDir))
+	}
 
 	// Relay parent emitter to child for streaming event propagation.
 	if cfg.Emitter != nil {
