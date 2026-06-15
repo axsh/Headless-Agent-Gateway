@@ -1,36 +1,30 @@
 package session
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // CompactionConfig holds compaction thresholds.
 type CompactionConfig struct {
-	MaxTurns      int // Max conversation turns before compaction (default: 15)
-	MaxContentLen int // Max content length for single message trimming (default: 5000)
+	Ratio         float64 // Compaction ratio (0.0-1.0). 0.5 = compact oldest 50% of unpinned messages.
+	MaxContentLen int     // Max content length for single message trimming (default: 5000).
 }
 
 // DefaultCompactionConfig returns the default compaction configuration.
 func DefaultCompactionConfig() *CompactionConfig {
 	return &CompactionConfig{
-		MaxTurns:      15,
+		Ratio:         0.5,
 		MaxContentLen: 5000,
 	}
 }
 
-// NeedsCompaction checks if the message history exceeds the threshold.
-func NeedsCompaction(messages []Message, cfg *CompactionConfig) bool {
-	turnCount := 0
-	for _, m := range messages {
-		if m.Role == "user" || m.Role == "assistant" {
-			turnCount++
-		}
-	}
-	return turnCount > cfg.MaxTurns
-}
-
-// Compact applies compaction to the message history:
+// Compact applies ratio-based compaction to the message history:
 //  1. Pinned messages are always preserved
-//  2. Old unpinned messages are replaced with a summary placeholder
-//  3. Recent messages (within window) are preserved
+//  2. Oldest (ratio * unpinned_count) unpinned messages are replaced with a summary
+//  3. Remaining recent messages are preserved
+//
+// This function is called reactively when the LLM returns a context length exceeded error.
 func Compact(messages []Message, cfg *CompactionConfig, summarizer func([]Message) (string, error)) ([]Message, error) {
 	var pinned []Message
 	var unpinned []Message
@@ -43,18 +37,16 @@ func Compact(messages []Message, cfg *CompactionConfig, summarizer func([]Messag
 		}
 	}
 
-	// Keep last N messages as the sliding window.
-	windowSize := cfg.MaxTurns / 2
-	if windowSize < 4 {
-		windowSize = 4
-	}
+	// Calculate how many messages to compact based on ratio.
+	compactCount := int(math.Ceil(float64(len(unpinned)) * cfg.Ratio))
+	recentCount := len(unpinned) - compactCount
 
-	if len(unpinned) <= windowSize {
-		return messages, nil // No compaction needed.
+	if recentCount <= 0 || compactCount <= 0 {
+		return messages, nil // No compaction possible.
 	}
 
 	// Calculate initial boundary and adjust for tool pair protection.
-	boundary := len(unpinned) - windowSize
+	boundary := compactCount
 	boundary = adjustBoundaryForToolPairs(unpinned, boundary)
 	boundary = adjustBoundaryForUserStart(unpinned, boundary)
 
@@ -92,6 +84,7 @@ func Compact(messages []Message, cfg *CompactionConfig, summarizer func([]Messag
 
 	return result, nil
 }
+
 
 // TrimLongContent truncates message content exceeding maxLen.
 func TrimLongContent(messages []Message, maxLen int) []Message {

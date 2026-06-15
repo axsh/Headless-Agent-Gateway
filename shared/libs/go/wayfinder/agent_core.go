@@ -310,9 +310,12 @@ func (ac *AgentCore) saveSession(status string) {
 }
 
 // applyCompaction applies context compaction if the message history is too long.
+// NOTE: This is transitional. Will be replaced with reactive compaction in Step 3.
 func (ac *AgentCore) applyCompaction() {
 	sessionMsgs := convertToSessionMessages(ac.messages)
-	if !session.NeedsCompaction(sessionMsgs, ac.compactionCfg) {
+
+	// Simple check: only compact if there are enough messages to warrant it.
+	if len(sessionMsgs) < 10 {
 		return
 	}
 
