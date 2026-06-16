@@ -34,8 +34,14 @@ providers:
         secret: "vault://providers/google/default"
         models:
           - name: gemini-2.5-flash
+            behavior:
+              max_output_tokens: 65536
           - name: gemini-2.5-pro
+            behavior:
+              max_output_tokens: 65536
           - name: gemini-3.5-flash
+            behavior:
+              max_output_tokens: 65536
   ollama:
     api_keys:
       - name: default

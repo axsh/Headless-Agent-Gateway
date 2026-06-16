@@ -60,7 +60,8 @@ type AgentRunnerConfig struct {
 	SessionDir          string
 	LogicalModel        string
 	AllowedPathPatterns []string
-	Emitter             any // Parent EventEmitter (any to avoid cyclic import)
+	Emitter             any    // Parent EventEmitter (any to avoid cyclic import)
+	HistorySubDir       string // Subdirectory path for child session history (e.g. "000000a")
 }
 
 // AgentRunner creates and runs child AgentCore instances.
@@ -71,12 +72,24 @@ type AgentRunner interface {
 
 // SubagentExecutor manages child session lifecycle.
 type SubagentExecutor struct {
-	parentConfig *AgentRunnerConfig
-	llm          LLMClient
-	runner       AgentRunner
-	hints        *HintGenerator
-	summarizer   SummaryStrategy
-	logger       logger.Logger
+	parentConfig  *AgentRunnerConfig
+	llm           LLMClient
+	runner        AgentRunner
+	hints         *HintGenerator
+	summarizer    SummaryStrategy
+	logger        logger.Logger
+	parentSeqFunc func() int // Returns parent's current nextSeq for history subdirectory naming.
+}
+
+// SubagentOption configures optional SubagentExecutor behavior.
+type SubagentOption func(*SubagentExecutor)
+
+// WithParentSeqFunc sets the callback to retrieve parent's current sequence number.
+// When set, child sessions will store history in a subdirectory named after the parent's seq.
+func WithParentSeqFunc(f func() int) SubagentOption {
+	return func(e *SubagentExecutor) {
+		e.parentSeqFunc = f
+	}
 }
 
 // NewSubagentExecutor creates a new SubagentExecutor.
@@ -86,11 +99,12 @@ func NewSubagentExecutor(
 	llm LLMClient,
 	runner AgentRunner,
 	log logger.Logger,
+	opts ...SubagentOption,
 ) *SubagentExecutor {
 	if log == nil {
 		log = &noopLog{}
 	}
-	return &SubagentExecutor{
+	e := &SubagentExecutor{
 		parentConfig: parentCfg,
 		llm:          llm,
 		runner:       runner,
@@ -98,6 +112,10 @@ func NewSubagentExecutor(
 		summarizer:   NewSummarizer(llm),
 		logger:       log,
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // Execute runs a tool in a child session and returns summarized result.
@@ -126,7 +144,14 @@ func (e *SubagentExecutor) Execute(
 		Emitter:             e.parentConfig.Emitter,
 	}
 
-	e.logger.Debug("child session created", "child_id", childSessionID, "parent_work_dir", childConfig.WorkDir)
+	// Set HistorySubDir from parent's current sequence number.
+	if e.parentSeqFunc != nil {
+		childConfig.HistorySubDir = fmt.Sprintf("%07x", e.parentSeqFunc())
+	}
+
+	e.logger.Debug("child session created", "child_id", childSessionID,
+		"parent_work_dir", childConfig.WorkDir,
+		"history_subdir", childConfig.HistorySubDir)
 
 	// 3. Build child prompt with hints and tool execution instruction.
 	childPrompt := fmt.Sprintf(

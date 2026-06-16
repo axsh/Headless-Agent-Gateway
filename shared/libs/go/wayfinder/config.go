@@ -32,6 +32,12 @@ type AgentConfig struct {
 	// StructuredOutput enables structured output (JSON schema) for models
 	// that support it. Retrieved from model_profiles.yaml.
 	StructuredOutput bool
+
+	// CompactionRatio is the ratio of old messages to compact (0.0-1.0).
+	// 0.5 means compact the oldest 50% of unpinned messages.
+	// Used only when triggered by context length exceeded error.
+	// Default: 0.5
+	CompactionRatio float64
 }
 
 // InitConfig resolves paths and applies defaults.
@@ -65,6 +71,11 @@ func InitConfig(cfg *AgentConfig) error {
 		return err
 	}
 	cfg.SessionDir = absSession
+
+	// Default CompactionRatio to 0.5 if not set.
+	if cfg.CompactionRatio == 0 {
+		cfg.CompactionRatio = 0.5
+	}
 
 	return nil
 }

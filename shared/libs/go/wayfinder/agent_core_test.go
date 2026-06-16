@@ -192,14 +192,14 @@ func TestAgentCore_SessionPersistence_SaveOnComplete(t *testing.T) {
 		t.Fatalf("Run failed: %v", err)
 	}
 
-	// Verify session file was created.
-	sessionFile := filepath.Join(sessionDir, "persist-test.json")
-	if _, err := os.Stat(sessionFile); err != nil {
-		t.Fatalf("session file should exist: %v", err)
+	// Verify session folder was created.
+	sessionFolder := filepath.Join(sessionDir, "persist-test", "metadata.json")
+	if _, err := os.Stat(sessionFolder); err != nil {
+		t.Fatalf("session metadata.json should exist: %v", err)
 	}
 
 	// Verify session content.
-	data, _ := os.ReadFile(sessionFile)
+	data, _ := os.ReadFile(sessionFolder)
 	var state map[string]any
 	json.Unmarshal(data, &state)
 	if state["status"] != "completed" {
@@ -410,4 +410,57 @@ func TestBuildConversationLog_StructuredFormat(t *testing.T) {
 		t.Errorf("should contain tool result, got %q", log)
 	}
 }
+
+func TestAgentCore_EmptyResponse_Retry(t *testing.T) {
+	// MockLLM returns empty response first, then a valid response.
+	mock := &MockLLMClient{
+		Responses: []*LLMResponse{
+			{Content: "", StopReason: "end_turn"},
+			{Content: "Hello!", StopReason: "end_turn"},
+		},
+	}
+	core := NewAgentCore(mock, &AgentConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   t.TempDir(),
+		LogicalModel: "test-model",
+	}, nil)
+
+	result, err := core.Run(context.Background(), "say hello")
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if result != "Hello!" {
+		t.Errorf("result = %q, want %q", result, "Hello!")
+	}
+	if mock.CallCount != 2 {
+		t.Errorf("CallCount = %d, want 2 (1 empty retry + 1 success)", mock.CallCount)
+	}
+}
+
+func TestAgentCore_EmptyResponse_MaxRetry_Fails(t *testing.T) {
+	// MockLLM always returns empty response.
+	mock := &MockLLMClient{
+		Responses: []*LLMResponse{
+			{Content: "", StopReason: "max_tokens"},
+			{Content: "", StopReason: "max_tokens"},
+		},
+	}
+	core := NewAgentCore(mock, &AgentConfig{
+		WorkDir:      t.TempDir(),
+		SessionDir:   t.TempDir(),
+		LogicalModel: "test-model",
+	}, nil)
+
+	_, err := core.Run(context.Background(), "generate big code")
+	if err == nil {
+		t.Fatal("expected error for persistent empty response")
+	}
+	if !strings.Contains(err.Error(), "empty response") {
+		t.Errorf("error should mention 'empty response', got %q", err.Error())
+	}
+	if mock.CallCount != 2 {
+		t.Errorf("CallCount = %d, want 2 (1 original + 1 retry)", mock.CallCount)
+	}
+}
+
 

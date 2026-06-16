@@ -57,6 +57,7 @@ type RoutedModel struct {
 	Model            string `json:"model"`               // e.g. "claude-sonnet-4-20250514"
 	Mode             string `json:"mode,omitempty"`       // "chat", "responses", or "" (treated as "chat")
 	ToolCallFallback bool   `json:"tool_call_fallback"`  // enable text-to-tool-call conversion
+	MaxOutputTokens  int    `json:"max_output_tokens,omitempty"` // override default max_tokens
 }
 
 // GatewayError represents an API error response.

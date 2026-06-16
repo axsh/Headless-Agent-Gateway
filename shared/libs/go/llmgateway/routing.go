@@ -63,8 +63,10 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 			for _, model := range key.Models {
 				if model.Name == modelName {
 					var fallback bool
+					var maxOutputTokens int
 					if model.Behavior != nil {
 						fallback = model.Behavior.ToolCallFallback
+						maxOutputTokens = model.Behavior.MaxOutputTokens
 					}
 					resolved = &RoutedModel{
 						Provider:         providerName,
@@ -73,6 +75,7 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 						Model:            modelName,
 						Mode:             model.Mode,
 						ToolCallFallback: fallback,
+						MaxOutputTokens:  maxOutputTokens,
 					}
 					break
 				}

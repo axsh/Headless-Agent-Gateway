@@ -10,6 +10,7 @@ const (
 	StatusActive    = "active"
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
+	StatusSuspended = "suspended" // Awaiting user feedback via ask_user tool.
 )
 
 // Message represents a conversation message with metadata for compaction.
@@ -18,6 +19,7 @@ type Message struct {
 	Content    string           `json:"content"`
 	Timestamp  time.Time        `json:"timestamp"`
 	Pinned     bool             `json:"pinned"`
+	Seq        int              `json:"seq"` // Global sequence number (immutable after assignment).
 	ToolCalls  []ToolCallRecord `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
@@ -55,4 +57,20 @@ type SessionState struct {
 	WBSTreeJSON      json.RawMessage  `json:"wbs_tree,omitempty"` // Serialized planning.WBSTree
 	CreatedAt        time.Time        `json:"created_at"`
 	LastActivityAt   time.Time        `json:"last_activity_at"`
+}
+
+// SessionMetadata is persisted as metadata.json in the session folder.
+// It holds session-level metadata separately from the message context.
+type SessionMetadata struct {
+	SessionID        string           `json:"session_id"`
+	ParentID         *string          `json:"parent_id,omitempty"`
+	Status           string           `json:"status"`
+	Latest           int              `json:"latest"`        // Last history sequence number (legacy, kept for backward compat).
+	TotalSeq         int              `json:"total_seq"`     // Max global sequence number across all messages.
+	ContextStart     int              `json:"context_start"` // First seq in current context (before = summarized).
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
+	WBSTreeJSON      json.RawMessage  `json:"wbs_tree,omitempty"`
+	CreatedFiles     []TrackedFile    `json:"created_files"`
+	RunningProcesses []TrackedProcess `json:"running_processes"`
 }

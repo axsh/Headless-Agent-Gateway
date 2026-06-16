@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -49,7 +50,7 @@ func testContextWithBlocker(workDir string) *ToolContext {
 	return tc
 }
 
-func TestRegisterAllTools_AllNineRegistered(t *testing.T) {
+func TestRegisterAllTools_AllRegistered(t *testing.T) {
 	reg := NewRegistry()
 	tc := testContext(t.TempDir())
 	RegisterAllTools(reg, tc)
@@ -57,7 +58,7 @@ func TestRegisterAllTools_AllNineRegistered(t *testing.T) {
 	expected := []string{
 		"read_file", "write_file", "list_directory", "create_directory",
 		"edit_file", "search_files", "grep_files", "execute_command",
-		"run_background_process", "kill_process",
+		"run_background_process", "kill_process", "ask_user",
 	}
 	for _, name := range expected {
 		if _, ok := reg.Get(name); !ok {
@@ -66,8 +67,8 @@ func TestRegisterAllTools_AllNineRegistered(t *testing.T) {
 	}
 
 	defs := reg.Definitions()
-	if len(defs) != 10 {
-		t.Errorf("len(Definitions) = %d, want 10", len(defs))
+	if len(defs) != 11 {
+		t.Errorf("len(Definitions) = %d, want 11", len(defs))
 	}
 }
 
@@ -281,5 +282,71 @@ func TestKillProcess_InvalidPID(t *testing.T) {
 	_, err := handler(context.Background(), map[string]any{"pid": float64(-999999)})
 	if err == nil {
 		t.Log("no error from FindProcess, expected error from Kill")
+	}
+}
+
+func TestAskUser_ReturnsErrFeedbackRequired(t *testing.T) {
+	tc := testContext(t.TempDir())
+	handler := newAskUser(tc)
+
+	result, err := handler(context.Background(), map[string]any{"prompt": "What color do you prefer?"})
+	if err == nil {
+		t.Fatal("expected ErrFeedbackRequired, got nil")
+	}
+	if err != ErrFeedbackRequired {
+		t.Errorf("expected ErrFeedbackRequired, got %v", err)
+	}
+	if result != "[WAITING FOR USER] What color do you prefer?" {
+		t.Errorf("unexpected result: %q", result)
+	}
+}
+
+func TestAskUser_MissingPrompt(t *testing.T) {
+	tc := testContext(t.TempDir())
+	handler := newAskUser(tc)
+
+	_, err := handler(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error for missing prompt")
+	}
+	if err == ErrFeedbackRequired {
+		t.Error("should not return ErrFeedbackRequired for missing prompt")
+	}
+}
+
+func TestExecuteCommand_Timeout(t *testing.T) {
+	workDir := t.TempDir()
+	tc := testContext(workDir)
+	handler := newExecuteCommand(tc)
+
+	// Use a short timeout (2 seconds) with a command that would run longer.
+	result, err := handler(context.Background(), map[string]any{
+		"command":         "sleep 30",
+		"timeout_seconds": float64(2),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "Command timed out after 2 seconds") {
+		t.Errorf("expected timeout message in result, got: %s", result)
+	}
+}
+
+func TestExecuteCommand_NoTimeout(t *testing.T) {
+	workDir := t.TempDir()
+	tc := testContext(workDir)
+	handler := newExecuteCommand(tc)
+
+	result, err := handler(context.Background(), map[string]any{
+		"command": "echo hello",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result, "timed out") {
+		t.Errorf("unexpected timeout message in result: %s", result)
+	}
+	if !strings.Contains(result, "hello") {
+		t.Errorf("expected 'hello' in result, got: %s", result)
 	}
 }

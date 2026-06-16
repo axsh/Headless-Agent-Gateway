@@ -19,6 +19,7 @@ type ChatMessage struct {
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Seq        int        `json:"seq,omitempty"` // Global sequence number.
 }
 
 // ToolCall represents a tool invocation requested by the LLM.
@@ -37,8 +38,9 @@ type ToolDefinition struct {
 
 // LLMResponse is the response from the LLM.
 type LLMResponse struct {
-	Content   string     `json:"content"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	StopReason string     `json:"stop_reason,omitempty"`
 }
 
 // LLMClient is the abstract interface for LLM communication.

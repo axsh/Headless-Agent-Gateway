@@ -32,6 +32,7 @@ providers:
           - name: gemini-2.5-flash
             behavior:
               structured_output: true
+              max_output_tokens: 65536
 
   # Ollama (local inference, no API key required)
   ollama:
