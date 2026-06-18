@@ -232,7 +232,7 @@ func (f *failingGateway) Launch(_ context.Context) error {
 	return f.err
 }
 
-// TC-P2-07: tern.Server end-to-end lifecycle with real ProxyServer.
+// TC-P2-07: server.Server end-to-end lifecycle with real ProxyServer.
 func TestServer_EndToEnd_WithProxyServer(t *testing.T) {
 	// Use port=0 for ephemeral port. No WithGateway -> auto-creates ProxyServer.
 	cfg := &config.AppConfig{

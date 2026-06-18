@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
-	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/server"
 )
 
 // startWayfinderE2EServer starts a real tern server with wayfinder agent registered.
@@ -59,9 +59,9 @@ agent_service:
 		t.Fatalf("write temp config: %v", err)
 	}
 
-	srv, err := tern.New(tern.WithConfigPath(tmpConfig))
+	srv, err := server.New(server.WithConfigPath(tmpConfig))
 	if err != nil {
-		t.Fatalf("tern.New failed: %v", err)
+		t.Fatalf("server.New failed: %v", err)
 	}
 
 	ctx := context.Background()

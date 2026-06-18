@@ -46,6 +46,6 @@ type AdapterConfig struct {
 	ModelMode string
 
 	// GatewayToken is the internal authentication token for LLMGP.
-	// Injected by tern.Server on startup.
+	// Injected by server.Server on startup.
 	GatewayToken string
 }

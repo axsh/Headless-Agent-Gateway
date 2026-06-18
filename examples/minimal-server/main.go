@@ -15,7 +15,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/server"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 		configPath = os.Args[2]
 	}
 
-	srv, err := tern.New(tern.WithConfigPath(configPath))
+	srv, err := server.New(server.WithConfigPath(configPath))
 	if err != nil {
 		log.Fatalf("failed to initialize: %v", err)
 	}

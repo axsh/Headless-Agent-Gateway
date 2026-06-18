@@ -21,11 +21,11 @@ import (
 	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
-	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/server"
 	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
-// testServer starts a tern.Server with KeyringVaultBackend and returns
+// testServer starts a server.Server with KeyringVaultBackend and returns
 // the base URL and a cleanup function.
 func testServer(t *testing.T) (string, string, func()) {
 	t.Helper()
@@ -42,12 +42,12 @@ func testServer(t *testing.T) (string, string, func()) {
 		},
 	}
 
-	srv, err := tern.New(
-		tern.WithConfig(cfg),
-		tern.WithKeyringVault(),
+	srv, err := server.New(
+		server.WithConfig(cfg),
+		server.WithKeyringVault(),
 	)
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {

@@ -22,12 +22,12 @@ import (
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
-	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/server"
 )
 
 // startCodexE2EServer starts a tern server with codex agent registered.
 // It uses the standalone model_profiles.yaml and dynamically-assigned ports.
-// Agents are auto-registered via codingagent.CreateAll() in tern.New().
+// Agents are auto-registered via codingagent.CreateAll() in server.New().
 // Returns the AgentService base URL and a cleanup function.
 func startCodexE2EServer(t *testing.T) (string, func()) {
 	t.Helper()
@@ -65,9 +65,9 @@ agent_service:
 		t.Fatalf("write temp config: %v", err)
 	}
 
-	srv, err := tern.New(tern.WithConfigPath(tmpConfig))
+	srv, err := server.New(server.WithConfigPath(tmpConfig))
 	if err != nil {
-		t.Fatalf("tern.New failed: %v", err)
+		t.Fatalf("server.New failed: %v", err)
 	}
 
 	ctx := context.Background()
@@ -261,9 +261,9 @@ agent_service:
 
 	os.WriteFile(tmpConfig, []byte(configContent), 0644)
 
-	srv, err := tern.New(tern.WithConfigPath(tmpConfig))
+	srv, err := server.New(server.WithConfigPath(tmpConfig))
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 
 	ctx := context.Background()

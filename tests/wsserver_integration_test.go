@@ -8,7 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
-	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/server"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 	"github.com/axsh/arctic-tern/shared/libs/go/wsserver"
@@ -21,9 +21,9 @@ func TestWebSocket_LogStreaming(t *testing.T) {
 		WebSocket: config.WebSocketConfig{Port: 0},
 	}
 	stub := llmgateway.NewStubGateway()
-	srv, err := tern.New(tern.WithConfig(cfg), tern.WithGateway(stub))
+	srv, err := server.New(server.WithConfig(cfg), server.WithGateway(stub))
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 	ctx := t.Context()
 	if err := srv.Launch(ctx); err != nil {
@@ -92,9 +92,9 @@ func TestWebSocket_HierarchicalLogStructure(t *testing.T) {
 		WebSocket: config.WebSocketConfig{Port: 0},
 	}
 	stub := llmgateway.NewStubGateway()
-	srv, err := tern.New(tern.WithConfig(cfg), tern.WithGateway(stub))
+	srv, err := server.New(server.WithConfig(cfg), server.WithGateway(stub))
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 	ctx := t.Context()
 	if err := srv.Launch(ctx); err != nil {
@@ -180,9 +180,9 @@ func TestWebSocket_SnapshotContainsPreExistingLogs(t *testing.T) {
 		WebSocket: config.WebSocketConfig{Port: 0},
 	}
 	stub := llmgateway.NewStubGateway()
-	srv, err := tern.New(tern.WithConfig(cfg), tern.WithGateway(stub))
+	srv, err := server.New(server.WithConfig(cfg), server.WithGateway(stub))
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 	ctx := t.Context()
 	if err := srv.Launch(ctx); err != nil {
