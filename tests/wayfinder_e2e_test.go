@@ -171,6 +171,7 @@ func extractPIDFromOutput(output string) (int, error) {
 	// 2. Regex-based extraction from free-form text.
 	patterns := []string{
 		`(?i)PID\s*(?:is\s*)?[:=]?\s*(\d+)`,
+		`(?i)PID\s+.*?(\d+)`,
 		`(?i)process\s+(?:id\s+)?\s*[:=]?\s*(\d+)`,
 		`(?i)started.*?(\d{3,})`,
 	}
