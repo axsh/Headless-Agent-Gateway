@@ -328,7 +328,7 @@ func runFullScenario(t *testing.T, modelName string) {
 	sessionID := createWayfinderSession(t, baseURL, modelName, workDir)
 	t.Logf("Session created: %s", sessionID)
 
-	output1, events1 := sendWayfinderMessage(t, baseURL, sessionID,
+	output1, _ := sendWayfinderMessage(t, baseURL, sessionID,
 		"Create a file named greet.go in the current directory. The file should contain a Go function named Greet that returns the string 'Hello Wayfinder'. Do nothing else.",
 		120*time.Second,
 	)
