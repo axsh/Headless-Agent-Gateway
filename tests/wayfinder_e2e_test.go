@@ -328,11 +328,17 @@ func runFullScenario(t *testing.T, modelName string) {
 	sessionID := createWayfinderSession(t, baseURL, modelName, workDir)
 	t.Logf("Session created: %s", sessionID)
 
-	output1, _ := sendWayfinderMessage(t, baseURL, sessionID,
+	output1, events1 := sendWayfinderMessage(t, baseURL, sessionID,
 		"Create a file named greet.go in the current directory. The file should contain a Go function named Greet that returns the string 'Hello Wayfinder'. Do nothing else.",
 		120*time.Second,
 	)
 	t.Logf("Step 1 output: %s", truncate(output1, 300))
+
+	for _, ev := range events1 {
+		if ev.Type == codingagent.EventError && (strings.Contains(ev.Content, "404") || strings.Contains(ev.Content, "upstream_error")) {
+			t.Skipf("Skipping: upstream API error: %s", ev.Content)
+		}
+	}
 
 	// Assert: greet.go exists.
 	greetPath := filepath.Join(workDir, "greet.go")
