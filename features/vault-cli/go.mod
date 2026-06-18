@@ -13,4 +13,4 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 )
 
-replace github.com/axsh/arctic-tern => ../../shared/libs/go
+replace github.com/axsh/arctic-tern => ../../

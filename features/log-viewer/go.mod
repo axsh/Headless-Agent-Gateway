@@ -77,4 +77,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/axsh/arctic-tern => ../../shared/libs/go
+replace github.com/axsh/arctic-tern => ../../
