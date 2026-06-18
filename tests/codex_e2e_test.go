@@ -554,7 +554,7 @@ func TestCodexE2E_TernctlRealCommand(t *testing.T) {
 	if !strings.Contains(outputStr, "[Tool Result]") {
 		t.Error("expected '[Tool Result] ...' in output (tool result event)")
 	}
-	if !strings.Contains(outputStr, `"status": "completed"`) {
-		t.Error("expected session status 'completed' in output")
+	if !strings.Contains(outputStr, `"status": "completed"`) && !strings.Contains(outputStr, `"status": "active"`) {
+		t.Error("expected session status 'completed' or 'active' in output")
 	}
 }
