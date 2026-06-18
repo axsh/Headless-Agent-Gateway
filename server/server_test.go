@@ -1,4 +1,4 @@
-package tern
+package server
 
 import (
 	"context"

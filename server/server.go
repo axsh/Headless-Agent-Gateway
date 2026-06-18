@@ -1,7 +1,7 @@
-// Package tern provides the tern (arctic-tern) core facade.
+// Package server provides the tern (arctic-tern) core facade.
 // Users interact with tern through the Server type, which orchestrates
 // all components (LLM Gateway, Config, Vault, Logger).
-package tern
+package server
 
 import (
 	"context"

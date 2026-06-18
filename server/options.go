@@ -1,4 +1,4 @@
-package tern
+package server
 
 import (
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
