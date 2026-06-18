@@ -193,6 +193,7 @@ func cmdRun(c *client.Client, args []string) {
 	}
 
 	if streamErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", streamErr)
 		os.Exit(1)
 	}
 }
