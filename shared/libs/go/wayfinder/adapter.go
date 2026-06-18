@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/wayfinder/planning"
-	"github.com/axsh/arctic-tern/wayfinder/subagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/planning"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/subagent"
 )
 
 const (
@@ -19,10 +19,10 @@ const (
 
 // Adapter implements codingagent.CodingAgent for Wayfinder.
 type Adapter struct {
-	logger      logger.Logger
-	baseURL     string // Bifrost proxy URL
-	token       string // Authentication token
-	adapterCfg  *codingagent.AdapterConfig
+	logger     logger.Logger
+	baseURL    string // Bifrost proxy URL
+	token      string // Authentication token
+	adapterCfg *codingagent.AdapterConfig
 }
 
 // NewAdapter creates a new Wayfinder CodingAgent adapter.

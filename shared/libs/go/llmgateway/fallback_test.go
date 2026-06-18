@@ -41,8 +41,6 @@ func TestExtractToolCallFromText_None(t *testing.T) {
 	}
 }
 
-
-
 func TestTryFallbackAnthropicResponse(t *testing.T) {
 	rawResponse := `{
 		"id": "msg_123",
@@ -62,8 +60,8 @@ func TestTryFallbackAnthropicResponse(t *testing.T) {
 	}
 
 	var parsed struct {
-		Content []map[string]any `json:"content"`
-		StopReason string `json:"stop_reason"`
+		Content    []map[string]any `json:"content"`
+		StopReason string           `json:"stop_reason"`
 	}
 
 	if err := json.Unmarshal(rewritten, &parsed); err != nil {

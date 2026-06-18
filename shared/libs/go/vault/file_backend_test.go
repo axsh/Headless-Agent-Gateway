@@ -115,4 +115,3 @@ func TestNewFileVaultBackend_WithKey(t *testing.T) {
 		t.Fatal("backend should not be nil")
 	}
 }
-

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 )
 

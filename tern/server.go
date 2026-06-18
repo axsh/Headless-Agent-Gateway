@@ -12,25 +12,25 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/axsh/arctic-tern/agentservice"
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/tasklog"
-	"github.com/axsh/arctic-tern/vault"
-	"github.com/axsh/arctic-tern/wsserver"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/wsserver"
 
 	// Auto-register all built-in coding agents via init().
-	_ "github.com/axsh/arctic-tern/codingagent/claudecode"
-	_ "github.com/axsh/arctic-tern/codingagent/codex"
-	_ "github.com/axsh/arctic-tern/wayfinder"
+	_ "github.com/axsh/arctic-tern/shared/libs/go/codingagent/claudecode"
+	_ "github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
+	_ "github.com/axsh/arctic-tern/shared/libs/go/wayfinder"
 
 	// Auto-register all built-in LLM providers via init().
-	_ "github.com/axsh/arctic-tern/llmgateway/anthropic"
-	_ "github.com/axsh/arctic-tern/llmgateway/google"
-	_ "github.com/axsh/arctic-tern/llmgateway/ollama"
-	_ "github.com/axsh/arctic-tern/llmgateway/openai"
+	_ "github.com/axsh/arctic-tern/shared/libs/go/llmgateway/anthropic"
+	_ "github.com/axsh/arctic-tern/shared/libs/go/llmgateway/google"
+	_ "github.com/axsh/arctic-tern/shared/libs/go/llmgateway/ollama"
+	_ "github.com/axsh/arctic-tern/shared/libs/go/llmgateway/openai"
 )
 
 // Server is the tern core facade that orchestrates all components.
@@ -246,7 +246,6 @@ func (s *Server) TLSCACertPath() string {
 	return ""
 }
 
-
 // TaskLog returns the TaskLog instance.
 // Callers can use TaskLog().Add() to inject log entries.
 func (s *Server) TaskLog() *tasklog.TaskLog {
@@ -407,4 +406,3 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 
 	return as
 }
-

@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/codingagent/codex"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
 	"github.com/axsh/arctic-tern/tern"
 )
 

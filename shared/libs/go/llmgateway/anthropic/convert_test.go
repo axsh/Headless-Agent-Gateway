@@ -189,7 +189,7 @@ func TestConvertToBifrost_StreamFlag(t *testing.T) {
 func TestConvertFromBifrost_BasicResponse(t *testing.T) {
 	textContent := "Hello! I'm doing well."
 	resp := &bifrostSchemas.BifrostResponsesResponse{
-		Model:  "claude-3-sonnet",
+		Model: "claude-3-sonnet",
 		Output: []bifrostSchemas.ResponsesMessage{
 			{
 				Role: ptr(bifrostSchemas.ResponsesInputMessageRoleAssistant),

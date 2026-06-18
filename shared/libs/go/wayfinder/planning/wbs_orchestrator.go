@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // NodeExecutor executes a single WBS node.

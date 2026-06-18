@@ -36,10 +36,10 @@ type KeyConfig struct {
 
 // ModelConfig holds per-model configuration.
 type ModelConfig struct {
-	Name         string         `yaml:"name"`
-	LogicalName  string         `yaml:"logical_name,omitempty"`
-	Mode         string         `yaml:"mode,omitempty"` // "chat" (default) or "responses"
-	Behavior     *ModelBehavior `yaml:"behavior,omitempty"`
+	Name        string         `yaml:"name"`
+	LogicalName string         `yaml:"logical_name,omitempty"`
+	Mode        string         `yaml:"mode,omitempty"` // "chat" (default) or "responses"
+	Behavior    *ModelBehavior `yaml:"behavior,omitempty"`
 }
 
 // ModelBehavior holds model-specific behavior settings.

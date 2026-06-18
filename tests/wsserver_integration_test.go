@@ -7,11 +7,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/tern"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/tasklog"
-	"github.com/axsh/arctic-tern/wsserver"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/wsserver"
 )
 
 // TestWebSocket_LogStreaming verifies basic log streaming:

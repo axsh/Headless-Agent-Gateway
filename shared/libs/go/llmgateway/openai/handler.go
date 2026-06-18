@@ -10,8 +10,8 @@ import (
 	bifrostOpenAI "github.com/maximhq/bifrost/core/providers/openai"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // request represents the minimal fields we parse from OpenAI Chat Completions API.

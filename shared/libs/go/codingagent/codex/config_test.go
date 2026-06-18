@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent/codex"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
 )
 
 func TestGenerateConfigTOML(t *testing.T) {

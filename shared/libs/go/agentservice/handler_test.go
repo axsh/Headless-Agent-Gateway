@@ -8,10 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/axsh/arctic-tern/agentservice"
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 )
 
 // mockCodingAgent implements CodingAgent for testing.
@@ -34,7 +34,7 @@ func (s *mockCodingSession) Send(_ context.Context, _ string) (<-chan codingagen
 	close(ch)
 	return ch, nil
 }
-func (s *mockCodingSession) ID() string  { return "mock-session" }
+func (s *mockCodingSession) ID() string   { return "mock-session" }
 func (s *mockCodingSession) Close() error { return nil }
 
 func newTestServer() (*agentservice.Server, http.Handler) {

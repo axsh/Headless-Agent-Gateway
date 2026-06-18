@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/tern"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // testServer starts a tern.Server with KeyringVaultBackend and returns

@@ -275,4 +275,3 @@ func TestLLMGatewayConfig_ApplyDefaults_NoOverwrite(t *testing.T) {
 		t.Errorf("Server.WriteTimeoutSeconds: got %d, want 600 (should not overwrite)", cfg.LLMGateway.Server.WriteTimeoutSeconds)
 	}
 }
-

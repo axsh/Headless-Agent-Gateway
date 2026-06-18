@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 )
 
 // testProfiles returns a ModelProfilesConfig with anthropic and openai providers.
@@ -285,4 +285,3 @@ func TestSessionMap_LRU(t *testing.T) {
 		}
 	}
 }
-

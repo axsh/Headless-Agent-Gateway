@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/claudecode"
 )
 
 func TestBuildArgs(t *testing.T) {
@@ -197,21 +197,21 @@ func TestBuildEnv_APIKeyMetadata(t *testing.T) {
 		wantContains string
 	}{
 		{
-			name: "fallback_true_with_agentSessionID",
-			ac:   &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: true},
-			cfg:  &codingagent.SessionConfig{AgentSessionID: "sess-123"},
+			name:         "fallback_true_with_agentSessionID",
+			ac:           &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: true},
+			cfg:          &codingagent.SessionConfig{AgentSessionID: "sess-123"},
 			wantContains: ";fallback=true;sid=sess-123",
 		},
 		{
-			name: "fallback_false_with_agentSessionID",
-			ac:   &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: false},
-			cfg:  &codingagent.SessionConfig{AgentSessionID: "sess-456"},
+			name:         "fallback_false_with_agentSessionID",
+			ac:           &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: false},
+			cfg:          &codingagent.SessionConfig{AgentSessionID: "sess-456"},
 			wantContains: ";fallback=false;sid=sess-456",
 		},
 		{
-			name: "fallback_true_no_sid",
-			ac:   &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: true},
-			cfg:  &codingagent.SessionConfig{},
+			name:         "fallback_true_no_sid",
+			ac:           &codingagent.AdapterConfig{GatewayURL: "http://gw:14000", ToolCallFallback: true},
+			cfg:          &codingagent.SessionConfig{},
 			wantContains: ";fallback=true;sid=default",
 		},
 	}

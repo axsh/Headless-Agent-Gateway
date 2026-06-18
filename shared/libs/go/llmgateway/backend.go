@@ -35,7 +35,7 @@ type ModelInfo struct {
 
 // HealthStatus describes the backend health.
 type HealthStatus struct {
-	Status  string `json:"status"`           // "ok", "degraded", "down", "stub"
+	Status  string `json:"status"` // "ok", "degraded", "down", "stub"
 	Message string `json:"message,omitempty"`
-	Models  int    `json:"models"`           // number of configured models
+	Models  int    `json:"models"` // number of configured models
 }

@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // TLSCertManager manages self-signed TLS certificate lifecycle.

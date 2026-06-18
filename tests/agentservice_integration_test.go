@@ -20,13 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/arctic-tern/agentservice"
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/tern"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 )
 
 // integrationMockAgent implements codingagent.CodingAgent for integration tests.

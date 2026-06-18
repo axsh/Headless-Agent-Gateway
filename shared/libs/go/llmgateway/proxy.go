@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // ProxyServer implements LLMGatewayBackend with an HTTP proxy server.
@@ -25,7 +25,7 @@ type ProxyServer struct {
 	server    *http.Server
 	listener  net.Listener
 	port      int
-	driver    *BifrostDriver // back-reference for handler delegation (nil when standalone)
+	driver    *BifrostDriver  // back-reference for handler delegation (nil when standalone)
 	authToken string          // R4: internal auth token
 	tlsMgr    *TLSCertManager // R1: TLS cert manager (nil if TLS disabled)
 }

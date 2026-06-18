@@ -3,8 +3,8 @@ package codex_test
 import (
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/codingagent/codex"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
 )
 
 func TestCodexAdapterImplementsCodingAgent(t *testing.T) {

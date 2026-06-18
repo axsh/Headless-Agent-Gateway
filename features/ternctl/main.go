@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/axsh/arctic-tern/client"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 var (

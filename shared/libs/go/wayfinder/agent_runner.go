@@ -3,8 +3,8 @@ package wayfinder
 import (
 	"context"
 
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/wayfinder/subagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/subagent"
 )
 
 // AgentRunnerImpl implements subagent.AgentRunner.

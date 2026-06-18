@@ -129,4 +129,3 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 		}
 	}
 }
-

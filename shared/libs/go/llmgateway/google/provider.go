@@ -5,7 +5,7 @@ import (
 
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/arctic-tern/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 )
 
 func init() {

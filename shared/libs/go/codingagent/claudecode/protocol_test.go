@@ -3,8 +3,8 @@ package claudecode_test
 import (
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/claudecode"
 )
 
 func TestParseJSONLinesEvent_System(t *testing.T) {
@@ -206,4 +206,3 @@ func TestParseJSONLinesEvent_V21_TextAndToolUse(t *testing.T) {
 		t.Errorf("Type = %v, want EventToolUse", ev.Type)
 	}
 }
-

@@ -3,7 +3,7 @@ package claudecode
 import (
 	"os/exec"
 
-	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 func init() {

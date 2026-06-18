@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/axsh/arctic-tern/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
 )
 
 func TestHealthHandler_AllHealthy(t *testing.T) {

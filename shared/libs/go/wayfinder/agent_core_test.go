@@ -253,4 +253,3 @@ func TestAgentCore_SessionPersistence_ResumeSession(t *testing.T) {
 		t.Errorf("expected at least 3 messages (restored + new), got %d", len(sentMessages))
 	}
 }
-

@@ -4,9 +4,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // RoutedModel is an alias for handlerctx.RoutedModel for backward compatibility.

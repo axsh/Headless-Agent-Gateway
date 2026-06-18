@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 )
 
 // handleListAgents handles GET /api/v1/agents.

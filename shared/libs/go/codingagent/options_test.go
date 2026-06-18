@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 func TestSessionOptionFunctions(t *testing.T) {

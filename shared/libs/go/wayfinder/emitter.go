@@ -1,6 +1,6 @@
 package wayfinder
 
-import "github.com/axsh/arctic-tern/codingagent"
+import "github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 
 // EventEmitter sends streaming events from AgentCore to the adapter channel.
 // If ch is nil or emitter is nil, Emit is a no-op.

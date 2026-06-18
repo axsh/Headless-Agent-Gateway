@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/codingagent/claudecode"
-	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/tern"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // getFreePort listens on an ephemeral port and returns it.

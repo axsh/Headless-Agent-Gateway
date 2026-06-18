@@ -202,13 +202,14 @@ Additional architectural details will be documented separately.
 * [x] Google LLM backend
 * [x] Ollama LLM backend
 * [x] Wayfinder adapter (Embedded Original Coding Agent - Beta)
+* [x] Tern SDK v1
 
 ### Phase 2
 
 * [ ] Agent interaction protocol
 * [ ] MCP support
 * [ ] Tern CLI
-* [ ] Tern SDK
+* [ ] Tern SDK v2
 * [ ] Session portability
 * [ ] Context export/import
 * [ ] Agent switching
