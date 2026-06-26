@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/arctic-tern/wayfinder/session"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
 func TestAgentCore_SimpleResponse(t *testing.T) {
