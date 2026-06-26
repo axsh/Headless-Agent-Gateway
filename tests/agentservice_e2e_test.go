@@ -776,7 +776,7 @@ func TestE2E_ClaudeCode_TernctlRealCommand(t *testing.T) {
 
 	// Phase 3: Verify stdout content
 	if err != nil {
-		if strings.Contains(outputStr, "404") || strings.Contains(outputStr, "upstream_error") {
+		if strings.Contains(outputStr, "404") || strings.Contains(outputStr, "upstream_error") || strings.Contains(outputStr, "selected model") {
 			t.Skipf("Skipping: ternctl exited with upstream API error: %v\noutput: %s", err, outputStr)
 		}
 		t.Fatalf("ternctl exited with error: %v\noutput: %s", err, outputStr)
