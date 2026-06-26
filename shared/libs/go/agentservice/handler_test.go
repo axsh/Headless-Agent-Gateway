@@ -341,15 +341,15 @@ func TestResolveModel(t *testing.T) {
 	srv := agentservice.New()
 	srv.SetModelProfiles(&config.ModelProfilesConfig{
 		Providers: map[string]config.ProviderConfig{
-			"openai": {Keys: []config.KeyConfig{{
-				Name: "default", Value: "vault://test",
+			"openai": {ApiKeys: []config.KeyConfig{{
+				Name: "default", Secret: "vault://test",
 				Models: []config.ModelConfig{
 					{Name: "gpt-4o", LogicalName: "fast-coder"},
 					{Name: "gpt-4o-mini"},
 				},
 			}}},
-			"anthropic": {Keys: []config.KeyConfig{{
-				Name: "default", Value: "vault://test",
+			"anthropic": {ApiKeys: []config.KeyConfig{{
+				Name: "default", Secret: "vault://test",
 				Models: []config.ModelConfig{
 					{Name: "claude-sonnet-4-20250514", LogicalName: "balanced-coder"},
 				},

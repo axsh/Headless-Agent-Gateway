@@ -1,0 +1,97 @@
+# ============================================================
+# model_profiles.yaml - Model Profiles Configuration (demo)
+# ============================================================
+#
+# Schema:
+#   default_profile:
+#     provider: <string>         # Default provider name
+#     model: <string>            # Default model name
+#
+#   providers:
+#     <provider_name>:           # Provider identifier (openai, anthropic, google, ollama)
+#       api_keys:                # List of API key configurations
+#         - name: <string>       # Key identifier name
+#           secret: <string>     # API key value (optional)
+#                                #   - vault://... : Vault reference URI
+#                                #   - sk-xxx...   : Direct API key
+#                                #   - (omit)      : Auth-free providers (e.g., Ollama)
+#           weight: <float>      # Load balancing weight (default: 1.0)
+#           models:              # List of models available with this key
+#             - name: <string>   # Model identifier
+#               logical_name: <string>  # Logical name alias (optional)
+#               mode: <string>          # API mode: "chat" (default) / "responses"
+#               behavior:               # Model-specific behavior settings (optional)
+#                 tool_call_fallback: <bool>  # Text-to-tool-call conversion (for local LLMs)
+#                 structured_output: <bool>   # Model supports structured output (JSON schema)
+#                 max_output_tokens: <int>    # Override default max_tokens for LLM responses
+#       network_config:          # Network settings (optional)
+#         base_url: <string>     # API base URL (overrides provider default)
+#         request_timeout_seconds: <int>  # Request timeout in seconds
+#
+# ============================================================
+
+# Default profile: provider and model used when not specified
+default_profile:
+  provider: google
+  model: gemini-2.5-flash
+
+providers:
+  # --- OpenAI ---
+  openai:
+    api_keys:
+      - name: default
+        secret: vault://providers/openai/default
+        models:
+          - name: gpt-4o
+          - name: gpt-4o-mini
+          - name: gpt-4.1-mini
+          - name: gpt-5.4-mini
+          - name: gpt-5.5
+          - name: gpt-5.5-pro
+          - name: gpt-5.3-codex
+            mode: responses    # Responses API mode for Codex CLI
+
+  # --- Anthropic ---
+  anthropic:
+    api_keys:
+      - name: default
+        secret: vault://providers/anthropic/default
+        models:
+          - name: claude-sonnet-4-20250514
+          - name: claude-opus-4-20250514
+          - name: claude-sonnet-4-6
+          - name: claude-opus-4-8
+          - name: claude-haiku-4-5
+
+  # --- Google ---
+  google:
+    api_keys:
+      - name: default
+        secret: vault://providers/google/default
+        models:
+          - name: gemini-2.5-flash
+            behavior:
+              structured_output: true
+              max_output_tokens: 65536
+          - name: gemini-2.5-pro
+            behavior:
+              structured_output: true
+              max_output_tokens: 65536
+          - name: gemini-3.5-flash
+            behavior:
+              structured_output: true
+              max_output_tokens: 65536
+
+  # --- Ollama (local inference) ---
+  # secret is not required (no authentication)
+  # Use network_config.base_url to specify Ollama server address
+  ollama:
+    api_keys:
+      - name: default
+        # secret omitted: Ollama does not require an API key
+        models:
+          - name: qwen2.5-coder:7b
+            behavior:
+              tool_call_fallback: true  # Text-to-tool-call conversion for local LLMs
+    network_config:
+      base_url: "http://localhost:11434"  # For remote: "http://remote-host:11434"

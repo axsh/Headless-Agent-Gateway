@@ -1,0 +1,17 @@
+# Tern server configuration (example)
+# Minimal configuration for use with examples/minimal-server.
+
+llm_gateway:
+  port: 14000
+  model_profiles_path: "model_profiles.yaml"
+
+vault:
+  backend: "keyring"
+
+agent_service:
+  port: 3100
+
+log:
+  level: "info"
+  outputs:
+    - type: "stdout"

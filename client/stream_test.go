@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -145,3 +146,49 @@ func TestStream_Output_KeepAliveIgnored(t *testing.T) {
 		t.Errorf("output = %q, want %q (keepalive should be ignored)", got, "hello")
 	}
 }
+
+func TestStream_Output_IncompleteStream(t *testing.T) {
+	// SSE stream that ends without [DONE] marker (simulates connection drop).
+	sseData := "data: {\"type\":\"text\",\"content\":\"partial\"}\n\n"
+	body := io.NopCloser(strings.NewReader(sseData))
+	stream := newStream(body)
+
+	var buf strings.Builder
+	err := stream.Output(&buf)
+	if err == nil {
+		t.Fatal("expected error for incomplete stream, got nil")
+	}
+	if !strings.Contains(err.Error(), "stream terminated unexpectedly") {
+		t.Errorf("error = %v, want containing 'stream terminated unexpectedly'", err)
+	}
+	// Partial text should still be written before the error.
+	if got := buf.String(); got != "partial" {
+		t.Errorf("output = %q, want %q", got, "partial")
+	}
+}
+
+func TestStream_Output_ScannerError(t *testing.T) {
+	// Simulate a read error from the response body.
+	errReader := &errorReader{err: fmt.Errorf("connection reset")}
+	body := io.NopCloser(errReader)
+	stream := newStream(body)
+
+	var buf strings.Builder
+	err := stream.Output(&buf)
+	if err == nil {
+		t.Fatal("expected error for scanner failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "stream read error") {
+		t.Errorf("error = %v, want containing 'stream read error'", err)
+	}
+}
+
+// errorReader is a test helper that always returns an error on Read.
+type errorReader struct {
+	err error
+}
+
+func (r *errorReader) Read(p []byte) (int, error) {
+	return 0, r.err
+}
+

@@ -13,10 +13,10 @@ func testProfiles() *config.ModelProfilesConfig {
 	return &config.ModelProfilesConfig{
 		Providers: map[string]config.ProviderConfig{
 			"anthropic": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
 						Name:  "primary",
-						Value: "sk-ant-test-key",
+						Secret: "sk-ant-test-key",
 						Models: []config.ModelConfig{
 							{Name: "claude-sonnet-4-20250514"},
 							{Name: "claude-haiku-3-20240307"},
@@ -25,10 +25,10 @@ func testProfiles() *config.ModelProfilesConfig {
 				},
 			},
 			"openai": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
 						Name:  "default",
-						Value: "sk-openai-test-key",
+						Secret: "sk-openai-test-key",
 						Models: []config.ModelConfig{
 							{Name: "gpt-4o"},
 							{Name: "gpt-4o-mini"},
@@ -38,10 +38,10 @@ func testProfiles() *config.ModelProfilesConfig {
 				},
 			},
 			"google": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
 						Name:  "default",
-						Value: "AIzaSy-test-key",
+						Secret: "AIzaSy-test-key",
 						Models: []config.ModelConfig{
 							{Name: "gemini-3.5-flash"},
 						},
@@ -283,5 +283,54 @@ func TestSessionMap_LRU(t *testing.T) {
 		if _, exists := router.sessionModels[sid]; !exists {
 			t.Errorf("expected %s to exist, but it was evicted", sid)
 		}
+	}
+}
+func TestModelRouter_ResolveModel_MaxOutputTokens(t *testing.T) {
+	tests := []struct {
+		name     string
+		behavior *config.ModelBehavior
+		want     int
+	}{
+		{
+			name:     "max_output_tokens set",
+			behavior: &config.ModelBehavior{MaxOutputTokens: 65536},
+			want:     65536,
+		},
+		{
+			name:     "max_output_tokens not set",
+			behavior: &config.ModelBehavior{},
+			want:     0,
+		},
+		{
+			name:     "behavior nil",
+			behavior: nil,
+			want:     0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profiles := &config.ModelProfilesConfig{
+				Providers: map[string]config.ProviderConfig{
+					"google": {
+						ApiKeys: []config.KeyConfig{{
+							Name:   "default",
+							Secret: "test-key",
+							Models: []config.ModelConfig{{
+								Name:     "gemini-2.5-flash",
+								Behavior: tt.behavior,
+							}},
+						}},
+					},
+				},
+			}
+			router := NewModelRouter(profiles, nil, nil)
+			got, err := router.ResolveModel("gemini-2.5-flash", "")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.MaxOutputTokens != tt.want {
+				t.Errorf("MaxOutputTokens = %d, want %d", got.MaxOutputTokens, tt.want)
+			}
+		})
 	}
 }

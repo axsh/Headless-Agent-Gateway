@@ -246,15 +246,15 @@ default_profile:
   model: claude-sonnet-4-20250514
 providers:
   anthropic:
-    keys:
+    api_keys:
       - name: primary
-        value: "vault://providers/anthropic/primary"
+        secret: "vault://providers/anthropic/primary"
         models:
           - name: claude-sonnet-4-20250514
   openai:
-    keys:
+    api_keys:
       - name: primary
-        value: "vault://providers/openai/primary"
+        secret: "vault://providers/openai/primary"
         models:
           - name: gpt-4o
 `

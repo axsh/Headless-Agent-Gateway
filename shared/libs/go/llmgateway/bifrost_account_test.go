@@ -101,10 +101,10 @@ func TestBifrostAccount_GetKeysForProvider_VaultResolve(t *testing.T) {
 	profiles := &config.ModelProfilesConfig{
 		Providers: map[string]config.ProviderConfig{
 			"anthropic": {
-				Keys: []config.KeyConfig{
+				ApiKeys: []config.KeyConfig{
 					{
 						Name:  "vault-key",
-						Value: "vault://providers/anthropic/primary",
+						Secret: "vault://providers/anthropic/primary",
 						Models: []config.ModelConfig{
 							{Name: "claude-sonnet-4-20250514"},
 						},

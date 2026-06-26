@@ -170,4 +170,7 @@ type AgentServiceConfig struct {
 	// Useful for container/CI environments where the sandbox path mapping
 	// causes files to be created in different locations.
 	DisableSandbox bool `yaml:"disable_sandbox"`
+	// EnableSubagent enables subagent delegation for WBS node execution.
+	// When true, each WBS node runs in an independent child session.
+	EnableSubagent bool `yaml:"enable_subagent"`
 }

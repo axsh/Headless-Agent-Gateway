@@ -10,7 +10,18 @@ import (
 // LLMClient is the interface for LLM communication.
 // Defined locally to avoid cyclic import with the wayfinder root package.
 type LLMClient interface {
-	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error)
+	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition, opts ...GenerateOptions) (*LLMResponse, error)
+}
+
+// GenerateOptions holds optional parameters for LLM generation.
+type GenerateOptions struct {
+	ResponseFormat *ResponseFormat
+}
+
+// ResponseFormat specifies the desired response format.
+type ResponseFormat struct {
+	Type       string
+	JSONSchema any
 }
 
 // ChatMessage is a message in the LLM conversation.
@@ -31,14 +42,20 @@ type LLMResponse struct {
 	Content string `json:"content"`
 }
 
-// WBSPlanner generates WBS plans using LLM Structured Output.
+// WBSPlanner generates WBS plans using LLM.
 type WBSPlanner struct {
-	llm LLMClient
+	llm                 LLMClient
+	useStructuredOutput bool
 }
 
 // NewWBSPlanner creates a new WBSPlanner.
 func NewWBSPlanner(llm LLMClient) *WBSPlanner {
 	return &WBSPlanner{llm: llm}
+}
+
+// SetStructuredOutput enables/disables structured output.
+func (p *WBSPlanner) SetStructuredOutput(enabled bool) {
+	p.useStructuredOutput = enabled
 }
 
 const wbsPlannerSystemPrompt = `You are a task planning agent.
@@ -72,12 +89,26 @@ func (p *WBSPlanner) GenerateWBS(ctx context.Context, model string, userRequest 
 		{Role: "user", Content: userRequest},
 	}
 
-	resp, err := p.llm.GenerateMessage(ctx, model, messages, nil)
+	var opts []GenerateOptions
+	if p.useStructuredOutput {
+		opts = append(opts, GenerateOptions{
+			ResponseFormat: &ResponseFormat{
+				Type: "json_object",
+			},
+		})
+	}
+
+	resp, err := p.llm.GenerateMessage(ctx, model, messages, nil, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("WBS generation failed: %w", err)
 	}
 
-	jsonStr := extractJSON(resp.Content)
+	// Parse JSON. extractJSON handles markdown wrappers for non-structured responses.
+	jsonStr := resp.Content
+	if !p.useStructuredOutput {
+		jsonStr = extractJSON(jsonStr)
+	}
+
 	var tree WBSTree
 	if err := json.Unmarshal([]byte(jsonStr), &tree); err != nil {
 		return nil, fmt.Errorf("failed to parse WBS JSON: %w", err)

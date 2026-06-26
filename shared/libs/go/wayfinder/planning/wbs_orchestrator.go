@@ -2,11 +2,16 @@ package planning
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
+
+// ErrSuspended is returned when a WBS node execution requires user feedback.
+// The orchestrator should suspend the tree and return this error.
+var ErrSuspended = errors.New("execution suspended: waiting for user feedback")
 
 // NodeExecutor executes a single WBS node.
 // This interface decouples the orchestrator from the subagent implementation,
@@ -101,6 +106,14 @@ func (o *WBSOrchestrator) Execute(ctx context.Context, tree *WBSTree) error {
 			// Execute via injected executor.
 			result, err := o.executor.ExecuteNode(ctx, node)
 			if err != nil {
+				// Check if the node was suspended (ask_user).
+				if errors.Is(err, ErrSuspended) {
+					tree.UpdateNodeStatus(node.ID, StatusSuspended, result)
+					o.persist(tree)
+					o.logger.Info("WBS node suspended for user feedback", "node_id", node.ID)
+					o.emit("node_suspended", fmt.Sprintf("%s: %s", node.ID, node.Name))
+					return ErrSuspended
+				}
 				// Mark as failed.
 				tree.UpdateNodeStatus(node.ID, StatusFailed, fmt.Sprintf("Error: %v", err))
 				o.persist(tree)

@@ -12,7 +12,18 @@ import (
 // LLMClient is the interface for LLM communication.
 // Defined locally to avoid cyclic import with the wayfinder root package.
 type LLMClient interface {
-	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition) (*LLMResponse, error)
+	GenerateMessage(ctx context.Context, model string, messages []ChatMessage, tools []ToolDefinition, opts ...GenerateOptions) (*LLMResponse, error)
+}
+
+// GenerateOptions holds optional parameters for LLM generation.
+type GenerateOptions struct {
+	ResponseFormat *ResponseFormat
+}
+
+// ResponseFormat specifies the desired response format.
+type ResponseFormat struct {
+	Type       string
+	JSONSchema any
 }
 
 // ChatMessage is a message in the LLM conversation.
@@ -49,6 +60,8 @@ type AgentRunnerConfig struct {
 	SessionDir          string
 	LogicalModel        string
 	AllowedPathPatterns []string
+	Emitter             any    // Parent EventEmitter (any to avoid cyclic import)
+	HistorySubDir       string // Subdirectory path for child session history (e.g. "000000a")
 }
 
 // AgentRunner creates and runs child AgentCore instances.
@@ -59,12 +72,24 @@ type AgentRunner interface {
 
 // SubagentExecutor manages child session lifecycle.
 type SubagentExecutor struct {
-	parentConfig *AgentRunnerConfig
-	llm          LLMClient
-	runner       AgentRunner
-	hints        *HintGenerator
-	summarizer   *Summarizer
-	logger       logger.Logger
+	parentConfig  *AgentRunnerConfig
+	llm           LLMClient
+	runner        AgentRunner
+	hints         *HintGenerator
+	summarizer    SummaryStrategy
+	logger        logger.Logger
+	parentSeqFunc func() int // Returns parent's current nextSeq for history subdirectory naming.
+}
+
+// SubagentOption configures optional SubagentExecutor behavior.
+type SubagentOption func(*SubagentExecutor)
+
+// WithParentSeqFunc sets the callback to retrieve parent's current sequence number.
+// When set, child sessions will store history in a subdirectory named after the parent's seq.
+func WithParentSeqFunc(f func() int) SubagentOption {
+	return func(e *SubagentExecutor) {
+		e.parentSeqFunc = f
+	}
 }
 
 // NewSubagentExecutor creates a new SubagentExecutor.
@@ -74,11 +99,12 @@ func NewSubagentExecutor(
 	llm LLMClient,
 	runner AgentRunner,
 	log logger.Logger,
+	opts ...SubagentOption,
 ) *SubagentExecutor {
 	if log == nil {
 		log = &noopLog{}
 	}
-	return &SubagentExecutor{
+	e := &SubagentExecutor{
 		parentConfig: parentCfg,
 		llm:          llm,
 		runner:       runner,
@@ -86,6 +112,10 @@ func NewSubagentExecutor(
 		summarizer:   NewSummarizer(llm),
 		logger:       log,
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // Execute runs a tool in a child session and returns summarized result.
@@ -111,9 +141,17 @@ func (e *SubagentExecutor) Execute(
 		SessionDir:          e.parentConfig.SessionDir,
 		LogicalModel:        e.parentConfig.LogicalModel,
 		AllowedPathPatterns: e.parentConfig.AllowedPathPatterns,
+		Emitter:             e.parentConfig.Emitter,
 	}
 
-	e.logger.Debug("child session created", "child_id", childSessionID, "parent_work_dir", childConfig.WorkDir)
+	// Set HistorySubDir from parent's current sequence number.
+	if e.parentSeqFunc != nil {
+		childConfig.HistorySubDir = fmt.Sprintf("%07x", e.parentSeqFunc())
+	}
+
+	e.logger.Debug("child session created", "child_id", childSessionID,
+		"parent_work_dir", childConfig.WorkDir,
+		"history_subdir", childConfig.HistorySubDir)
 
 	// 3. Build child prompt with hints and tool execution instruction.
 	childPrompt := fmt.Sprintf(
@@ -132,7 +170,7 @@ func (e *SubagentExecutor) Execute(
 	e.logger.Debug("child session completed", "child_id", childSessionID, "result_len", len(childResult))
 
 	// 5. Summarize child result for parent consumption.
-	summary, err := e.summarizer.SummarizeForParent(ctx, hints, childResult)
+	summary, err := e.summarizer.Summarize(ctx, hints, childResult)
 	if err != nil {
 		e.logger.Warn("summarization failed, returning raw result", "error", err.Error())
 		// Fallback: return raw result if summarization fails.

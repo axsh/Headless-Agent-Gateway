@@ -32,3 +32,11 @@ type ClientOption func(*Client)
 func WithHTTPClient(hc *http.Client) ClientOption {
 	return func(c *Client) { c.httpClient = hc }
 }
+
+// WithNoTimeout disables the HTTP client timeout.
+// This is required for SSE streaming connections that may run for
+// extended periods. Without this, the default 30s timeout will
+// terminate long-running SSE streams.
+func WithNoTimeout() ClientOption {
+	return func(c *Client) { c.httpClient.Timeout = 0 }
+}

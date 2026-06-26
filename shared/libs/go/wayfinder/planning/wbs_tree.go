@@ -6,6 +6,7 @@ const (
 	StatusRunning   = "running"
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
+	StatusSuspended = "suspended" // Waiting for user feedback.
 )
 
 // WBSNode represents a single step in the Work Breakdown Structure.

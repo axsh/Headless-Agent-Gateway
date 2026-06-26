@@ -95,11 +95,11 @@ func (a *BifrostAccount) GetKeysForProvider(ctx context.Context, providerKey bif
 		return nil, fmt.Errorf("provider %q not found in profiles", providerKey)
 	}
 
-	keys := make([]bifrostSchemas.Key, 0, len(provCfg.Keys))
-	for i, keyCfg := range provCfg.Keys {
+	keys := make([]bifrostSchemas.Key, 0, len(provCfg.ApiKeys))
+	for i, keyCfg := range provCfg.ApiKeys {
 		// Resolve the key value (vault:// or plain text)
-		keyValue := keyCfg.Value
-		if vault.IsVaultRef(keyValue) && a.vault != nil {
+		keyValue := keyCfg.Secret
+		if keyValue != "" && vault.IsVaultRef(keyValue) && a.vault != nil {
 			resolved, err := a.vault.Resolve(keyValue)
 			if err != nil {
 				if a.logger != nil {

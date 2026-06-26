@@ -6,9 +6,9 @@ default_profile:
 
 providers:
   anthropic:
-    keys:
+    api_keys:
       - name: default
-        value: "vault://providers/anthropic/default"
+        secret: "vault://providers/anthropic/default"
         models:
           - name: claude-sonnet-4-20250514
           - name: claude-opus-4-20250514
@@ -16,9 +16,9 @@ providers:
           - name: claude-opus-4-8
           - name: claude-haiku-4-5
   openai:
-    keys:
+    api_keys:
       - name: default
-        value: "vault://providers/openai/default"
+        secret: "vault://providers/openai/default"
         models:
           - name: gpt-4o
           - name: gpt-4o-mini
@@ -29,16 +29,21 @@ providers:
           - name: gpt-5.3-codex
             mode: responses
   google:
-    keys:
+    api_keys:
       - name: default
-        value: "vault://providers/google/default"
+        secret: "vault://providers/google/default"
         models:
           - name: gemini-2.5-flash
+            behavior:
+              max_output_tokens: 65536
           - name: gemini-2.5-pro
+            behavior:
+              max_output_tokens: 65536
           - name: gemini-3.5-flash
+            behavior:
+              max_output_tokens: 65536
   ollama:
-    keys:
+    api_keys:
       - name: default
-        value: ""
         models:
           - name: gemma3:4b

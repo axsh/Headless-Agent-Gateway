@@ -26,7 +26,7 @@ import (
 )
 
 // startCodexE2EServer starts a tern server with codex agent registered.
-// It uses the standalone model_profiles.yaml and dynamically-assigned ports.
+// It uses tests/testdata/model_profiles.yaml and dynamically-assigned ports.
 // Agents are auto-registered via codingagent.CreateAll() in server.New().
 // Returns the AgentService base URL and a cleanup function.
 func startCodexE2EServer(t *testing.T) (string, func()) {
@@ -37,7 +37,7 @@ func startCodexE2EServer(t *testing.T) (string, func()) {
 		t.Skipf("codex CLI not found on PATH, skipping: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 
 	// Discover free ports for all services.
 	gwPort := freePort(t)
@@ -237,7 +237,7 @@ func TestCodexE2E_ErrorPropagation(t *testing.T) {
 		t.Skipf("codex CLI not found on PATH, skipping: %v", err)
 	}
 
-	modelProfilesSrc, _ := filepath.Abs("../features/tern/model_profiles.yaml")
+	modelProfilesSrc, _ := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
 
 	gwPort := freePort(t)
 	wsPort := freePort(t)

@@ -1,3 +1,6 @@
+# Tern server configuration (demo)
+# Full-featured configuration for development and demonstration.
+
 llm_gateway:
   port: 14000
   model_profiles_path: "model_profiles.yaml"
@@ -19,3 +22,4 @@ websocket:
   port: 18080
 agent_service:
   port: 3100
+  enable_subagent: true

@@ -57,9 +57,10 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 	}
 
 	agentCfg := &AgentConfig{
-		WorkDir:      cfg.WorkDir,
-		SessionDir:   cfg.SessionDir,
-		LogicalModel: cfg.Model,
+		WorkDir:        cfg.WorkDir,
+		SessionDir:     cfg.SessionDir,
+		LogicalModel:   cfg.Model,
+		EnableSubagent: a.adapterCfg.EnableSubagent,
 	}
 	if err := InitConfig(agentCfg); err != nil {
 		return nil, fmt.Errorf("wayfinder: init config: %w", err)
@@ -104,7 +105,9 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 		LogicalModel:        agentCfg.LogicalModel,
 		AllowedPathPatterns: agentCfg.AllowedPathPatterns,
 	}
-	subExec := subagent.NewSubagentExecutor(parentCfg, subLLM, runner, a.logger)
+	subExec := subagent.NewSubagentExecutor(parentCfg, subLLM, runner, a.logger,
+		subagent.WithParentSeqFunc(func() int { return core.NextSeq() }),
+	)
 	core.SetSubagentExecutor(subExec)
 
 	a.logger.Info("session created",
@@ -215,6 +218,7 @@ func (a *subagentLLMAdapter) GenerateMessage(
 	model string,
 	msgs []subagent.ChatMessage,
 	tools []subagent.ToolDefinition,
+	opts ...subagent.GenerateOptions,
 ) (*subagent.LLMResponse, error) {
 	// Convert subagent messages to wayfinder messages.
 	wfMsgs := make([]ChatMessage, len(msgs))
@@ -241,7 +245,20 @@ func (a *subagentLLMAdapter) GenerateMessage(
 		}
 	}
 
-	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools)
+	// Convert subagent GenerateOptions to wayfinder GenerateOptions.
+	var wfOpts []GenerateOptions
+	for _, opt := range opts {
+		wfOpt := GenerateOptions{}
+		if opt.ResponseFormat != nil {
+			wfOpt.ResponseFormat = &ResponseFormat{
+				Type:       opt.ResponseFormat.Type,
+				JSONSchema: opt.ResponseFormat.JSONSchema,
+			}
+		}
+		wfOpts = append(wfOpts, wfOpt)
+	}
+
+	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools, wfOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +288,7 @@ func (a *planningLLMAdapter) GenerateMessage(
 	model string,
 	msgs []planning.ChatMessage,
 	tools []planning.ToolDefinition,
+	opts ...planning.GenerateOptions,
 ) (*planning.LLMResponse, error) {
 	// Convert planning messages to wayfinder messages.
 	wfMsgs := make([]ChatMessage, len(msgs))
@@ -287,7 +305,20 @@ func (a *planningLLMAdapter) GenerateMessage(
 		}
 	}
 
-	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools)
+	// Convert planning GenerateOptions to wayfinder GenerateOptions.
+	var wfOpts []GenerateOptions
+	for _, opt := range opts {
+		wfOpt := GenerateOptions{}
+		if opt.ResponseFormat != nil {
+			wfOpt.ResponseFormat = &ResponseFormat{
+				Type:       opt.ResponseFormat.Type,
+				JSONSchema: opt.ResponseFormat.JSONSchema,
+			}
+		}
+		wfOpts = append(wfOpts, wfOpt)
+	}
+
+	resp, err := a.llm.GenerateMessage(ctx, model, wfMsgs, wfTools, wfOpts...)
 	if err != nil {
 		return nil, err
 	}

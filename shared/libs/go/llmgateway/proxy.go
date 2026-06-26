@@ -152,7 +152,7 @@ func (p *ProxyServer) ReloadProfiles(profiles *config.ModelProfilesConfig) {
 	count := 0
 	if profiles != nil {
 		for _, provider := range profiles.Providers {
-			for _, key := range provider.Keys {
+			for _, key := range provider.ApiKeys {
 				count += len(key.Models)
 			}
 		}
@@ -168,7 +168,7 @@ func (p *ProxyServer) ListModels() []ModelInfo {
 
 	var models []ModelInfo
 	for providerName, provider := range p.profiles.Providers {
-		for _, key := range provider.Keys {
+		for _, key := range provider.ApiKeys {
 			for _, model := range key.Models {
 				models = append(models, ModelInfo{
 					Provider: providerName,
@@ -197,7 +197,7 @@ func (p *ProxyServer) DefaultModel() *ModelInfo {
 		Model:    dp.Model,
 	}
 	if prov, ok := p.profiles.Providers[dp.Provider]; ok {
-		for _, key := range prov.Keys {
+		for _, key := range prov.ApiKeys {
 			for _, m := range key.Models {
 				if m.Name == dp.Model {
 					if m.Behavior != nil {

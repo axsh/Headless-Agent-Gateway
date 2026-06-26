@@ -150,6 +150,7 @@ func (s *Stream) events() <-chan Event {
 	go func() {
 		defer close(ch)
 		scanner := bufio.NewScanner(s.body)
+		receivedDone := false
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data: ") {
@@ -157,6 +158,7 @@ func (s *Stream) events() <-chan Event {
 			}
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
+				receivedDone = true
 				return
 			}
 			var raw struct {
@@ -176,6 +178,18 @@ func (s *Stream) events() <-chan Event {
 				ev.Error = raw.Content
 			}
 			ch <- ev
+		}
+		// Detect abnormal stream termination.
+		if err := scanner.Err(); err != nil {
+			ch <- Event{
+				Type:  EventError,
+				Error: fmt.Sprintf("stream read error: %v", err),
+			}
+		} else if !receivedDone {
+			ch <- Event{
+				Type:  EventError,
+				Error: "stream terminated unexpectedly without completion marker",
+			}
 		}
 	}()
 	return ch

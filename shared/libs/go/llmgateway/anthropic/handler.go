@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
@@ -164,10 +165,18 @@ func handleMessagesViaBifrost(
 		return
 	}
 
+	// Override max_tokens from model profile if configured.
+	if routed.MaxOutputTokens > 0 {
+		origMaxTokens := fullReq.MaxTokens
+		fullReq.MaxTokens = routed.MaxOutputTokens
+		log.Debug("max_tokens overridden from model profile",
+			"original", origMaxTokens, "overridden", routed.MaxOutputTokens)
+	}
+
 	providerKey := ctx.ToBifrostProvider(routed.Provider)
 
 	reqMessagesJSON, _ := json.Marshal(fullReq.Messages)
-	log.Debug("raw anthropic request messages", "json", string(reqMessagesJSON))
+	log.Trace("raw anthropic request messages", "json", string(reqMessagesJSON))
 
 	// Convert Anthropic -> Bifrost
 	bifrostReq, err := ConvertToBifrost(&fullReq, providerKey)
@@ -187,7 +196,7 @@ func handleMessagesViaBifrost(
 	bifrostReq.Model = routed.Model
 
 	bReqJSON, _ := json.Marshal(bifrostReq)
-	log.Debug("converted bifrost request", "json", string(bReqJSON))
+	log.Trace("converted bifrost request", "json", string(bReqJSON))
 
 	// Sanitize tools for cross-provider requests
 	ctx.SanitizeTools(bifrostReq, providerKey)
@@ -284,6 +293,7 @@ func handleMessagesBifrostStream(
 	model string,
 ) {
 	log := ctx.Logger()
+	streamStartTime := time.Now()
 	log.Debug("executing bifrost stream anthropic request", "model", req.Model)
 
 	ch, bifrostErr := ctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
@@ -459,7 +469,11 @@ func handleMessagesBifrostStream(
 		"type": "message_stop",
 	})
 
-	log.Debug("bifrost anthropic stream completed", "model", model, "chunks", chunkCount)
+	streamElapsed := time.Since(streamStartTime)
+	log.Info("bifrost anthropic stream completed",
+		"model", model, "chunks", chunkCount,
+		"duration_ms", streamElapsed.Milliseconds(),
+		"output_tokens", totalOutputTokens)
 }
 
 // emitSSEJSON writes an SSE event with a JSON data payload.

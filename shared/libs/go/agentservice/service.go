@@ -396,7 +396,7 @@ func (s *Server) ResolveModel(input string) (string, bool) {
 		return "", false
 	}
 	for _, prov := range s.profiles.Providers {
-		for _, key := range prov.Keys {
+		for _, key := range prov.ApiKeys {
 			for _, model := range key.Models {
 				// Match by logical_name first.
 				if model.LogicalName != "" && model.LogicalName == input {
