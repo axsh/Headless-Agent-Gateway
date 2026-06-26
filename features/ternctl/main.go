@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/axsh/arctic-tern/client"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 var (
@@ -201,6 +201,7 @@ func cmdRun(c *client.Client, args []string) {
 	}
 
 	if streamErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", streamErr)
 		os.Exit(1)
 	}
 }

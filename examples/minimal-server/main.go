@@ -26,7 +26,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/server"
 )
 
 func main() {
@@ -36,11 +36,11 @@ func main() {
 		configPath = os.Args[2]
 	}
 
-	// Initialize the tern server with the given config.
-	// tern.New automatically registers all built-in coding agents
+	// Initialize the server with the given config.
+	// server.New automatically registers all built-in coding agents
 	// (Claude Code, Codex, Wayfinder, etc.) and LLM providers
 	// (OpenAI, Anthropic, Google, Ollama) via init() imports.
-	srv, err := tern.New(tern.WithConfigPath(configPath))
+	srv, err := server.New(server.WithConfigPath(configPath))
 	if err != nil {
 		log.Fatalf("failed to initialize: %v", err)
 	}

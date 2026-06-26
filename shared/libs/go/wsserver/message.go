@@ -3,7 +3,7 @@ package wsserver
 import (
 	"encoding/json"
 
-	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 )
 
 // Message is the WebSocket message envelope.

@@ -1,6 +1,6 @@
 package codingagent
 
-import "github.com/axsh/arctic-tern/logger"
+import "github.com/axsh/arctic-tern/shared/libs/go/logger"
 
 // AdapterConfig is the common configuration for all coding agent adapters.
 type AdapterConfig struct {
@@ -46,7 +46,7 @@ type AdapterConfig struct {
 	ModelMode string
 
 	// GatewayToken is the internal authentication token for LLMGP.
-	// Injected by tern.Server on startup.
+	// Injected by server.Server on startup.
 	GatewayToken string
 
 	// EnableSubagent enables subagent delegation for WBS node execution.

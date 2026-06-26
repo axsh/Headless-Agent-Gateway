@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 // mockAgent implements CodingAgent for compile-time check.
@@ -13,8 +13,8 @@ type mockAgent struct{}
 func (m *mockAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
 	return nil, nil
 }
-func (m *mockAgent) Name() string                { return "mock" }
-func (m *mockAgent) Close() error                { return nil }
+func (m *mockAgent) Name() string { return "mock" }
+func (m *mockAgent) Close() error { return nil }
 
 // mockSession implements Session for compile-time check.
 type mockSession struct{}
@@ -22,7 +22,7 @@ type mockSession struct{}
 func (m *mockSession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
 	return nil, nil
 }
-func (m *mockSession) ID() string  { return "mock-id" }
+func (m *mockSession) ID() string   { return "mock-id" }
 func (m *mockSession) Close() error { return nil }
 
 // Compile-time interface compliance checks.

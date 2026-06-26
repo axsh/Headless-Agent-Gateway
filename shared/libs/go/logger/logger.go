@@ -2,7 +2,7 @@ package logger
 
 // Logger defines the logging interface for tern components.
 // In-Process users can inject their own implementation (slog, zap, syslog, etc.)
-// via tern.WithLogger(). If not provided, DefaultLogger is used.
+// via server.WithLogger(). If not provided, DefaultLogger is used.
 type Logger interface {
 	// Trace logs trace-level data dumps (JSON bodies, headers, full payloads).
 	Trace(msg string, fields ...any)

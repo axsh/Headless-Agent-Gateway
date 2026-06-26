@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // CodexAdapter is a CodingAgent implementation using the Codex CLI.
@@ -91,7 +91,6 @@ func (a *CodexAdapter) Close() error {
 func (a *CodexAdapter) SetGatewayToken(token string) {
 	a.config.GatewayToken = token
 }
-
 
 // codexSession is a Codex Session implementation.
 type codexSession struct {

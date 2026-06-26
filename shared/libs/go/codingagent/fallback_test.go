@@ -3,7 +3,7 @@ package codingagent_test
 import (
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 func TestParseFallbackToolCalls_SingleObject(t *testing.T) {
@@ -56,9 +56,9 @@ func TestParseFallbackToolCalls_MarkdownFence(t *testing.T) {
 
 func TestParseFallbackToolCalls_AllToolTypes(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantName  string
+		name     string
+		input    string
+		wantName string
 	}{
 		{
 			name:     "Write",

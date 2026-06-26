@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/axsh/arctic-tern/wayfinder/session"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
 // TrackedFile records metadata about a file created by the agent.
@@ -137,4 +137,3 @@ func (ft *FileTracker) TrackedProcessesSnapshot() []session.TrackedProcess {
 	}
 	return result
 }
-

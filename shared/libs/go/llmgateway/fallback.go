@@ -37,8 +37,6 @@ func ExtractToolCallFromText(text string) (*ExtractedToolCall, bool) {
 	return nil, false
 }
 
-
-
 // TryFallbackAnthropicResponse intercepts and rewrites an Anthropic JSON response to extract text tool calls.
 func TryFallbackAnthropicResponse(body []byte) ([]byte, bool) {
 	var resp struct {

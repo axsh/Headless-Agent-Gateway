@@ -1,11 +1,11 @@
-package tern
+package server
 
 import (
-	"github.com/axsh/arctic-tern/agentservice"
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // Option configures a Server.

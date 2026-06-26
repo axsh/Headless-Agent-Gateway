@@ -21,11 +21,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/tern"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/tasklog"
-	"github.com/axsh/arctic-tern/wsserver"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/server"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/wsserver"
 )
 
 // ANSI color codes.
@@ -160,12 +160,12 @@ func runSimulator(port int) {
 		WebSocket: config.WebSocketConfig{Port: port},
 	}
 	stub := llmgateway.NewStubGateway()
-	srv, err := tern.New(
-		tern.WithConfig(cfg),
-		tern.WithGateway(stub),
+	srv, err := server.New(
+		server.WithConfig(cfg),
+		server.WithGateway(stub),
 	)
 	if err != nil {
-		log.Fatalf("tern.New: %v", err)
+		log.Fatalf("server.New: %v", err)
 	}
 
 	ctx := context.Background()

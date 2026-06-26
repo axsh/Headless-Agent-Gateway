@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/arctic-tern/wayfinder/session"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
 func TestAgentCore_SimpleResponse(t *testing.T) {
@@ -257,7 +257,6 @@ func TestAgentCore_SessionPersistence_ResumeSession(t *testing.T) {
 		t.Errorf("expected at least 3 messages (restored + new), got %d", len(sentMessages))
 	}
 }
-
 // ---- Summarizer Tests ----
 
 func TestDefaultSummarizer_CallsLLM(t *testing.T) {
@@ -462,5 +461,3 @@ func TestAgentCore_EmptyResponse_MaxRetry_Fails(t *testing.T) {
 		t.Errorf("CallCount = %d, want 2 (1 original + 1 retry)", mock.CallCount)
 	}
 }
-
-

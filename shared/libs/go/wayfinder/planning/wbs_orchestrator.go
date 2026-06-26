@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // ErrSuspended is returned when a WBS node execution requires user feedback.

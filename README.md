@@ -67,11 +67,11 @@ The `examples/` directory contains working samples that demonstrate Tern's core 
 
 ### Server ([examples/minimal-server](examples/minimal-server/main.go))
 
-All built-in coding agents and LLM providers are auto-registered by the `tern` package.
+All built-in coding agents and LLM providers are auto-registered by the `server` package.
 Starting a server requires only a config path:
 
 ```go
-srv, err := tern.New(tern.WithConfigPath("config.yaml"))
+srv, err := server.New(server.WithConfigPath("config.yaml"))
 srv.Launch(ctx)
 defer srv.Shutdown(ctx)
 ```
@@ -202,13 +202,14 @@ Additional architectural details will be documented separately.
 * [x] Google LLM backend
 * [x] Ollama LLM backend
 * [x] Wayfinder adapter (Embedded Original Coding Agent - Beta)
+* [x] Tern SDK v1
 
 ### Phase 2
 
 * [ ] Agent interaction protocol
 * [ ] MCP support
 * [ ] Tern CLI
-* [ ] Tern SDK
+* [ ] Tern SDK v2
 * [ ] Session portability
 * [ ] Context export/import
 * [ ] Agent switching
@@ -442,13 +443,13 @@ stream.Output(os.Stdout)
 
 ```
 tern/
+  client/             # Go client library (Root package)
+  server/             # Server framework (Root package)
   features/           # Deployable applications
     tern/             # Main server (CAWA + LLMGP)
     ternctl/          # CLI client
     vault-cli/        # Key Vault management CLI
   shared/libs/go/     # Shared Go libraries
-    client/           # Go client library
-    tern/             # Server framework
     codingagent/      # Coding Agent adapters
     llmgateway/       # LLM Gateway providers
     config/           # Configuration loading

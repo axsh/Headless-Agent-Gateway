@@ -1,4 +1,4 @@
-package tern
+package server
 
 import (
 	"context"
@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/arctic-tern/agentservice"
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/tasklog"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 func TestNew_DefaultConfig(t *testing.T) {
@@ -232,7 +232,7 @@ func (f *failingGateway) Launch(_ context.Context) error {
 	return f.err
 }
 
-// TC-P2-07: tern.Server end-to-end lifecycle with real ProxyServer.
+// TC-P2-07: server.Server end-to-end lifecycle with real ProxyServer.
 func TestServer_EndToEnd_WithProxyServer(t *testing.T) {
 	// Use port=0 for ephemeral port. No WithGateway -> auto-creates ProxyServer.
 	cfg := &config.AppConfig{
@@ -505,4 +505,3 @@ func TestResolveAgentService_ExternalBypass(t *testing.T) {
 		t.Error("expected externally provided AgentService to be returned directly")
 	}
 }
-

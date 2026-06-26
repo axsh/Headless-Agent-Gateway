@@ -10,12 +10,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/axsh/arctic-tern/tern"
+	"github.com/axsh/arctic-tern/server"
 )
 
 // runServer is the main entry point for the tern command.
 func runServer(cmd *cobra.Command, args []string) error {
-	srv, err := tern.New(tern.WithConfigPath(cfgFile))
+	srv, err := server.New(server.WithConfigPath(cfgFile))
 	if err != nil {
 		return fmt.Errorf("failed to initialize tern server: %w", err)
 	}

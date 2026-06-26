@@ -3,7 +3,7 @@ package codingagent_test
 import (
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 func TestVfsToContainerPath(t *testing.T) {

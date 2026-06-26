@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 )
 
 func TestBifrostDriver_New(t *testing.T) {
@@ -190,4 +190,3 @@ func TestBifrostDriver_BifrostSDK_ReloadProfiles(t *testing.T) {
 	// Clean up
 	driver.bifrostSDK.Shutdown()
 }
-

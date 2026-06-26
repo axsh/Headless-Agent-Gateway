@@ -1,6 +1,6 @@
 package config
 
-import "github.com/axsh/arctic-tern/logger"
+import "github.com/axsh/arctic-tern/shared/libs/go/logger"
 
 // AppConfig is the root configuration for tern.
 type AppConfig struct {

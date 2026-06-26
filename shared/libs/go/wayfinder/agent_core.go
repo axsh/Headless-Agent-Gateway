@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/wayfinder/planning"
-	"github.com/axsh/arctic-tern/wayfinder/session"
-	"github.com/axsh/arctic-tern/wayfinder/subagent"
-	"github.com/axsh/arctic-tern/wayfinder/tools"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/planning"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/subagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/tools"
 )
 
 const (
@@ -29,22 +29,22 @@ type SubagentRunner interface {
 
 // AgentCore drives the main LLM tool-calling loop.
 type AgentCore struct {
-	llm            LLMClient
-	config         *AgentConfig
-	registry       *tools.Registry
-	tracker        *FileTracker
-	logger         logger.Logger
-	messages       []ChatMessage
-	store          *session.Store
-	sessionID      string
-	compactionCfg  *session.CompactionConfig
-	nextSeq        int                // Global sequence counter for messages.
-	subagent       SubagentRunner     // nil if subagent is disabled
-	router         *ExecutionRouter   // nil if routing is disabled
-	planner        *planning.WBSPlanner // nil if planning is disabled
-	runner         subagent.AgentRunner // Runner for creating child sessions (WBS)
-	subagentLLM    subagent.LLMClient   // LLM client for subagent summarization
-	emitter        *EventEmitter        // Streaming event emitter (nil = no-op)
+	llm           LLMClient
+	config        *AgentConfig
+	registry      *tools.Registry
+	tracker       *FileTracker
+	logger        logger.Logger
+	messages      []ChatMessage
+	store         *session.Store
+	sessionID     string
+	compactionCfg *session.CompactionConfig
+	nextSeq       int                  // Global sequence counter for messages.
+	subagent      SubagentRunner       // nil if subagent is disabled
+	router        *ExecutionRouter     // nil if routing is disabled
+	planner       *planning.WBSPlanner // nil if planning is disabled
+	runner        subagent.AgentRunner // Runner for creating child sessions (WBS)
+	subagentLLM   subagent.LLMClient   // LLM client for subagent summarization
+	emitter       *EventEmitter        // Streaming event emitter (nil = no-op)
 }
 
 // NewAgentCore creates a new AgentCore.
@@ -246,9 +246,9 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 		// Process each tool call.
 		for _, tc := range resp.ToolCalls {
 			ac.emitter.Emit(codingagent.StreamEvent{
-				Type:     codingagent.EventToolUse,
-				Content:  tc.Name,
-				ToolName: tc.Name,
+				Type:      codingagent.EventToolUse,
+				Content:   tc.Name,
+				ToolName:  tc.Name,
 				ToolInput: tc.Input,
 			})
 			result, toolErr := ac.executeTool(ctx, tc)
@@ -815,13 +815,13 @@ func (p *agentWBSPersister) PersistWBS(tree *planning.WBSTree) {
 		return
 	}
 	state := &session.SessionState{
-		SessionID:      p.core.sessionID,
-		Status:         session.StatusActive,
-		Messages:       convertToSessionMessages(p.core.messages),
-		CreatedFiles:   p.core.tracker.TrackedFilesSnapshot(),
+		SessionID:        p.core.sessionID,
+		Status:           session.StatusActive,
+		Messages:         convertToSessionMessages(p.core.messages),
+		CreatedFiles:     p.core.tracker.TrackedFilesSnapshot(),
 		RunningProcesses: p.core.tracker.TrackedProcessesSnapshot(),
-		WBSTreeJSON:    json.RawMessage(wbsJSON),
-		LastActivityAt: time.Now(),
+		WBSTreeJSON:      json.RawMessage(wbsJSON),
+		LastActivityAt:   time.Now(),
 	}
 	if err := p.core.store.Save(state); err != nil {
 		p.core.logger.Warn("failed to persist WBS state", "error", err.Error())
@@ -840,4 +840,3 @@ func (n *noopLogger) WithFields(fields map[string]any) logger.Logger {
 	return n
 }
 func (n *noopLogger) WithComponent(name string) logger.Logger { return n }
-

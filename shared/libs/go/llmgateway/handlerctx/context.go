@@ -10,9 +10,9 @@ import (
 	bifrost "github.com/maximhq/bifrost/core"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // HandlerContext provides handler-level access to ProxyServer internals.
@@ -55,7 +55,7 @@ type RoutedModel struct {
 	KeyName          string `json:"key_name,omitempty"`  // e.g. "primary"
 	KeyValue         string `json:"-"`                   // actual API key value from profile
 	Model            string `json:"model"`               // e.g. "claude-sonnet-4-20250514"
-	Mode             string `json:"mode,omitempty"`       // "chat", "responses", or "" (treated as "chat")
+	Mode             string `json:"mode,omitempty"`      // "chat", "responses", or "" (treated as "chat")
 	ToolCallFallback bool   `json:"tool_call_fallback"`  // enable text-to-tool-call conversion
 	MaxOutputTokens  int    `json:"max_output_tokens,omitempty"` // override default max_tokens
 }

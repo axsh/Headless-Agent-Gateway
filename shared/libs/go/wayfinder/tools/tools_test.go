@@ -27,10 +27,10 @@ func newTestTracker() *testTracker {
 	return &testTracker{files: make(map[string]bool), processes: make(map[int]string)}
 }
 
-func (t *testTracker) TrackFile(path string)                   { t.files[path] = true }
-func (t *testTracker) IsTracked(path string) bool              { return t.files[path] }
-func (t *testTracker) TrackProcess(pid int, cmdLine string)    { t.processes[pid] = cmdLine }
-func (t *testTracker) UntrackProcess(pid int)                  { delete(t.processes, pid) }
+func (t *testTracker) TrackFile(path string)                { t.files[path] = true }
+func (t *testTracker) IsTracked(path string) bool           { return t.files[path] }
+func (t *testTracker) TrackProcess(pid int, cmdLine string) { t.processes[pid] = cmdLine }
+func (t *testTracker) UntrackProcess(pid int)               { delete(t.processes, pid) }
 
 func testContext(workDir string) *ToolContext {
 	return &ToolContext{

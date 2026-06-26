@@ -3,8 +3,8 @@ package agentservice_test
 import (
 	"testing"
 
-	"github.com/axsh/arctic-tern/agentservice"
-	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 func TestMemorySessionStore_Create(t *testing.T) {
@@ -135,4 +135,3 @@ func TestMemorySessionStore_StatusTransition(t *testing.T) {
 		})
 	}
 }
-

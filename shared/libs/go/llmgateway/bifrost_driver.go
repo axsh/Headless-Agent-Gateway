@@ -7,9 +7,9 @@ import (
 	bifrost "github.com/maximhq/bifrost/core"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // BifrostDriver implements LLMGatewayBackend using Bifrost SDK.
@@ -19,9 +19,9 @@ type BifrostDriver struct {
 	profiles   *config.ModelProfilesConfig
 	vault      vault.VaultStore
 	logger     logger.Logger
-	proxy      *ProxyServer    // HTTP frontend
-	router     *ModelRouter    // model routing
-	account    *BifrostAccount // Bifrost SDK account adapter
+	proxy      *ProxyServer     // HTTP frontend
+	router     *ModelRouter     // model routing
+	account    *BifrostAccount  // Bifrost SDK account adapter
 	bifrostSDK *bifrost.Bifrost // Bifrost SDK instance for provider-specific request conversion
 }
 

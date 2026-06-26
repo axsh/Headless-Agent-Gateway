@@ -3,7 +3,7 @@ package llmgateway
 import (
 	"net/http"
 
-	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
 )
 
 // GatewayError is an alias for handlerctx.GatewayError for backward compatibility.

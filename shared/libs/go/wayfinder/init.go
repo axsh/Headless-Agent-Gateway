@@ -1,6 +1,6 @@
 package wayfinder
 
-import "github.com/axsh/arctic-tern/codingagent"
+import "github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 
 func init() {
 	codingagent.Register(AgentName, func(cfg *codingagent.AdapterConfig) (codingagent.CodingAgent, error) {

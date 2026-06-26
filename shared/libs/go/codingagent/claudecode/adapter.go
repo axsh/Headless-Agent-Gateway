@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // ClaudeCodeAdapter is a CodingAgent implementation using the Claude Code CLI.
@@ -74,7 +74,6 @@ func (a *ClaudeCodeAdapter) Close() error {
 func (a *ClaudeCodeAdapter) SetGatewayToken(token string) {
 	a.config.GatewayToken = token
 }
-
 
 // claudeSession is a Claude Code Session implementation.
 type claudeSession struct {

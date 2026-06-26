@@ -3,7 +3,7 @@ package llmgateway
 import (
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // SanitizeToolsForProvider filters and adjusts tools in a Bifrost request

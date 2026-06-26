@@ -7,7 +7,7 @@ import (
 
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
-	"github.com/axsh/arctic-tern/llmgateway/handlerctx"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
 )
 
 // registerTestProviders registers all standard providers for testing.

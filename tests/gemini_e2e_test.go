@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/codingagent/claudecode"
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/tern"
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/claudecode"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/server"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 // getFreePort listens on an ephemeral port and returns it.
@@ -66,11 +66,11 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 		},
 	}
 
-	srv, err := tern.New(
-		tern.WithConfig(cfg),
+	srv, err := server.New(
+		server.WithConfig(cfg),
 	)
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {
@@ -147,11 +147,11 @@ func TestGeminiE2E_Stream(t *testing.T) {
 		},
 	}
 
-	srv, err := tern.New(
-		tern.WithConfig(cfg),
+	srv, err := server.New(
+		server.WithConfig(cfg),
 	)
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {
@@ -229,11 +229,11 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 	}
 
 	// Launch tern
-	srv, err := tern.New(
-		tern.WithConfig(cfg),
+	srv, err := server.New(
+		server.WithConfig(cfg),
 	)
 	if err != nil {
-		t.Fatalf("tern.New: %v", err)
+		t.Fatalf("server.New: %v", err)
 	}
 
 	if err := srv.Launch(t.Context()); err != nil {

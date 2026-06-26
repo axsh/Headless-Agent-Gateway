@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/axsh/arctic-tern/vault"
+	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
 
 const (

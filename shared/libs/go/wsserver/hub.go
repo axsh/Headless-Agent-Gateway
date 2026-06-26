@@ -3,8 +3,8 @@ package wsserver
 import (
 	"encoding/json"
 
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 )
 
 // Hub manages connected WebSocket clients and message broadcasting.

@@ -46,7 +46,7 @@ func TestRegisterProvider_DuplicatePanics(t *testing.T) {
 
 func TestAllProviders_HaveRequiredFields(t *testing.T) {
 	expected := map[string]struct {
-		baseURL        string
+		baseURL         string
 		bifrostProvider bifrostSchemas.ModelProvider
 	}{
 		"anthropic": {"https://api.anthropic.com", bifrostSchemas.Anthropic},
@@ -74,8 +74,8 @@ type dummyProvider struct {
 	name string
 }
 
-func (d *dummyProvider) Name() string    { return d.name }
-func (d *dummyProvider) BaseURL() string { return "http://example.com" }
+func (d *dummyProvider) Name() string                                            { return d.name }
+func (d *dummyProvider) BaseURL() string                                         { return "http://example.com" }
 func (d *dummyProvider) SetAuthHeaders(_ *http.Request, _ string, _ http.Header) {}
 func (d *dummyProvider) BifrostProvider() bifrostSchemas.ModelProvider {
 	return bifrostSchemas.Anthropic

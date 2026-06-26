@@ -3,8 +3,8 @@ package claudecode
 import (
 	"encoding/json"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 // rawEvent is the raw structure of Claude CLI JSON Lines output.

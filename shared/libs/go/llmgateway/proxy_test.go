@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/arctic-tern/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 )
 
 // Compile-time check: ProxyServer implements LLMGatewayBackend.
@@ -723,4 +723,3 @@ func TestHealthResponse_TLSInfo(t *testing.T) {
 		t.Error("expected cert_expires_at in tls info")
 	}
 }
-

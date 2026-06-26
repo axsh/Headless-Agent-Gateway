@@ -15,7 +15,7 @@ type ResponseFormat struct {
 
 // ChatMessage represents a single message in the conversation.
 type ChatMessage struct {
-	Role       string     `json:"role"`                  // "system", "user", "assistant", "tool"
+	Role       string     `json:"role"` // "system", "user", "assistant", "tool"
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`

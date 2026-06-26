@@ -13,11 +13,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/llmgateway"
-	"github.com/axsh/arctic-tern/logger"
-	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 )
 
 // AgentService is the interface for the Coding Agent API service.
@@ -33,9 +33,9 @@ type Server struct {
 	taskLog        *tasklog.TaskLog
 	gatewayURL     string
 	gatewayToken   string
-	cliVersions    map[string]string        // cached at init
-	gatewayModels  []llmgateway.ModelInfo   // cached model list from LLMGP
-	gatewayDefault *llmgateway.ModelInfo    // cached default model from LLMGP
+	cliVersions    map[string]string           // cached at init
+	gatewayModels  []llmgateway.ModelInfo      // cached model list from LLMGP
+	gatewayDefault *llmgateway.ModelInfo       // cached default model from LLMGP
 	profiles       *config.ModelProfilesConfig // for logical name resolution
 	httpServer     *http.Server
 	ln             net.Listener
@@ -68,7 +68,6 @@ func WithGatewayURL(url string) ServerOption {
 func WithGatewayToken(token string) ServerOption {
 	return func(s *Server) { s.gatewayToken = token }
 }
-
 
 // New creates a new AgentService Server.
 func New(opts ...ServerOption) *Server {
@@ -116,7 +115,6 @@ func (s *Server) RegisterAgent(agent codingagent.CodingAgent) {
 		s.logger.Debug("agent registered", "agent_name", agent.Name())
 	}
 }
-
 
 // Launch starts the AgentService HTTP server on the given port.
 // port=0 uses OS-assigned ephemeral port. Non-blocking.

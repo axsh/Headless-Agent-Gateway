@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/arctic-tern/agentservice"
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 )
 
 func TestLogStreamSSE_SessionNotFound(t *testing.T) {

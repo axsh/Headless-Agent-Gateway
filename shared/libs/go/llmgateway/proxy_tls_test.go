@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/axsh/arctic-tern/config"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 func TestGenerateSelfSignedCert(t *testing.T) {

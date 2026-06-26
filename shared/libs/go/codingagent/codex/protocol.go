@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/axsh/arctic-tern/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 // ExecEvent represents a JSONL event from "codex exec --json" output.
@@ -261,11 +261,11 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 		return nil
 	}
 	var header struct {
-		Type             string  `json:"type"`
-		Command          string  `json:"command,omitempty"`
-		AggregatedOutput string  `json:"aggregated_output,omitempty"`
-		ExitCode         *int    `json:"exit_code,omitempty"`
-		Text             string  `json:"text,omitempty"`
+		Type             string `json:"type"`
+		Command          string `json:"command,omitempty"`
+		AggregatedOutput string `json:"aggregated_output,omitempty"`
+		ExitCode         *int   `json:"exit_code,omitempty"`
+		Text             string `json:"text,omitempty"`
 	}
 	if err := json.Unmarshal(item, &header); err != nil {
 		return nil

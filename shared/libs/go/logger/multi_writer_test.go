@@ -100,7 +100,7 @@ func TestMultiWriter_Empty(t *testing.T) {
 	if n != 0 {
 		t.Errorf("expected 0 bytes written, got %d", n)
 	}
-	
+
 	err = mw.Close()
 	if err != nil {
 		t.Fatalf("unexpected error closing empty multiwriter: %v", err)

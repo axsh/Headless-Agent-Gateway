@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/axsh/arctic-tern/codingagent"
-	"github.com/axsh/arctic-tern/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 const gracefulShutdownTimeout = 5 * time.Second
@@ -246,4 +246,3 @@ func (pm *ProcessManager) Stop() error {
 		return <-done
 	}
 }
-
