@@ -84,7 +84,7 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 
 	// Session data storage directory override.
 	if cfg.SessionDir != "" {
-		env["CLAUDE_CONFIG_DIR"] = cfg.SessionDir
+		env["CLAUDE_CONFIG_DIR"] = codingagent.ConvertToLinuxPath(cfg.SessionDir)
 	}
 
 	if runtime.GOOS == "windows" {
@@ -136,9 +136,28 @@ func StartProcess(
 	}
 	log.Trace("CLI environment variables", "env", maskedEnv)
 
-	cmd := exec.CommandContext(procCtx, "claude", args...)
-	cmd.Dir = cfg.WorkDir
-	cmd.Env = append(cmd.Environ(), env...)
+	distro, linuxWorkDir, isWSL := codingagent.ParseWSLPath(cfg.WorkDir)
+	var cmd *exec.Cmd
+	if isWSL {
+		if err := codingagent.VerifyWSLRuntime(procCtx, distro, "claude"); err != nil {
+			cancel()
+			return nil, nil, err
+		}
+
+		builder := &codingagent.WSLCommandBuilder{
+			Distro:         distro,
+			WorkDir:        linuxWorkDir,
+			Command:        "claude",
+			Args:           args,
+			Env:            env,
+			DisableSandbox: ac.DisableSandbox,
+		}
+		cmd = builder.BuildCmd(procCtx)
+	} else {
+		cmd = exec.CommandContext(procCtx, "claude", args...)
+		cmd.Dir = cfg.WorkDir
+		cmd.Env = append(cmd.Environ(), env...)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

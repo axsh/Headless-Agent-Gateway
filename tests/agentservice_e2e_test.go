@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -797,3 +798,76 @@ func TestE2E_ClaudeCode_TernctlRealCommand(t *testing.T) {
 		t.Error("expected session status 'completed' in output")
 	}
 }
+
+func TestE2E_WSLDelegation_FailReproduction(t *testing.T) {
+	// This test reproduces the chdir failure on Windows when WorkDir is a WSL2 path.
+	// Before the fix, the Windows Go process tries to directly run 'claude' cli in the WSL path,
+	// which causes chdir (CWD transition) error or fallback during message sending.
+	
+	if runtime.GOOS != "windows" {
+		// WSL delegation is Windows specific, so we return immediately to succeed on other OS.
+		return
+	}
+
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	workDir := `\\wsl.localhost\Ubuntu\tmp\vv5-stage-reproduce\merged`
+	sessionDir := `\\wsl.localhost\Ubuntu\tmp\vv5-stage-reproduce\sessions`
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"model":       e2eDefaultModel,
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
+	})
+	
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to post session: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("Expected 201 Created on session creation, got %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	sessionID := result["session_id"]
+	if sessionID == "" {
+		t.Fatal("empty session_id")
+	}
+
+	// Now send a message to trigger process startup (where CWD is applied).
+	msgBody, _ := json.Marshal(map[string]string{"message": "say hello"})
+	msgResp, err := http.Post(baseURL+"/api/v1/sessions/"+sessionID+"/messages", "application/json", bytes.NewReader(msgBody))
+	if err != nil {
+		t.Fatalf("failed to send message: %v", err)
+	}
+	defer msgResp.Body.Close()
+
+	t.Logf("Message Response Status: %d", msgResp.StatusCode)
+
+	// After the fix, it should not fail with the Windows host CWD chdir error.
+	// If wsl.exe is not available or claude is not installed in WSL2,
+	// it should return the WSL runtime warning instead of the Windows chdir error.
+	bodyBytes, _ := io.ReadAll(msgResp.Body)
+	errVal := string(bodyBytes)
+	t.Logf("Response Body: %s", errVal)
+
+	if strings.Contains(errVal, "chdir") && strings.Contains(errVal, "system cannot find the path specified") {
+		t.Errorf("Detected unmitigated Windows chdir error: %s", errVal)
+	}
+
+	// It's acceptable to have 500 if claude is missing in WSL, but it must be the WSL warning
+	if msgResp.StatusCode == http.StatusInternalServerError {
+		if !strings.Contains(errVal, `agent runtime "claude" not found in WSL2`) {
+			t.Errorf("Expected WSL runtime warning on 500 error, got: %s", errVal)
+		}
+	} else if msgResp.StatusCode != http.StatusOK && msgResp.StatusCode != http.StatusCreated {
+		t.Errorf("Unexpected status code: %d, body: %s", msgResp.StatusCode, errVal)
+	}
+}
+
+
