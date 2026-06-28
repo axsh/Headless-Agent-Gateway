@@ -239,6 +239,8 @@ func (s *Server) HTTPHandler() http.Handler {
 	mux.HandleFunc("/api/v1/models", s.routeModels)
 	mux.HandleFunc("/api/v1/sessions", s.routeSessions)
 	mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
+	// v2 routes: multimodal content support
+	mux.HandleFunc("/api/v2/sessions/", s.routeSessionByIDV2)
 	return mux
 }
 
