@@ -78,7 +78,7 @@ defer srv.Shutdown(ctx)
 
 ### Client ([examples/minimal-client](examples/minimal-client/main.go))
 
-Create a session, send a message, and stream the response:
+Create a session, send a text message, and stream the response:
 
 ```go
 c := client.New("http://localhost:3100")
@@ -93,6 +93,38 @@ defer session.Terminate(ctx)
 stream, _ := session.SendMessage(ctx, "Create hello.txt with 'Hello, World!'")
 stream.Output(os.Stdout)
 ```
+
+### Multimodal (v2 API)
+
+The v2 API accepts structured content blocks, enabling image inputs alongside text:
+
+```bash
+# Send an image with a text prompt via v2 API
+curl -X POST http://localhost:3100/api/v2/sessions/${SESSION_ID}/messages \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "content": [
+      {"type": "text", "text": "Describe what you see in this screenshot:"},
+      {"type": "image", "source": {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": "'$(base64 -w0 screenshot.png)'"
+      }}
+    ]
+  }'
+```
+
+Text-only requests also work with the v2 content block format:
+
+```bash
+curl -X POST http://localhost:3100/api/v2/sessions/${SESSION_ID}/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"content": [{"type": "text", "text": "List files in the current directory"}]}'
+```
+
+Agents that do not support multimodal (e.g., Wayfinder) will accept text-only v2 requests but return `501 Not Implemented` for requests containing image content.
+
+> **Note**: The v1 API (`POST /api/v1/sessions/:id/messages` with `{"message": "..."}`) remains fully supported for backward compatibility.
 
 ### Agent and Model Interoperability
 
@@ -172,7 +204,7 @@ Tern consists of three major components.
 
 Coding Agent Web API.
 
-CAWA defines a common interface for Coding Agents.
+CAWA defines a common interface for Coding Agents. The v2 API introduces structured content blocks for multimodal inputs (text + images), while the v1 API continues to serve text-only workflows.
 
 ### LLMGP
 
@@ -203,6 +235,8 @@ Additional architectural details will be documented separately.
 * [x] Ollama LLM backend
 * [x] Wayfinder adapter (Embedded Original Coding Agent - Beta)
 * [x] Tern SDK v1
+* [x] CAWA API v2 (multimodal content blocks)
+* [x] Multimodal support (image input via v2 API)
 
 ### Phase 2
 
@@ -214,7 +248,7 @@ Additional architectural details will be documented separately.
 * [ ] Context export/import
 * [ ] Agent switching
 * [ ] Model switching
-* [ ] Multimodal LLM support (Vision & Voice)
+* [ ] Multimodal Voice support
 
 ### Phase 3
 
@@ -431,7 +465,20 @@ session, _ := c.CreateSession(ctx, client.SessionRequest{
     Agent:   "claudecode",
     WorkDir: ".",
 })
+
+// v1: text-only message
 stream, _ := session.SendMessage(ctx, "Create hello.txt")
+stream.Output(os.Stdout)
+
+// v2: multimodal message with image
+stream, _ = session.SendMessageV2(ctx, []client.ContentPart{
+    {Type: "text", Text: "What is in this screenshot?"},
+    {Type: "image", Source: &client.ImageSource{
+        Type:      "base64",
+        MediaType: "image/png",
+        Data:      base64EncodedPNG,
+    }},
+})
 stream.Output(os.Stdout)
 ```
 
