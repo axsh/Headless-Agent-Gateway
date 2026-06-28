@@ -32,7 +32,7 @@ type Message struct {
 }
 
 // ContentBlock represents a content block in Anthropic format.
-// It supports text, tool_use, and tool_result block types.
+// It supports text, tool_use, tool_result, and image block types.
 type ContentBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text,omitempty"`
@@ -41,6 +41,14 @@ type ContentBlock struct {
 	Input     json.RawMessage `json:"input,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
+	Source    *ImageSource    `json:"source,omitempty"` // populated when type="image"
+}
+
+// ImageSource represents the source of an image content block.
+type ImageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // e.g., "image/png", "image/jpeg"
+	Data      string `json:"data"`       // Base64-encoded image data
 }
 
 // Response represents the Anthropic Messages API response.

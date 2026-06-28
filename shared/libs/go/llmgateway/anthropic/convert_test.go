@@ -304,6 +304,136 @@ func TestConvertFromBifrost_StopReason(t *testing.T) {
 	}
 }
 
+// --- Image Block Conversion Tests ---
+
+func TestConvertToBifrost_ImageBlock(t *testing.T) {
+	imgData := "iVBORw0KGgo="
+	imgContent, _ := json.Marshal([]ContentBlock{
+		{Type: "image", Source: &ImageSource{
+			Type:      "base64",
+			MediaType: "image/png",
+			Data:      imgData,
+		}},
+	})
+
+	req := &FullRequest{
+		Model:     "claude-3-sonnet",
+		MaxTokens: 4096,
+		Messages: []Message{
+			{Role: "user", Content: imgContent},
+		},
+	}
+
+	result, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.GreaterOrEqual(t, len(result.Input), 1)
+
+	// Find the image message.
+	var foundImage bool
+	for _, msg := range result.Input {
+		if msg.Content != nil && msg.Content.ContentBlocks != nil {
+			for _, cb := range msg.Content.ContentBlocks {
+				if cb.Type == bifrostSchemas.ResponsesInputMessageContentBlockTypeImage {
+					foundImage = true
+					require.NotNil(t, cb.ResponsesInputMessageContentBlockImage)
+					require.NotNil(t, cb.ImageURL)
+					assert.Equal(t, "data:image/png;base64,"+imgData, *cb.ImageURL)
+				}
+			}
+		}
+	}
+	assert.True(t, foundImage, "expected image content block in result")
+}
+
+func TestConvertToBifrost_MixedTextAndImage(t *testing.T) {
+	imgData := "iVBORw0KGgo="
+	mixedContent, _ := json.Marshal([]ContentBlock{
+		{Type: "text", Text: "Look at this image:"},
+		{Type: "image", Source: &ImageSource{
+			Type:      "base64",
+			MediaType: "image/jpeg",
+			Data:      imgData,
+		}},
+	})
+
+	req := &FullRequest{
+		Model:     "claude-3-sonnet",
+		MaxTokens: 4096,
+		Messages: []Message{
+			{Role: "user", Content: mixedContent},
+		},
+	}
+
+	result, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Should have both text and image messages.
+	require.GreaterOrEqual(t, len(result.Input), 2)
+
+	var foundText, foundImage bool
+	for _, msg := range result.Input {
+		if msg.Content != nil {
+			if msg.Content.ContentStr != nil {
+				foundText = true
+				assert.Equal(t, "Look at this image:", *msg.Content.ContentStr)
+			}
+			if msg.Content.ContentBlocks != nil {
+				for _, cb := range msg.Content.ContentBlocks {
+					if cb.Type == bifrostSchemas.ResponsesInputMessageContentBlockTypeImage {
+						foundImage = true
+						require.NotNil(t, cb.ImageURL)
+						assert.Equal(t, "data:image/jpeg;base64,"+imgData, *cb.ImageURL)
+					}
+				}
+			}
+		}
+	}
+	assert.True(t, foundText, "expected text content in result")
+	assert.True(t, foundImage, "expected image content block in result")
+}
+
+func TestConvertToBifrost_ImageMissingSource(t *testing.T) {
+	imgContent, _ := json.Marshal([]ContentBlock{
+		{Type: "image"}, // Source is nil
+	})
+
+	req := &FullRequest{
+		Model:     "claude-3-sonnet",
+		MaxTokens: 4096,
+		Messages: []Message{
+			{Role: "user", Content: imgContent},
+		},
+	}
+
+	_, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "image block missing source")
+}
+
+func TestConvertToBifrost_ImageEmptyData(t *testing.T) {
+	imgContent, _ := json.Marshal([]ContentBlock{
+		{Type: "image", Source: &ImageSource{
+			Type:      "base64",
+			MediaType: "image/png",
+			Data:      "",
+		}},
+	})
+
+	req := &FullRequest{
+		Model:     "claude-3-sonnet",
+		MaxTokens: 4096,
+		Messages: []Message{
+			{Role: "user", Content: imgContent},
+		},
+	}
+
+	_, err := ConvertToBifrost(req, bifrostSchemas.Anthropic)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "image block has empty data")
+}
+
 // --- Helper functions for tests ---
 
 func ptr[T any](v T) *T {
