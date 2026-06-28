@@ -110,3 +110,8 @@ func (s *codexSession) ID() string { return s.id }
 
 // Close terminates the session and stops the subprocess.
 func (s *codexSession) Close() error { return s.pm.Stop() }
+
+// SupportsMultimodal returns true: Codex CLI supports image inputs.
+func (a *CodexAdapter) SupportsMultimodal() bool {
+	return true
+}
