@@ -202,7 +202,7 @@ func TestAgentServiceSSEStreaming(t *testing.T) {
 	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
 
 	// Send message with SSE
-	msgBody, _ := json.Marshal(map[string]string{"message": "test prompt"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test prompt"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))
@@ -266,7 +266,7 @@ func TestAgentServiceTaskLogIntegration(t *testing.T) {
 	}
 
 	// Send message (JSON mode to collect all at once)
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	resp, _ := http.Post(
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(msgBody))
@@ -304,7 +304,7 @@ func TestAgentServiceLogStreamSSE(t *testing.T) {
 
 	// Create another session and send a message to put it into completed state
 	sessionID2 := createAgentServiceSession(t, ts.URL, "claudecode")
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	resp, _ := http.Post(
 		ts.URL+"/api/v1/sessions/"+sessionID2+"/messages",
 		"application/json", bytes.NewReader(msgBody))
@@ -348,7 +348,7 @@ func TestAgentServiceSDKSessionID(t *testing.T) {
 	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
 
 	// Send message with SSE (triggers EventSystem with SessionID)
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))
@@ -479,7 +479,7 @@ func TestAgentServiceSSEStreamingContent(t *testing.T) {
 	ts, _ := setupAgentServiceTestServer(t)
 	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
 
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))
@@ -591,7 +591,7 @@ func TestAgentServiceSSEErrorPropagation(t *testing.T) {
 	defer ts.Close()
 
 	sessionID := createAgentServiceSession(t, ts.URL, "erroragent")
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))

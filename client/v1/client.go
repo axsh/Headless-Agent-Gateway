@@ -1,12 +1,11 @@
-// Deprecated: Use github.com/axsh/arctic-tern/client/v1 instead.
-package client
+package v1
 
 import (
 	"net/http"
 	"time"
 )
 
-// Client is a tern API client.
+// Client is a tern API client for the v1 API.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client

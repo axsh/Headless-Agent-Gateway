@@ -27,7 +27,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/axsh/arctic-tern/client"
+	client "github.com/axsh/arctic-tern/client/v1"
 )
 
 func main() {
@@ -56,8 +56,8 @@ func main() {
 	defer session.Terminate(ctx)
 	log.Printf("Session: %s", session.ID)
 
-	// Send a message and stream the response to stdout.
-	stream, err := session.SendMessage(ctx, "Create a file called hello.txt with the content 'Hello, World!'")
+	// Send a text message and stream the response to stdout.
+	stream, err := session.SendText(ctx, "Create a file called hello.txt with the content 'Hello, World!'")
 	if err != nil {
 		log.Fatalf("send message: %v", err)
 	}
@@ -66,4 +66,12 @@ func main() {
 	if err := stream.Output(os.Stdout); err != nil {
 		log.Fatalf("stream output: %v", err)
 	}
+
+	// Multimodal example (text + image):
+	// stream, err := session.SendMessage(ctx, []client.ContentPart{
+	//     {Type: "text", Text: "Describe this image:"},
+	//     {Type: "image", Source: &client.ImageSource{
+	//         Type: "base64", MediaType: "image/png", Data: "<base64>",
+	//     }},
+	// })
 }

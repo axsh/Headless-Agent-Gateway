@@ -1,5 +1,4 @@
-// Deprecated: Use github.com/axsh/arctic-tern/client/v1 instead.
-package client
+package v1
 
 import (
 	"context"
