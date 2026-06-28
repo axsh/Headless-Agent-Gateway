@@ -168,6 +168,46 @@ func convertMessage(msg Message) ([]bifrostSchemas.ResponsesMessage, error) {
 					},
 				},
 			})
+
+		case "image":
+			// Flush accumulated text first
+			if len(textParts) > 0 {
+				role := toBifrostRole(msg.Role)
+				combined := strings.Join(textParts, "")
+				result = append(result, bifrostSchemas.ResponsesMessage{
+					Role: &role,
+					Content: &bifrostSchemas.ResponsesMessageContent{
+						ContentStr: &combined,
+					},
+				})
+				textParts = nil
+			}
+
+			// Convert image block -> Bifrost input_image content block
+			if block.Source == nil {
+				return nil, fmt.Errorf("image block missing source")
+			}
+			if block.Source.Data == "" {
+				return nil, fmt.Errorf("image block has empty data")
+			}
+			// Build data URL: data:{mediaType};base64,{data}
+			dataURL := fmt.Sprintf("data:%s;base64,%s", block.Source.MediaType, block.Source.Data)
+			detail := "auto"
+			role := toBifrostRole(msg.Role)
+			result = append(result, bifrostSchemas.ResponsesMessage{
+				Role: &role,
+				Content: &bifrostSchemas.ResponsesMessageContent{
+					ContentBlocks: []bifrostSchemas.ResponsesMessageContentBlock{
+						{
+							Type: bifrostSchemas.ResponsesInputMessageContentBlockTypeImage,
+							ResponsesInputMessageContentBlockImage: &bifrostSchemas.ResponsesInputMessageContentBlockImage{
+								ImageURL: &dataURL,
+								Detail:   &detail,
+							},
+						},
+					},
+				},
+			})
 		}
 	}
 
