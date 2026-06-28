@@ -31,3 +31,12 @@ func TestAdapter_Close(t *testing.T) {
 func TestWayfinderSession_ImplementsSession(t *testing.T) {
 	var _ codingagent.Session = (*wayfinderSession)(nil)
 }
+
+func TestAdapter_SupportsMultimodal(t *testing.T) {
+	adapter := NewAdapter(&codingagent.AdapterConfig{
+		GatewayURL: "http://127.0.0.1:8080", GatewayToken: "token",
+	})
+	if adapter.SupportsMultimodal() {
+		t.Error("Wayfinder should not support multimodal")
+	}
+}
