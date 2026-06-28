@@ -325,3 +325,8 @@ func (a *planningLLMAdapter) GenerateMessage(
 
 	return &planning.LLMResponse{Content: resp.Content}, nil
 }
+
+// SupportsMultimodal returns false: Wayfinder does not support image inputs.
+func (a *Adapter) SupportsMultimodal() bool {
+	return false
+}
