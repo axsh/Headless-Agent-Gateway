@@ -72,6 +72,8 @@ Starting a server requires only a config path:
 
 ```go
 srv, err := server.New(server.WithConfigPath("config.yaml"))
+// Optional: enable specific API versions only:
+// srv, err := server.New(server.WithConfigPath("config.yaml"), server.WithEnableVersion(1))
 srv.Launch(ctx)
 defer srv.Shutdown(ctx)
 ```
@@ -81,6 +83,8 @@ defer srv.Shutdown(ctx)
 Create a session, send a text message, and stream the response:
 
 ```go
+import client "github.com/axsh/arctic-tern/client/v1"
+
 c := client.New("http://localhost:3100")
 
 session, _ := c.CreateSession(ctx, client.SessionRequest{
@@ -90,17 +94,26 @@ session, _ := c.CreateSession(ctx, client.SessionRequest{
 })
 defer session.Terminate(ctx)
 
-stream, _ := session.SendMessage(ctx, "Create hello.txt with 'Hello, World!'")
+// Text-only message (convenience method)
+stream, _ := session.SendText(ctx, "Create hello.txt with 'Hello, World!'")
 stream.Output(os.Stdout)
+
+// Multimodal message (text + image)
+// stream, _ := session.SendMessage(ctx, []client.ContentPart{
+//     {Type: "text", Text: "Describe this image:"},
+//     {Type: "image", Source: &client.ImageSource{
+//         Type: "base64", MediaType: "image/png", Data: "<base64>",
+//     }},
+// })
 ```
 
-### Multimodal (v2 API)
+### Multimodal API
 
-The v2 API accepts structured content blocks, enabling image inputs alongside text:
+The v1 API accepts structured content blocks, enabling image inputs alongside text:
 
 ```bash
-# Send an image with a text prompt via v2 API
-curl -X POST http://localhost:3100/api/v2/sessions/${SESSION_ID}/messages \
+# Send an image with a text prompt
+curl -X POST http://localhost:3100/api/v1/sessions/${SESSION_ID}/messages \
   -H 'Content-Type: application/json' \
   -d '{
     "content": [
@@ -114,17 +127,15 @@ curl -X POST http://localhost:3100/api/v2/sessions/${SESSION_ID}/messages \
   }'
 ```
 
-Text-only requests also work with the v2 content block format:
+Text-only requests also work with the content block format:
 
 ```bash
-curl -X POST http://localhost:3100/api/v2/sessions/${SESSION_ID}/messages \
+curl -X POST http://localhost:3100/api/v1/sessions/${SESSION_ID}/messages \
   -H 'Content-Type: application/json' \
   -d '{"content": [{"type": "text", "text": "List files in the current directory"}]}'
 ```
 
-Agents that do not support multimodal (e.g., Wayfinder) will accept text-only v2 requests but return `501 Not Implemented` for requests containing image content.
-
-> **Note**: The v1 API (`POST /api/v1/sessions/:id/messages` with `{"message": "..."}`) remains fully supported for backward compatibility.
+Agents that do not support multimodal (e.g., Wayfinder) will accept text-only requests but return `501 Not Implemented` for requests containing image content.
 
 ### Agent and Model Interoperability
 
@@ -204,7 +215,7 @@ Tern consists of three major components.
 
 Coding Agent Web API.
 
-CAWA defines a common interface for Coding Agents. The v2 API introduces structured content blocks for multimodal inputs (text + images), while the v1 API continues to serve text-only workflows.
+CAWA defines a common interface for Coding Agents. The v1 API uses structured content blocks supporting both text-only and multimodal inputs (text + images).
 
 ### LLMGP
 
@@ -235,8 +246,8 @@ Additional architectural details will be documented separately.
 * [x] Ollama LLM backend
 * [x] Wayfinder adapter (Embedded Original Coding Agent - Beta)
 * [x] Tern SDK v1
-* [x] CAWA API v2 (multimodal content blocks)
-* [x] Multimodal support (image input via v2 API)
+* [x] CAWA API v1 (multimodal content blocks)
+* [x] Multimodal support (image input via v1 API)
 
 ### Phase 2
 
