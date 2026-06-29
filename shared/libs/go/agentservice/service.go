@@ -27,23 +27,24 @@ type AgentService interface {
 
 // Server is the Coding Agent API service layer.
 type Server struct {
-	agents         map[string]codingagent.CodingAgent
-	sessions       codingagent.SessionStore
-	logger         logger.Logger
-	taskLog        *tasklog.TaskLog
-	gatewayURL     string
-	gatewayToken   string
-	cliVersions    map[string]string           // cached at init
-	gatewayModels  []llmgateway.ModelInfo      // cached model list from LLMGP
-	gatewayDefault *llmgateway.ModelInfo       // cached default model from LLMGP
-	profiles       *config.ModelProfilesConfig // for logical name resolution
-	httpServer     *http.Server
-	ln             net.Listener
-	port           int // actual listen port (set after Launch)
-	activeMu       sync.Mutex
-	activeSessions map[string]codingagent.Session
-	execCancelMu   sync.Mutex
-	execCancels    map[string]context.CancelFunc // sessionID -> execution cancel
+	agents          map[string]codingagent.CodingAgent
+	sessions        codingagent.SessionStore
+	logger          logger.Logger
+	taskLog         *tasklog.TaskLog
+	gatewayURL      string
+	gatewayToken    string
+	cliVersions     map[string]string           // cached at init
+	gatewayModels   []llmgateway.ModelInfo      // cached model list from LLMGP
+	gatewayDefault  *llmgateway.ModelInfo       // cached default model from LLMGP
+	profiles        *config.ModelProfilesConfig // for logical name resolution
+	httpServer      *http.Server
+	ln              net.Listener
+	port            int // actual listen port (set after Launch)
+	activeMu        sync.Mutex
+	activeSessions  map[string]codingagent.Session
+	execCancelMu    sync.Mutex
+	execCancels     map[string]context.CancelFunc // sessionID -> execution cancel
+	enabledVersions map[int]bool                  // API versions to register
 }
 
 // ServerOption configures a Server.
@@ -227,6 +228,23 @@ func (s *Server) Port() int {
 	return s.port
 }
 
+// SetEnabledVersions configures which API versions are active.
+func (s *Server) SetEnabledVersions(versions []int) {
+	s.enabledVersions = make(map[int]bool)
+	for _, v := range versions {
+		s.enabledVersions[v] = true
+	}
+}
+
+// isVersionEnabled checks if a specific API version is enabled.
+// Returns true if enabledVersions is empty (all versions enabled by default).
+func (s *Server) isVersionEnabled(v int) bool {
+	if len(s.enabledVersions) == 0 {
+		return true
+	}
+	return s.enabledVersions[v]
+}
+
 // HTTPHandler returns the HTTP handler with all endpoint routes.
 // CLI versions are detected lazily here, after all agents are registered.
 func (s *Server) HTTPHandler() http.Handler {
@@ -235,12 +253,13 @@ func (s *Server) HTTPHandler() http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
-	mux.HandleFunc("/api/v1/agents", s.routeAgents)
-	mux.HandleFunc("/api/v1/models", s.routeModels)
-	mux.HandleFunc("/api/v1/sessions", s.routeSessions)
-	mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
-	// v2 routes: multimodal content support
-	mux.HandleFunc("/api/v2/sessions/", s.routeSessionByIDV2)
+
+	if s.isVersionEnabled(1) {
+		mux.HandleFunc("/api/v1/agents", s.routeAgents)
+		mux.HandleFunc("/api/v1/models", s.routeModels)
+		mux.HandleFunc("/api/v1/sessions", s.routeSessions)
+		mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
+	}
 	return mux
 }
 
@@ -321,10 +340,17 @@ func detectCLIVersions(agents map[string]codingagent.CodingAgent, log logger.Log
 		versionStr := strings.TrimSpace(string(out))
 		versions[agentName] = versionStr
 
-		// R8: Validate CLI version meets minimum requirement.
-		if verErr := checkCLIVersion(versionStr, minClaudeCLIVersion); verErr != nil {
-			if log != nil {
-				log.Error(verErr.Error(), "agent", agentName)
+		// Use the agent-specific parser/validator from factory
+		parser := GetVersionParser(agentName)
+		if parser != nil {
+			if _, _, _, err := parser.Parse(versionStr); err != nil {
+				if log != nil {
+					log.Error("failed to parse CLI version: "+err.Error(), "agent", agentName)
+				}
+			} else if verErr := parser.Check(versionStr); verErr != nil {
+				if log != nil {
+					log.Error(verErr.Error(), "agent", agentName)
+				}
 			}
 		}
 	}

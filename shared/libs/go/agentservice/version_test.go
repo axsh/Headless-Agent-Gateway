@@ -2,8 +2,14 @@ package agentservice
 
 import "testing"
 
-func TestParseCLIVersion(t *testing.T) {
-	tests := []struct {
+func TestClaudeVersionParser(t *testing.T) {
+	parser := GetVersionParser("claudecode")
+	if parser == nil {
+		t.Fatal("expected non-nil parser for claudecode")
+	}
+
+	// Test Parse
+	parseTests := []struct {
 		name      string
 		input     string
 		wantMajor int
@@ -27,15 +33,20 @@ func TestParseCLIVersion(t *testing.T) {
 			wantMajor: 2, wantMinor: 1, wantPatch: 169,
 		},
 		{
+			name:      "with leading v",
+			input:     "v2.1.169",
+			wantMajor: 2, wantMinor: 1, wantPatch: 169,
+		},
+		{
 			name:    "empty string",
 			input:   "",
 			wantErr: true,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			major, minor, patch, err := parseCLIVersion(tt.input)
+	for _, tt := range parseTests {
+		t.Run("Parse_"+tt.name, func(t *testing.T) {
+			major, minor, patch, err := parser.Parse(tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -52,10 +63,9 @@ func TestParseCLIVersion(t *testing.T) {
 			}
 		})
 	}
-}
 
-func TestCheckCLIVersion(t *testing.T) {
-	tests := []struct {
+	// Test Check
+	checkTests := []struct {
 		name    string
 		raw     string
 		wantErr bool
@@ -69,13 +79,90 @@ func TestCheckCLIVersion(t *testing.T) {
 		{name: "empty skipped", raw: "", wantErr: false},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := checkCLIVersion(tt.raw, minClaudeCLIVersion)
+	for _, tt := range checkTests {
+		t.Run("Check_"+tt.name, func(t *testing.T) {
+			err := parser.Check(tt.raw)
 			if tt.wantErr && err == nil {
 				t.Error("expected error, got nil")
 			}
 			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestCodexVersionParser(t *testing.T) {
+	parser := GetVersionParser("codex")
+	if parser == nil {
+		t.Fatal("expected non-nil parser for codex")
+	}
+
+	// Test Parse
+	parseTests := []struct {
+		name      string
+		input     string
+		wantMajor int
+		wantMinor int
+		wantPatch int
+		wantErr   bool
+	}{
+		{
+			name:      "codex-cli version",
+			input:     "codex-cli 0.139.0",
+			wantMajor: 0, wantMinor: 139, wantPatch: 0,
+		},
+		{
+			name:      "version only",
+			input:     "0.139.0",
+			wantMajor: 0, wantMinor: 139, wantPatch: 0,
+		},
+		{
+			name:      "with leading v",
+			input:     "v1.2.3",
+			wantMajor: 1, wantMinor: 2, wantPatch: 3,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range parseTests {
+		t.Run("Parse_"+tt.name, func(t *testing.T) {
+			major, minor, patch, err := parser.Parse(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if major != tt.wantMajor || minor != tt.wantMinor || patch != tt.wantPatch {
+				t.Errorf("got %d.%d.%d, want %d.%d.%d",
+					major, minor, patch,
+					tt.wantMajor, tt.wantMinor, tt.wantPatch)
+			}
+		})
+	}
+
+	// Test Check
+	checkTests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "any version is OK", raw: "codex-cli 0.139.0"},
+		{name: "even old version is OK", raw: "0.1.0"},
+		{name: "empty raw is OK", raw: ""},
+	}
+
+	for _, tt := range checkTests {
+		t.Run("Check_"+tt.name, func(t *testing.T) {
+			err := parser.Check(tt.raw)
+			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})

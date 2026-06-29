@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +16,17 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 )
+
+// MultimodalSupporter is an optional interface that agents can implement
+// to declare whether they support non-text content (e.g., images).
+type MultimodalSupporter interface {
+	SupportsMultimodal() bool
+}
+
+// SendMessageRequest is the request body for POST /api/v1/sessions/:id/messages.
+type SendMessageRequest struct {
+	Content []codingagent.ContentPart `json:"content"`
+}
 
 // handleListAgents handles GET /api/v1/agents.
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
@@ -165,6 +177,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSendMessage handles POST /api/v1/sessions/:id/messages.
+// Accepts {"content": []ContentPart} with multimodal support.
 // Content Negotiation: Accept: text/event-stream -> SSE, otherwise -> JSON.
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/"), "/")
@@ -174,23 +187,26 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID := parts[0]
 
+	if s.logger != nil {
+		s.logger.Debug("send message", "session_id", sessionID)
+	}
+
 	record, err := s.sessions.Get(sessionID)
 	if err != nil {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
 
-	var req struct {
-		Message string `json:"message"`
-	}
+	var req SendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if s.logger != nil {
-		s.logger.Debug("sending message to agent", "session_id", sessionID, "agent", record.AgentName, "model", record.Model)
-		s.logger.Trace("message content", "message", req.Message)
+	// Validate content parts.
+	if err := codingagent.ValidateContentParts(req.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	agent, ok := s.agents[record.AgentName]
@@ -199,18 +215,57 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check multimodal support if non-text content is present.
+	hasMultimodal := codingagent.HasNonTextContent(req.Content)
+	if hasMultimodal {
+		if supporter, ok := agent.(MultimodalSupporter); ok {
+			if !supporter.SupportsMultimodal() {
+				http.Error(w, codingagent.ErrMultimodalNotSupported.Error(), http.StatusNotImplemented)
+				return
+			}
+		}
+	}
+
+	// Build the prompt string from content parts.
+	var promptText string
+	var savedFiles []string
+	if hasMultimodal {
+		baseDir := record.WorkDir
+		if baseDir == "" {
+			baseDir, _ = os.Getwd()
+		}
+		promptText, savedFiles, err = BuildMultimodalPrompt(baseDir, sessionID, req.Content)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Error("failed to build multimodal prompt", "error", err.Error(), "session_id", sessionID)
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if s.logger != nil {
+			s.logger.Debug("multimodal prompt built", "session_id", sessionID, "saved_files", len(savedFiles))
+		}
+	} else {
+		promptText = codingagent.ExtractText(req.Content)
+	}
+
+	if s.logger != nil {
+		s.logger.Debug("sending message to agent", "session_id", sessionID, "agent", record.AgentName, "model", record.Model)
+		s.logger.Trace("message content", "prompt", promptText)
+	}
+
 	opts := []codingagent.SessionOption{
 		codingagent.WithModel(record.Model),
-		codingagent.WithPrompt(req.Message),
+		codingagent.WithPrompt(promptText),
 		codingagent.WithWorkDir(record.WorkDir),
 	}
-	// Session continuation: pass agent session ID if available.
 	if record.AgentSessionID != "" {
 		opts = append(opts, codingagent.WithAgentSessionID(record.AgentSessionID))
 	}
 	if record.SessionDir != "" {
 		opts = append(opts, codingagent.WithSessionDir(record.SessionDir))
 	}
+
 	// Context separation: create an independent execution context
 	// so agent continues running even if the HTTP client disconnects.
 	execCtx, execCancel := context.WithCancel(context.Background())
@@ -228,9 +283,16 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		session.Close()
 		s.UnregisterActiveSession(sessionID)
 		s.UnregisterExecCancel(sessionID)
+		// Cleanup multimodal temp files after session completes.
+		if len(savedFiles) > 0 {
+			CleanupMultimodalFiles(savedFiles)
+			if s.logger != nil {
+				s.logger.Debug("cleaned up multimodal temp files", "session_id", sessionID, "count", len(savedFiles))
+			}
+		}
 	}()
 
-	ch, err := session.Send(execCtx, req.Message)
+	ch, err := session.Send(execCtx, promptText)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

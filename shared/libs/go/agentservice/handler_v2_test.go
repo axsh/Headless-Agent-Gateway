@@ -78,7 +78,7 @@ func TestHandleV2SendMessage_TextOnly(t *testing.T) {
 			{"type": "text", "text": "Hello, agent!"},
 		},
 	})
-	req := httptest.NewRequest("POST", "/api/v2/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
+	req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -101,7 +101,7 @@ func TestHandleV2SendMessage_WithImage(t *testing.T) {
 			}},
 		},
 	})
-	req := httptest.NewRequest("POST", "/api/v2/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
+	req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -116,7 +116,7 @@ func TestHandleV2SendMessage_EmptyContent(t *testing.T) {
 	reqBody, _ := json.Marshal(map[string]any{
 		"content": []map[string]any{},
 	})
-	req := httptest.NewRequest("POST", "/api/v2/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
+	req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -137,7 +137,7 @@ func TestHandleV2SendMessage_InvalidBase64(t *testing.T) {
 			}},
 		},
 	})
-	req := httptest.NewRequest("POST", "/api/v2/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
+	req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -153,7 +153,7 @@ func TestHandleV2SendMessage_SessionNotFound(t *testing.T) {
 			{"type": "text", "text": "Hello"},
 		},
 	})
-	req := httptest.NewRequest("POST", "/api/v2/sessions/nonexistent/messages", bytes.NewReader(reqBody))
+	req := httptest.NewRequest("POST", "/api/v1/sessions/nonexistent/messages", bytes.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -174,7 +174,7 @@ func TestHandleV2SendMessage_WayfinderRejects(t *testing.T) {
 			}},
 		},
 	})
-	req := httptest.NewRequest("POST", "/api/v2/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
+	req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -192,7 +192,7 @@ func TestHandleV2SendMessage_WayfinderTextOnly(t *testing.T) {
 			{"type": "text", "text": "Hello from v2"},
 		},
 	})
-	req := httptest.NewRequest("POST", "/api/v2/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
+	req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -202,7 +202,7 @@ func TestHandleV2SendMessage_WayfinderTextOnly(t *testing.T) {
 func TestV2Route_NonMessages(t *testing.T) {
 	handler := newTestServerV2()
 
-	req := httptest.NewRequest("GET", "/api/v2/sessions/some-id", nil)
+	req := httptest.NewRequest("GET", "/api/v1/sessions/some-id", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 

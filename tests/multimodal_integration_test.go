@@ -1,5 +1,5 @@
-// Package llm_test contains integration tests for the v2 multimodal API.
-// These tests verify end-to-end behavior of POST /api/v2/sessions/:id/messages
+// Package llm_test contains integration tests for the v1 multimodal API.
+// These tests verify end-to-end behavior of POST /api/v1/sessions/:id/messages
 // using mock agents with multimodal support checks.
 package llm_test
 
@@ -81,7 +81,7 @@ func TestMultimodal_V2_TextOnly_JSON(t *testing.T) {
 		},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 message: %v", err)
@@ -113,7 +113,7 @@ func TestMultimodal_V2_TextOnly_SSE(t *testing.T) {
 		},
 	})
 	req, _ := http.NewRequest("POST",
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
@@ -172,7 +172,7 @@ func TestMultimodal_V2_WithImage(t *testing.T) {
 		},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 message with image: %v", err)
@@ -208,7 +208,7 @@ func TestMultimodal_V2_WayfinderRejectsImage(t *testing.T) {
 		},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 message to wayfinder: %v", err)
@@ -231,7 +231,7 @@ func TestMultimodal_V2_WayfinderAcceptsTextOnly(t *testing.T) {
 		},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 text message to wayfinder: %v", err)
@@ -252,7 +252,7 @@ func TestMultimodal_V2_EmptyContent(t *testing.T) {
 		"content": []map[string]any{},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 empty content: %v", err)
@@ -279,7 +279,7 @@ func TestMultimodal_V2_InvalidBase64(t *testing.T) {
 		},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 invalid base64: %v", err)
@@ -301,7 +301,7 @@ func TestMultimodal_V2_SessionNotFound(t *testing.T) {
 		},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/nonexistent-session-id/messages",
+		ts.URL+"/api/v1/sessions/nonexistent-session-id/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 session not found: %v", err)
@@ -314,12 +314,16 @@ func TestMultimodal_V2_SessionNotFound(t *testing.T) {
 	}
 }
 
-func TestMultimodal_V1_Unaffected(t *testing.T) {
+func TestMultimodal_V1_ContentBlock(t *testing.T) {
 	ts := setupMultimodalTestServer(t)
 	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
 
-	// v1 should still work with the legacy {"message": "..."} format.
-	msgBody, _ := json.Marshal(map[string]string{"message": "Hello v1"})
+	// v1 now uses the content block format ({"content": [...]}).
+	msgBody, _ := json.Marshal(map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": "Hello v1 content block"},
+		},
+	})
 	resp, err := http.Post(
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(msgBody))
@@ -344,7 +348,7 @@ func TestMultimodal_V2_UnsupportedContentType(t *testing.T) {
 		},
 	})
 	resp, err := http.Post(
-		ts.URL+"/api/v2/sessions/"+sessionID+"/messages",
+		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		t.Fatalf("POST v2 unsupported type: %v", err)

@@ -505,3 +505,56 @@ func TestResolveAgentService_ExternalBypass(t *testing.T) {
 		t.Error("expected externally provided AgentService to be returned directly")
 	}
 }
+
+// TestWithEnableVersion_Valid verifies that a supported version (1) is accepted.
+func TestWithEnableVersion_Valid(t *testing.T) {
+	stub := llmgateway.NewStubGateway()
+	srv, err := New(WithGateway(stub), WithEnableVersion(1))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if srv == nil {
+		t.Fatal("New() returned nil server")
+	}
+}
+
+// TestWithEnableVersion_InvalidVersion verifies that unsupported versions are rejected.
+func TestWithEnableVersion_InvalidVersion(t *testing.T) {
+	stub := llmgateway.NewStubGateway()
+	_, err := New(WithGateway(stub), WithEnableVersion(99))
+	if err == nil {
+		t.Fatal("expected error for unsupported version 99")
+	}
+	if !strings.Contains(err.Error(), "unsupported API version: 99") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "unsupported API version: 99")
+	}
+}
+
+// TestWithEnableVersion_Multiple verifies that one invalid version in a list causes error.
+func TestWithEnableVersion_Multiple(t *testing.T) {
+	stub := llmgateway.NewStubGateway()
+	_, err := New(WithGateway(stub), WithEnableVersion(1, 99))
+	if err == nil {
+		t.Fatal("expected error when invalid version is included")
+	}
+	if !strings.Contains(err.Error(), "unsupported API version: 99") {
+		t.Errorf("error = %q, want to contain %q", err.Error(), "unsupported API version: 99")
+	}
+}
+
+// TestWithEnableVersion_Default verifies that omitting WithEnableVersion enables all routes.
+func TestWithEnableVersion_Default(t *testing.T) {
+	stub := llmgateway.NewStubGateway()
+	srv, err := New(WithGateway(stub))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if srv == nil {
+		t.Fatal("New() returned nil server")
+	}
+	// AgentService should have all versions enabled.
+	as := srv.AgentService()
+	if as == nil {
+		t.Fatal("AgentService() returned nil")
+	}
+}
