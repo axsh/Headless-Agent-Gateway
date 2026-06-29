@@ -97,14 +97,33 @@ defer session.Terminate(ctx)
 // Text-only message (convenience method)
 stream, _ := session.SendText(ctx, "Create hello.txt with 'Hello, World!'")
 stream.Output(os.Stdout)
+```
 
-// Multimodal message (text + image)
-// stream, _ := session.SendMessage(ctx, []client.ContentPart{
-//     {Type: "text", Text: "Describe this image:"},
-//     {Type: "image", Source: &client.ImageSource{
-//         Type: "base64", MediaType: "image/png", Data: "<base64>",
-//     }},
-// })
+### Multimodal Client ([examples/multimodal-client](examples/multimodal-client/main.go))
+
+Create a session, send a multimodal message (text and image), and stream the response:
+
+```go
+import client "github.com/axsh/arctic-tern/client/v1"
+
+c := client.New("http://localhost:3100")
+
+session, _ := c.CreateSession(ctx, client.SessionRequest{
+    Agent:   "claudecode",          // Use Claude Code to process images
+    WorkDir: ".",
+})
+defer session.Terminate(ctx)
+
+// Send a query alongside a base64-encoded image
+stream, _ := session.SendMessage(ctx, []client.ContentPart{
+    {Type: "text", Text: "Describe this image:"},
+    {Type: "image", Source: &client.ImageSource{
+        Type:      "base64",
+        MediaType: "image/png",
+        Data:      base64EncodedPNGData,
+    }},
+})
+stream.Output(os.Stdout)
 ```
 
 ### Multimodal API
@@ -471,18 +490,21 @@ The agent resumes the previous session with full context of the prior conversati
 ### 6. Or use the Go client library
 
 ```go
+import client "github.com/axsh/arctic-tern/client/v1"
+
 c := client.New("http://localhost:3100")
 session, _ := c.CreateSession(ctx, client.SessionRequest{
     Agent:   "claudecode",
     WorkDir: ".",
 })
+defer session.Terminate(ctx)
 
-// v1: text-only message
-stream, _ := session.SendMessage(ctx, "Create hello.txt")
+// Text-only message (convenience method)
+stream, _ := session.SendText(ctx, "Create hello.txt")
 stream.Output(os.Stdout)
 
-// v2: multimodal message with image
-stream, _ = session.SendMessageV2(ctx, []client.ContentPart{
+// Multimodal message with image
+stream, _ = session.SendMessage(ctx, []client.ContentPart{
     {Type: "text", Text: "What is in this screenshot?"},
     {Type: "image", Source: &client.ImageSource{
         Type:      "base64",
