@@ -66,12 +66,4 @@ func main() {
 	if err := stream.Output(os.Stdout); err != nil {
 		log.Fatalf("stream output: %v", err)
 	}
-
-	// Multimodal example (text + image):
-	// stream, err := session.SendMessage(ctx, []client.ContentPart{
-	//     {Type: "text", Text: "Describe this image:"},
-	//     {Type: "image", Source: &client.ImageSource{
-	//         Type: "base64", MediaType: "image/png", Data: "<base64>",
-	//     }},
-	// })
 }
