@@ -78,9 +78,13 @@ srv.Launch(ctx)
 defer srv.Shutdown(ctx)
 ```
 
-### Client ([examples/minimal-client](examples/minimal-client/main.go))
+### Client Examples
 
-Create a session, send a text message, and stream the response:
+Tern client libraries ([examples/minimal-client](examples/minimal-client/main.go), [examples/multimodal-client](examples/multimodal-client/main.go)) simplify session interaction.
+
+#### 1. Setup and Session Initialization
+
+First, import the library, connect to the Tern server, and create an active session:
 
 ```go
 import client "github.com/axsh/arctic-tern/client/v1"
@@ -88,53 +92,35 @@ import client "github.com/axsh/arctic-tern/client/v1"
 c := client.New("http://localhost:3100")
 
 session, _ := c.CreateSession(ctx, client.SessionRequest{
-    Agent:   "wayfinder",           // Use Wayfinder as the coding agent
-    Model:   "qwen2.5-coder:7b",   // ...route LLM calls to a local model via Ollama
+    Agent:   "claudecode",          // Use Wayfinder, Claude Code, or Codex
     WorkDir: ".",
 })
 defer session.Terminate(ctx)
+```
 
-// Text-only message (convenience method)
+#### 2. Send Message Options
+
+**Option A: Send Text-only Messages (convenience method)**
+
+```go
 stream, _ := session.SendText(ctx, "Create hello.txt with 'Hello, World!'")
 stream.Output(os.Stdout)
 ```
 
-### Multimodal Client ([examples/multimodal-client](examples/multimodal-client/main.go))
+**Option B: Send Image alongside Text (SendImageFile shortcut)**
 
-Create a session, send a multimodal message (text and image), and stream the response.
-
-**Option A: Using the convenient SendImageFile shortcut**
+For typical image + text queries, pass the local file path directly. Media type is automatically detected:
 
 ```go
-import client "github.com/axsh/arctic-tern/client/v1"
-
-c := client.New("http://localhost:3100")
-
-session, _ := c.CreateSession(ctx, client.SessionRequest{
-    Agent:   "claudecode",          // Use Claude Code to process images
-    WorkDir: ".",
-})
-defer session.Terminate(ctx)
-
-// 1. Image+text query using the shortcut helper:
 stream, _ := session.SendImageFile(ctx, "screenshot.png", "Describe this image:")
 stream.Output(os.Stdout)
 ```
 
-**Option B: Using the Message Builder for complex layouts**
+**Option C: Complex Multimodal Layouts (Message Builder)**
+
+For multiple text blocks or multiple images in a single message:
 
 ```go
-import client "github.com/axsh/arctic-tern/client/v1"
-
-c := client.New("http://localhost:3100")
-
-session, _ := c.CreateSession(ctx, client.SessionRequest{
-    Agent:   "claudecode",
-    WorkDir: ".",
-})
-defer session.Terminate(ctx)
-
-// 2. Build a message with multiple text and image blocks:
 parts, _ := client.NewMessage().
     Text("Compare these two images:").
     ImageFile("image1.png").
