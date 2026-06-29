@@ -390,6 +390,8 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		agentservice.WithTaskLog(tl),
 		agentservice.WithGatewayURL(gatewayURL),
 		agentservice.WithGatewayToken(gatewayToken),
+		agentservice.WithSandboxDisabled(disableSandbox),
+		agentservice.WithSubagentEnabled(enableSubagent),
 	)
 
 	// Auto-register coding agents from the global registry.

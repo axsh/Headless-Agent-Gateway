@@ -283,6 +283,15 @@ func (s *Server) HTTPHandler() http.Handler {
 	if s.cliVersions == nil {
 		s.cliVersions = detectCLIVersions(s.agents, s.logger)
 	}
+
+	s.gatewayHealthMu.Lock()
+	if s.lastGatewayHealth.LastCheckedAt.IsZero() {
+		s.gatewayHealthMu.Unlock()
+		s.updateGatewayHealth()
+	} else {
+		s.gatewayHealthMu.Unlock()
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 
