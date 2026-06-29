@@ -20,13 +20,10 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
 
 	client "github.com/axsh/arctic-tern/client/v1"
 )
@@ -46,32 +43,6 @@ func main() {
 	// Create a new client pointing to the tern server.
 	c := client.New(*serverURL)
 
-	var mediaType string
-	var base64Data string
-
-	if *imagePath != "" {
-		data, err := os.ReadFile(*imagePath)
-		if err != nil {
-			log.Fatalf("failed to read image file: %v", err)
-		}
-		base64Data = base64.StdEncoding.EncodeToString(data)
-		ext := strings.ToLower(filepath.Ext(*imagePath))
-		switch ext {
-		case ".jpg", ".jpeg":
-			mediaType = "image/jpeg"
-		case ".gif":
-			mediaType = "image/gif"
-		case ".webp":
-			mediaType = "image/webp"
-		default:
-			mediaType = "image/png"
-		}
-	} else {
-		mediaType = "image/png"
-		base64Data = dummyPNG
-		fmt.Println("[INFO] No image file specified. Using a 1x1 dummy PNG as fallback.")
-	}
-
 	// Create a session with the specified agent.
 	session, err := c.CreateSession(ctx, client.SessionRequest{
 		Agent:   *agent,
@@ -83,15 +54,22 @@ func main() {
 	defer session.Terminate(ctx)
 	fmt.Printf("Session created: %s\n", session.ID)
 
-	// Send a multimodal message (text + image) and stream the response to stdout.
-	stream, err := session.SendMessage(ctx, []client.ContentPart{
-		{Type: "text", Text: *prompt},
-		{Type: "image", Source: &client.ImageSource{
-			Type:      "base64",
-			MediaType: mediaType,
-			Data:      base64Data,
-		}},
-	})
+	var stream *client.Stream
+	if *imagePath != "" {
+		// Use specialized helper SendImageFile
+		stream, err = session.SendImageFile(ctx, *imagePath, *prompt)
+	} else {
+		// Use Message Builder to send a fallback query with base64 data
+		parts, buildErr := client.NewMessage().
+			Text(*prompt).
+			ImageBase64("image/png", dummyPNG).
+			Build()
+		if buildErr != nil {
+			log.Fatalf("failed to build message: %v", buildErr)
+		}
+		stream, err = session.SendMessage(ctx, parts)
+	}
+
 	if err != nil {
 		log.Fatalf("failed to send message: %v", err)
 	}
