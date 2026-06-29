@@ -101,7 +101,9 @@ stream.Output(os.Stdout)
 
 ### Multimodal Client ([examples/multimodal-client](examples/multimodal-client/main.go))
 
-Create a session, send a multimodal message (text and image), and stream the response:
+Create a session, send a multimodal message (text and image), and stream the response.
+
+**Option A: Using the convenient SendImageFile shortcut**
 
 ```go
 import client "github.com/axsh/arctic-tern/client/v1"
@@ -114,15 +116,32 @@ session, _ := c.CreateSession(ctx, client.SessionRequest{
 })
 defer session.Terminate(ctx)
 
-// Send a query alongside a base64-encoded image
-stream, _ := session.SendMessage(ctx, []client.ContentPart{
-    {Type: "text", Text: "Describe this image:"},
-    {Type: "image", Source: &client.ImageSource{
-        Type:      "base64",
-        MediaType: "image/png",
-        Data:      base64EncodedPNGData,
-    }},
+// 1. Image+text query using the shortcut helper:
+stream, _ := session.SendImageFile(ctx, "screenshot.png", "Describe this image:")
+stream.Output(os.Stdout)
+```
+
+**Option B: Using the Message Builder for complex layouts**
+
+```go
+import client "github.com/axsh/arctic-tern/client/v1"
+
+c := client.New("http://localhost:3100")
+
+session, _ := c.CreateSession(ctx, client.SessionRequest{
+    Agent:   "claudecode",
+    WorkDir: ".",
 })
+defer session.Terminate(ctx)
+
+// 2. Build a message with multiple text and image blocks:
+parts, _ := client.NewMessage().
+    Text("Compare these two images:").
+    ImageFile("image1.png").
+    ImageFile("image2.png").
+    Build()
+
+stream, _ := session.SendMessage(ctx, parts)
 stream.Output(os.Stdout)
 ```
 
@@ -499,19 +518,12 @@ session, _ := c.CreateSession(ctx, client.SessionRequest{
 })
 defer session.Terminate(ctx)
 
-// Text-only message (convenience method)
+// 1. Text-only message (convenience method)
 stream, _ := session.SendText(ctx, "Create hello.txt")
 stream.Output(os.Stdout)
 
-// Multimodal message with image
-stream, _ = session.SendMessage(ctx, []client.ContentPart{
-    {Type: "text", Text: "What is in this screenshot?"},
-    {Type: "image", Source: &client.ImageSource{
-        Type:      "base64",
-        MediaType: "image/png",
-        Data:      base64EncodedPNG,
-    }},
-})
+// 2. Multimodal message with image (convenience method)
+stream, _ = session.SendImageFile(ctx, "screenshot.png", "What is in this screenshot?")
 stream.Output(os.Stdout)
 ```
 
