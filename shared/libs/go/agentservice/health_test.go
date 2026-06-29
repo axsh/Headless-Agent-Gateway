@@ -37,6 +37,18 @@ func TestHealthHandler_AllHealthy(t *testing.T) {
 	if resp.Gateway.Status != "ok" {
 		t.Errorf("gateway.Status = %v, want ok", resp.Gateway.Status)
 	}
+	if resp.Gateway.LastCheckedAt.IsZero() {
+		t.Error("gateway.LastCheckedAt should not be zero")
+	}
+	if resp.ServerSettings.DisableSandbox {
+		t.Errorf("ServerSettings.DisableSandbox = %v, want false", resp.ServerSettings.DisableSandbox)
+	}
+	if resp.ServerSettings.EnableSubagent {
+		t.Errorf("ServerSettings.EnableSubagent = %v, want false", resp.ServerSettings.EnableSubagent)
+	}
+	if len(resp.ServerSettings.EnabledVersions) != 1 || resp.ServerSettings.EnabledVersions[0] != 1 {
+		t.Errorf("ServerSettings.EnabledVersions = %v, want [1]", resp.ServerSettings.EnabledVersions)
+	}
 }
 
 func TestHealthHandler_GatewayDown(t *testing.T) {
@@ -84,5 +96,31 @@ func TestHealthHandler_NoGateway(t *testing.T) {
 
 	if resp.Gateway.Status != "ok" {
 		t.Errorf("gateway.Status = %v, want ok (in-process)", resp.Gateway.Status)
+	}
+}
+
+func TestHealthHandler_WithOptions(t *testing.T) {
+	srv := agentservice.New(
+		agentservice.WithSandboxDisabled(true),
+		agentservice.WithSubagentEnabled(true),
+	)
+	handler := srv.HTTPHandler()
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+
+	var resp agentservice.HealthResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if !resp.ServerSettings.DisableSandbox {
+		t.Errorf("ServerSettings.DisableSandbox = %v, want true", resp.ServerSettings.DisableSandbox)
+	}
+	if !resp.ServerSettings.EnableSubagent {
+		t.Errorf("ServerSettings.EnableSubagent = %v, want true", resp.ServerSettings.EnableSubagent)
 	}
 }
