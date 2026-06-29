@@ -131,36 +131,6 @@ stream, _ := session.SendMessage(ctx, parts)
 stream.Output(os.Stdout)
 ```
 
-### Multimodal API
-
-The v1 API accepts structured content blocks, enabling image inputs alongside text:
-
-```bash
-# Send an image with a text prompt
-curl -X POST http://localhost:3100/api/v1/sessions/${SESSION_ID}/messages \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "content": [
-      {"type": "text", "text": "Describe what you see in this screenshot:"},
-      {"type": "image", "source": {
-        "type": "base64",
-        "media_type": "image/png",
-        "data": "'$(base64 -w0 screenshot.png)'"
-      }}
-    ]
-  }'
-```
-
-Text-only requests also work with the content block format:
-
-```bash
-curl -X POST http://localhost:3100/api/v1/sessions/${SESSION_ID}/messages \
-  -H 'Content-Type: application/json' \
-  -d '{"content": [{"type": "text", "text": "List files in the current directory"}]}'
-```
-
-Agents that do not support multimodal (e.g., Wayfinder) will accept text-only requests but return `501 Not Implemented` for requests containing image content.
-
 ### Agent and Model Interoperability
 
 Switching agents or models is a matter of changing session parameters. The surrounding application remains unchanged:
