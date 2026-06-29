@@ -120,19 +120,23 @@ func TestAgentServiceHealthCheck(t *testing.T) {
 
 	var health struct {
 		Status      string            `json:"status"`
-		Agents      []string          `json:"agents"`
 		CLIVersions map[string]string `json:"cli_versions"`
 		Gateway     struct {
-			Status string `json:"status"`
+			Status        string `json:"status"`
+			LastCheckedAt string `json:"last_checked_at"`
 		} `json:"gateway"`
+		ServerSettings struct {
+			DisableSandbox bool `json:"disable_sandbox"`
+			EnableSubagent bool `json:"enable_subagent"`
+		} `json:"server_settings"`
 	}
 	json.NewDecoder(resp.Body).Decode(&health)
 
 	if health.Status != "ok" {
 		t.Errorf("health.status = %q, want ok", health.Status)
 	}
-	if len(health.Agents) != 1 || health.Agents[0] != "claudecode" {
-		t.Errorf("agents = %v, want [claudecode]", health.Agents)
+	if health.Gateway.LastCheckedAt == "" {
+		t.Error("gateway.last_checked_at should not be empty")
 	}
 	// cli_versions should exist (may be "unavailable" in test env)
 	if health.CLIVersions == nil {

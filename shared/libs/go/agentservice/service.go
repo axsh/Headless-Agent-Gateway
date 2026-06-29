@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
@@ -44,7 +45,12 @@ type Server struct {
 	activeSessions  map[string]codingagent.Session
 	execCancelMu    sync.Mutex
 	execCancels     map[string]context.CancelFunc // sessionID -> execution cancel
-	enabledVersions map[int]bool                  // API versions to register
+	enabledVersions   map[int]bool                  // API versions to register
+	disableSandbox    bool
+	enableSubagent    bool
+	lastGatewayHealth GatewayHealth
+	gatewayHealthMu   sync.Mutex
+	pollCancel        context.CancelFunc
 }
 
 // ServerOption configures a Server.
@@ -68,6 +74,16 @@ func WithGatewayURL(url string) ServerOption {
 // WithGatewayToken sets the LLM Gateway Proxy authentication token.
 func WithGatewayToken(token string) ServerOption {
 	return func(s *Server) { s.gatewayToken = token }
+}
+
+// WithSandboxDisabled configures whether sandbox is disabled.
+func WithSandboxDisabled(disabled bool) ServerOption {
+	return func(s *Server) { s.disableSandbox = disabled }
+}
+
+// WithSubagentEnabled configures whether subagent is enabled.
+func WithSubagentEnabled(enabled bool) ServerOption {
+	return func(s *Server) { s.enableSubagent = enabled }
 }
 
 // New creates a new AgentService Server.
@@ -128,6 +144,19 @@ func (s *Server) Launch(ctx context.Context, port int) error {
 	s.ln = ln
 	s.port = ln.Addr().(*net.TCPAddr).Port
 	s.httpServer = &http.Server{Handler: handler}
+
+	s.gatewayHealthMu.Lock()
+	s.lastGatewayHealth = GatewayHealth{
+		Status:        "ok",
+		URL:           s.gatewayURL,
+		LastCheckedAt: time.Now(),
+	}
+	s.gatewayHealthMu.Unlock()
+
+	pollCtx, cancel := context.WithCancel(context.Background())
+	s.pollCancel = cancel
+	go s.startGatewayHealthPolling(pollCtx)
+
 	go func() {
 		if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			if s.logger != nil {
@@ -147,6 +176,10 @@ func (s *Server) Launch(ctx context.Context, port int) error {
 
 // Shutdown gracefully stops the AgentService HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.pollCancel != nil {
+		s.pollCancel()
+	}
+
 	if s.httpServer == nil {
 		return nil
 	}
@@ -251,6 +284,15 @@ func (s *Server) HTTPHandler() http.Handler {
 	if s.cliVersions == nil {
 		s.cliVersions = detectCLIVersions(s.agents, s.logger)
 	}
+
+	s.gatewayHealthMu.Lock()
+	if s.lastGatewayHealth.LastCheckedAt.IsZero() {
+		s.gatewayHealthMu.Unlock()
+		s.updateGatewayHealth()
+	} else {
+		s.gatewayHealthMu.Unlock()
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 
