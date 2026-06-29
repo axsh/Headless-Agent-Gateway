@@ -340,10 +340,17 @@ func detectCLIVersions(agents map[string]codingagent.CodingAgent, log logger.Log
 		versionStr := strings.TrimSpace(string(out))
 		versions[agentName] = versionStr
 
-		// R8: Validate CLI version meets minimum requirement.
-		if verErr := checkCLIVersion(versionStr, minClaudeCLIVersion); verErr != nil {
-			if log != nil {
-				log.Error(verErr.Error(), "agent", agentName)
+		// Use the agent-specific parser/validator from factory
+		parser := GetVersionParser(agentName)
+		if parser != nil {
+			if _, _, _, err := parser.Parse(versionStr); err != nil {
+				if log != nil {
+					log.Error("failed to parse CLI version: "+err.Error(), "agent", agentName)
+				}
+			} else if verErr := parser.Check(versionStr); verErr != nil {
+				if log != nil {
+					log.Error(verErr.Error(), "agent", agentName)
+				}
 			}
 		}
 	}
