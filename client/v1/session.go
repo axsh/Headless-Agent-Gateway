@@ -107,6 +107,20 @@ func (s *Session) SendText(ctx context.Context, message string) (*Stream, error)
 	return s.SendMessage(ctx, []ContentPart{{Type: "text", Text: message}})
 }
 
+// SendImageFile is a convenience method that reads an image file from path,
+// automatically detects its media type, and sends it alongside a text prompt.
+func (s *Session) SendImageFile(ctx context.Context, path string, prompt string) (*Stream, error) {
+	parts, err := NewMessage().
+		Text(prompt).
+		ImageFile(path).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+	return s.SendMessage(ctx, parts)
+}
+
+
 // Terminate terminates the session.
 func (s *Session) Terminate(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
