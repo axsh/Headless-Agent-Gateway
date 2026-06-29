@@ -2,8 +2,6 @@ package v1_test
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"testing"
 
 	client "github.com/axsh/arctic-tern/client/v1"
