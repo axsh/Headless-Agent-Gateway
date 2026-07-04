@@ -19,21 +19,14 @@ import (
 )
 
 func TestNew_DefaultConfig(t *testing.T) {
-	srv, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
+	// Default config has no vault.backends, which is now required.
+	// New() should return an error.
+	_, err := New()
+	if err == nil {
+		t.Fatal("expected error when vault.backends is not configured")
 	}
-	if srv == nil {
-		t.Fatal("New() returned nil server")
-	}
-	if srv.cfg == nil {
-		t.Fatal("expected non-nil default config")
-	}
-	if srv.logger == nil {
-		t.Fatal("expected non-nil default logger")
-	}
-	if srv.gateway == nil {
-		t.Fatal("expected non-nil default gateway")
+	if !strings.Contains(err.Error(), "vault.backends is required") {
+		t.Errorf("error should mention 'vault.backends is required': %v", err)
 	}
 }
 
@@ -42,6 +35,7 @@ func TestNew_WithConfig(t *testing.T) {
 		LLMGateway: config.LLMGatewayConfig{
 			Port: 15000,
 		},
+		Vault: config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
@@ -59,7 +53,7 @@ func TestNew_WithConfigPath(t *testing.T) {
 llm_gateway:
   port: 16000
 vault:
-  backend: "env"
+  backends: [env]
 `)
 	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -76,7 +70,8 @@ vault:
 
 func TestNew_WithLogger(t *testing.T) {
 	customLog := logger.NewDefault(logger.LevelDebug)
-	srv, err := New(WithLogger(customLog))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithLogger(customLog), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -99,7 +94,8 @@ func TestNew_WithVaultStore(t *testing.T) {
 
 func TestNew_WithGateway(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	srv, err := New(WithGateway(stub))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithGateway(stub), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -114,6 +110,7 @@ func TestNew_OptionPriority(t *testing.T) {
 		LLMGateway: config.LLMGatewayConfig{
 			Port: 14000,
 		},
+		Vault: config.VaultConfig{Backends: []string{"env"}},
 	}
 	// WithGateway overrides the auto-created gateway.
 	stub := llmgateway.NewStubGateway()
@@ -132,7 +129,8 @@ func TestNew_OptionPriority(t *testing.T) {
 
 func TestServer_LaunchShutdown(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	srv, err := New(WithGateway(stub))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithGateway(stub), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -155,7 +153,8 @@ func TestServer_LaunchShutdown(t *testing.T) {
 
 func TestServer_Gateway_ReturnsInjected(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	srv, err := New(WithGateway(stub))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithGateway(stub), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -179,7 +178,7 @@ func TestNew_ConfigPathOverridesConfig(t *testing.T) {
 llm_gateway:
   port: 17000
 vault:
-  backend: "env"
+  backends: [env]
 `)
 	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -205,7 +204,8 @@ vault:
 // TC-P2-02: Gateway Launch failure propagates through Server.Launch().
 func TestServer_Launch_GatewayError(t *testing.T) {
 	failing := &failingGateway{err: fmt.Errorf("port in use")}
-	srv, err := New(WithGateway(failing))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithGateway(failing), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -239,6 +239,7 @@ func TestServer_EndToEnd_WithProxyServer(t *testing.T) {
 		LLMGateway: config.LLMGatewayConfig{
 			Port: 0,
 		},
+		Vault: config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
@@ -307,6 +308,7 @@ providers:
 			Port:              0,
 			ModelProfilesPath: profilesPath,
 		},
+		Vault: config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
@@ -333,7 +335,8 @@ providers:
 
 func TestServer_TaskLog(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	srv, err := New(WithGateway(stub))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithGateway(stub), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -355,6 +358,7 @@ func TestServer_WebSocketURL(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
 	cfg := &config.AppConfig{
 		WebSocket: config.WebSocketConfig{Port: 0},
+		Vault:     config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithGateway(stub), WithConfig(cfg))
 	if err != nil {
@@ -382,7 +386,9 @@ func TestServer_WebSocketURL(t *testing.T) {
 }
 
 func TestServer_AutoGenerateToken(t *testing.T) {
-	cfg := &config.AppConfig{}
+	cfg := &config.AppConfig{
+		Vault: config.VaultConfig{Backends: []string{"env"}},
+	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -398,6 +404,7 @@ func TestServer_StaticToken(t *testing.T) {
 		LLMGateway: config.LLMGatewayConfig{
 			AuthToken: "my-static-token-abc-123",
 		},
+		Vault: config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
@@ -418,6 +425,7 @@ func TestServer_TLS_AutoMode(t *testing.T) {
 				Mode:    "auto",
 			},
 		},
+		Vault: config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
@@ -448,6 +456,7 @@ func TestServer_TLS_Disabled(t *testing.T) {
 				Enabled: false,
 			},
 		},
+		Vault: config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
@@ -509,7 +518,8 @@ func TestResolveAgentService_ExternalBypass(t *testing.T) {
 // TestWithEnableVersion_Valid verifies that a supported version (1) is accepted.
 func TestWithEnableVersion_Valid(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	srv, err := New(WithGateway(stub), WithEnableVersion(1))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithGateway(stub), WithEnableVersion(1), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -521,7 +531,8 @@ func TestWithEnableVersion_Valid(t *testing.T) {
 // TestWithEnableVersion_InvalidVersion verifies that unsupported versions are rejected.
 func TestWithEnableVersion_InvalidVersion(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	_, err := New(WithGateway(stub), WithEnableVersion(99))
+	customVault := vault.NewEnvVaultBackend()
+	_, err := New(WithGateway(stub), WithEnableVersion(99), WithVaultStore(customVault))
 	if err == nil {
 		t.Fatal("expected error for unsupported version 99")
 	}
@@ -533,7 +544,8 @@ func TestWithEnableVersion_InvalidVersion(t *testing.T) {
 // TestWithEnableVersion_Multiple verifies that one invalid version in a list causes error.
 func TestWithEnableVersion_Multiple(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	_, err := New(WithGateway(stub), WithEnableVersion(1, 99))
+	customVault := vault.NewEnvVaultBackend()
+	_, err := New(WithGateway(stub), WithEnableVersion(1, 99), WithVaultStore(customVault))
 	if err == nil {
 		t.Fatal("expected error when invalid version is included")
 	}
@@ -545,7 +557,8 @@ func TestWithEnableVersion_Multiple(t *testing.T) {
 // TestWithEnableVersion_Default verifies that omitting WithEnableVersion enables all routes.
 func TestWithEnableVersion_Default(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
-	srv, err := New(WithGateway(stub))
+	customVault := vault.NewEnvVaultBackend()
+	srv, err := New(WithGateway(stub), WithVaultStore(customVault))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -556,5 +569,124 @@ func TestWithEnableVersion_Default(t *testing.T) {
 	as := srv.AgentService()
 	if as == nil {
 		t.Fatal("AgentService() returned nil")
+	}
+}
+
+// --- Vault backends validation tests ---
+
+func TestResolveVault_BackendsRequired(t *testing.T) {
+	o := &options{}
+	cfg := &config.AppConfig{} // no vault.backends set
+	_, err := resolveVault(o, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when backends is not configured")
+	}
+	if !strings.Contains(err.Error(), "vault.backends is required") {
+		t.Errorf("error should mention 'vault.backends is required': %v", err)
+	}
+	if !strings.Contains(err.Error(), "backends: [keyring]") {
+		t.Errorf("error should include example config: %v", err)
+	}
+}
+
+func TestResolveVault_BackendsEmpty(t *testing.T) {
+	o := &options{}
+	cfg := &config.AppConfig{
+		Vault: config.VaultConfig{Backends: []string{}},
+	}
+	_, err := resolveVault(o, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when backends is empty")
+	}
+	if !strings.Contains(err.Error(), "vault.backends is required") {
+		t.Errorf("error should mention 'vault.backends is required': %v", err)
+	}
+}
+
+func TestResolveVault_UnsupportedBackend(t *testing.T) {
+	o := &options{}
+	cfg := &config.AppConfig{
+		Vault: config.VaultConfig{Backends: []string{"redis"}},
+	}
+	_, err := resolveVault(o, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error for unsupported backend")
+	}
+	if !strings.Contains(err.Error(), "unsupported vault backend") {
+		t.Errorf("error should mention 'unsupported vault backend': %v", err)
+	}
+	if !strings.Contains(err.Error(), "Supported backends: keyring, env, file") {
+		t.Errorf("error should list supported backends: %v", err)
+	}
+}
+
+func TestResolveVault_FileMissingPath(t *testing.T) {
+	o := &options{}
+	cfg := &config.AppConfig{
+		Vault: config.VaultConfig{Backends: []string{"file"}},
+	}
+	_, err := resolveVault(o, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when file backend is configured without file_path")
+	}
+	if !strings.Contains(err.Error(), "file_path") {
+		t.Errorf("error should mention 'file_path': %v", err)
+	}
+}
+
+func TestResolveVault_OldBackendField(t *testing.T) {
+	o := &options{}
+	cfg := &config.AppConfig{
+		Vault: config.VaultConfig{Backend: "keyring"},
+	}
+	_, err := resolveVault(o, cfg, nil)
+	if err == nil {
+		t.Fatal("expected error when deprecated backend field is used")
+	}
+	if !strings.Contains(err.Error(), "no longer supported") {
+		t.Errorf("error should mention 'no longer supported': %v", err)
+	}
+	if !strings.Contains(err.Error(), "backends: [keyring]") {
+		t.Errorf("error should include migration example: %v", err)
+	}
+}
+
+func TestResolveVault_SingleBackend(t *testing.T) {
+	o := &options{}
+	cfg := &config.AppConfig{
+		Vault: config.VaultConfig{Backends: []string{"env"}},
+	}
+	vs, err := resolveVault(o, cfg, nil)
+	if err != nil {
+		t.Fatalf("resolveVault() error = %v", err)
+	}
+	// Single backend should return the backend directly, not wrapped in chain.
+	if _, ok := vs.(*vault.EnvVaultBackend); !ok {
+		t.Errorf("expected *vault.EnvVaultBackend, got %T", vs)
+	}
+}
+
+func TestResolveVault_MultipleBackends(t *testing.T) {
+	o := &options{}
+	cfg := &config.AppConfig{
+		Vault: config.VaultConfig{Backends: []string{"keyring", "env"}},
+	}
+	vs, err := resolveVault(o, cfg, nil)
+	if err != nil {
+		t.Fatalf("resolveVault() error = %v", err)
+	}
+	// Multiple backends should return a ChainVaultBackend.
+	if _, ok := vs.(*vault.ChainVaultBackend); !ok {
+		t.Errorf("expected *vault.ChainVaultBackend, got %T", vs)
+	}
+}
+
+func TestNew_VaultBackendsRequired(t *testing.T) {
+	_, err := New(WithConfig(&config.AppConfig{}))
+	if err == nil {
+		t.Fatal("expected error when vault.backends is not configured")
+	}
+	if !strings.Contains(err.Error(), "vault.backends is required") {
+		t.Errorf("error should mention 'vault.backends is required': %v", err)
 	}
 }
