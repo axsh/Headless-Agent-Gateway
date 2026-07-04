@@ -2,64 +2,83 @@ package agentservice
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 const minClaudeCLIVersion = "2.1.0"
 
-// parseCLIVersion extracts major.minor.patch from a version string like "2.1.169 (Claude Code)".
-// Returns (0,0,0, err) if parsing fails.
-func parseCLIVersion(raw string) (major, minor, patch int, err error) {
-	raw = strings.TrimSpace(raw)
-	parts := strings.Fields(raw)
-	if len(parts) == 0 {
-		return 0, 0, 0, fmt.Errorf("empty version string")
-	}
-	versionStr := parts[0]
+// VersionParser defines interface for agent-specific version parsing and verification.
+type VersionParser interface {
+	Parse(raw string) (major, minor, patch int, err error)
+	Check(raw string) error
+}
 
-	segments := strings.SplitN(versionStr, ".", 3)
-	if len(segments) < 2 {
-		return 0, 0, 0, fmt.Errorf("invalid version format: %q", versionStr)
-	}
+var versionRegex = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
 
-	major, err = strconv.Atoi(segments[0])
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("invalid major version: %w", err)
+// GetVersionParser returns the VersionParser implementation for the given agent.
+func GetVersionParser(agentName string) VersionParser {
+	switch agentName {
+	case "claudecode":
+		return &ClaudeVersionParser{}
+	case "codex":
+		return &CodexVersionParser{}
+	default:
+		return nil
 	}
-	minor, err = strconv.Atoi(segments[1])
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("invalid minor version: %w", err)
+}
+
+type ClaudeVersionParser struct{}
+
+func (p *ClaudeVersionParser) Parse(raw string) (major, minor, patch int, err error) {
+	versionStr := versionRegex.FindString(raw)
+	if versionStr == "" {
+		return 0, 0, 0, fmt.Errorf("invalid version format: %q", raw)
 	}
+	segments := strings.Split(versionStr, ".")
+	major, _ = strconv.Atoi(segments[0])
+	minor, _ = strconv.Atoi(segments[1])
 	if len(segments) >= 3 {
-		patch, err = strconv.Atoi(segments[2])
-		if err != nil {
-			// Patch part may contain non-numeric suffix; treat as 0.
-			return major, minor, 0, nil
-		}
+		patch, _ = strconv.Atoi(segments[2])
 	}
 	return major, minor, patch, nil
 }
 
-// checkCLIVersion validates that the given version meets the minimum requirement.
-// Returns nil if valid, or an error with a user-friendly message.
-func checkCLIVersion(raw string, minVersion string) error {
+func (p *ClaudeVersionParser) Check(raw string) error {
 	if raw == "" || raw == "unavailable" {
-		return nil // CLI not found; handled separately.
+		return nil
 	}
-
-	major, minor, _, err := parseCLIVersion(raw)
+	major, minor, _, err := p.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("failed to parse CLI version %q: %w", raw, err)
 	}
-
-	minMajor, minMinor, _, _ := parseCLIVersion(minVersion)
-
+	minMajor, minMinor, _, _ := p.Parse(minClaudeCLIVersion)
 	if major < minMajor || (major == minMajor && minor < minMinor) {
 		return fmt.Errorf(
 			"Claude Code CLI version %s is not supported. Minimum required: %s. Run \"claude update\" to upgrade",
-			raw, minVersion,
+			raw, minClaudeCLIVersion,
 		)
 	}
+	return nil
+}
+
+type CodexVersionParser struct{}
+
+func (p *CodexVersionParser) Parse(raw string) (major, minor, patch int, err error) {
+	versionStr := versionRegex.FindString(raw)
+	if versionStr == "" {
+		return 0, 0, 0, fmt.Errorf("invalid version format: %q", raw)
+	}
+	segments := strings.Split(versionStr, ".")
+	major, _ = strconv.Atoi(segments[0])
+	minor, _ = strconv.Atoi(segments[1])
+	if len(segments) >= 3 {
+		patch, _ = strconv.Atoi(segments[2])
+	}
+	return major, minor, patch, nil
+}
+
+func (p *CodexVersionParser) Check(raw string) error {
 	return nil
 }

@@ -40,6 +40,9 @@ func main() {
 	// server.New automatically registers all built-in coding agents
 	// (Claude Code, Codex, Wayfinder, etc.) and LLM providers
 	// (OpenAI, Anthropic, Google, Ollama) via init() imports.
+	//
+	// Optional: specify which API versions to enable:
+	//   srv, err := server.New(server.WithConfigPath(configPath), server.WithEnableVersion(1))
 	srv, err := server.New(server.WithConfigPath(configPath))
 	if err != nil {
 		log.Fatalf("failed to initialize: %v", err)

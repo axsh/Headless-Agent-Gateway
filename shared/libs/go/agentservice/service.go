@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
@@ -27,23 +28,29 @@ type AgentService interface {
 
 // Server is the Coding Agent API service layer.
 type Server struct {
-	agents         map[string]codingagent.CodingAgent
-	sessions       codingagent.SessionStore
-	logger         logger.Logger
-	taskLog        *tasklog.TaskLog
-	gatewayURL     string
-	gatewayToken   string
-	cliVersions    map[string]string           // cached at init
-	gatewayModels  []llmgateway.ModelInfo      // cached model list from LLMGP
-	gatewayDefault *llmgateway.ModelInfo       // cached default model from LLMGP
-	profiles       *config.ModelProfilesConfig // for logical name resolution
-	httpServer     *http.Server
-	ln             net.Listener
-	port           int // actual listen port (set after Launch)
-	activeMu       sync.Mutex
-	activeSessions map[string]codingagent.Session
-	execCancelMu   sync.Mutex
-	execCancels    map[string]context.CancelFunc // sessionID -> execution cancel
+	agents          map[string]codingagent.CodingAgent
+	sessions        codingagent.SessionStore
+	logger          logger.Logger
+	taskLog         *tasklog.TaskLog
+	gatewayURL      string
+	gatewayToken    string
+	cliVersions     map[string]string           // cached at init
+	gatewayModels   []llmgateway.ModelInfo      // cached model list from LLMGP
+	gatewayDefault  *llmgateway.ModelInfo       // cached default model from LLMGP
+	profiles        *config.ModelProfilesConfig // for logical name resolution
+	httpServer      *http.Server
+	ln              net.Listener
+	port            int // actual listen port (set after Launch)
+	activeMu        sync.Mutex
+	activeSessions  map[string]codingagent.Session
+	execCancelMu    sync.Mutex
+	execCancels     map[string]context.CancelFunc // sessionID -> execution cancel
+	enabledVersions   map[int]bool                  // API versions to register
+	disableSandbox    bool
+	enableSubagent    bool
+	lastGatewayHealth GatewayHealth
+	gatewayHealthMu   sync.Mutex
+	pollCancel        context.CancelFunc
 }
 
 // ServerOption configures a Server.
@@ -67,6 +74,16 @@ func WithGatewayURL(url string) ServerOption {
 // WithGatewayToken sets the LLM Gateway Proxy authentication token.
 func WithGatewayToken(token string) ServerOption {
 	return func(s *Server) { s.gatewayToken = token }
+}
+
+// WithSandboxDisabled configures whether sandbox is disabled.
+func WithSandboxDisabled(disabled bool) ServerOption {
+	return func(s *Server) { s.disableSandbox = disabled }
+}
+
+// WithSubagentEnabled configures whether subagent is enabled.
+func WithSubagentEnabled(enabled bool) ServerOption {
+	return func(s *Server) { s.enableSubagent = enabled }
 }
 
 // New creates a new AgentService Server.
@@ -127,6 +144,19 @@ func (s *Server) Launch(ctx context.Context, port int) error {
 	s.ln = ln
 	s.port = ln.Addr().(*net.TCPAddr).Port
 	s.httpServer = &http.Server{Handler: handler}
+
+	s.gatewayHealthMu.Lock()
+	s.lastGatewayHealth = GatewayHealth{
+		Status:        "ok",
+		URL:           s.gatewayURL,
+		LastCheckedAt: time.Now(),
+	}
+	s.gatewayHealthMu.Unlock()
+
+	pollCtx, cancel := context.WithCancel(context.Background())
+	s.pollCancel = cancel
+	go s.startGatewayHealthPolling(pollCtx)
+
 	go func() {
 		if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			if s.logger != nil {
@@ -146,6 +176,10 @@ func (s *Server) Launch(ctx context.Context, port int) error {
 
 // Shutdown gracefully stops the AgentService HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.pollCancel != nil {
+		s.pollCancel()
+	}
+
 	if s.httpServer == nil {
 		return nil
 	}
@@ -227,20 +261,47 @@ func (s *Server) Port() int {
 	return s.port
 }
 
+// SetEnabledVersions configures which API versions are active.
+func (s *Server) SetEnabledVersions(versions []int) {
+	s.enabledVersions = make(map[int]bool)
+	for _, v := range versions {
+		s.enabledVersions[v] = true
+	}
+}
+
+// isVersionEnabled checks if a specific API version is enabled.
+// Returns true if enabledVersions is empty (all versions enabled by default).
+func (s *Server) isVersionEnabled(v int) bool {
+	if len(s.enabledVersions) == 0 {
+		return true
+	}
+	return s.enabledVersions[v]
+}
+
 // HTTPHandler returns the HTTP handler with all endpoint routes.
 // CLI versions are detected lazily here, after all agents are registered.
 func (s *Server) HTTPHandler() http.Handler {
 	if s.cliVersions == nil {
 		s.cliVersions = detectCLIVersions(s.agents, s.logger)
 	}
+
+	s.gatewayHealthMu.Lock()
+	if s.lastGatewayHealth.LastCheckedAt.IsZero() {
+		s.gatewayHealthMu.Unlock()
+		s.updateGatewayHealth()
+	} else {
+		s.gatewayHealthMu.Unlock()
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
-	mux.HandleFunc("/api/v1/agents", s.routeAgents)
-	mux.HandleFunc("/api/v1/models", s.routeModels)
-	mux.HandleFunc("/api/v1/sessions", s.routeSessions)
-	mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
-	// v2 routes: multimodal content support
-	mux.HandleFunc("/api/v2/sessions/", s.routeSessionByIDV2)
+
+	if s.isVersionEnabled(1) {
+		mux.HandleFunc("/api/v1/agents", s.routeAgents)
+		mux.HandleFunc("/api/v1/models", s.routeModels)
+		mux.HandleFunc("/api/v1/sessions", s.routeSessions)
+		mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
+	}
 	return mux
 }
 
@@ -321,10 +382,17 @@ func detectCLIVersions(agents map[string]codingagent.CodingAgent, log logger.Log
 		versionStr := strings.TrimSpace(string(out))
 		versions[agentName] = versionStr
 
-		// R8: Validate CLI version meets minimum requirement.
-		if verErr := checkCLIVersion(versionStr, minClaudeCLIVersion); verErr != nil {
-			if log != nil {
-				log.Error(verErr.Error(), "agent", agentName)
+		// Use the agent-specific parser/validator from factory
+		parser := GetVersionParser(agentName)
+		if parser != nil {
+			if _, _, _, err := parser.Parse(versionStr); err != nil {
+				if log != nil {
+					log.Error("failed to parse CLI version: "+err.Error(), "agent", agentName)
+				}
+			} else if verErr := parser.Check(versionStr); verErr != nil {
+				if log != nil {
+					log.Error(verErr.Error(), "agent", agentName)
+				}
 			}
 		}
 	}

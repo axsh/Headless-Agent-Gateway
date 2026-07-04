@@ -138,6 +138,19 @@ func New(opts ...Option) (*Server, error) {
 
 	tl := tasklog.New()
 
+	// Step 8: Validate API versions.
+	supportedVersions := map[int]bool{1: true}
+	enableVersions := o.enableVersions
+	if len(enableVersions) == 0 {
+		// Default: enable all supported versions.
+		enableVersions = []int{1}
+	}
+	for _, v := range enableVersions {
+		if !supportedVersions[v] {
+			return nil, fmt.Errorf("tern: unsupported API version: %d", v)
+		}
+	}
+
 	// Build gateway URL from port for health check cascading.
 	gatewayURL := ""
 	if cfg.LLMGateway.Port > 0 {
@@ -155,6 +168,7 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent)
+	as.SetEnabledVersions(enableVersions)
 
 	wsPort := cfg.WebSocket.Port
 	ws := wsserver.New(wsPort, tl, log)
@@ -376,6 +390,8 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		agentservice.WithTaskLog(tl),
 		agentservice.WithGatewayURL(gatewayURL),
 		agentservice.WithGatewayToken(gatewayToken),
+		agentservice.WithSandboxDisabled(disableSandbox),
+		agentservice.WithSubagentEnabled(enableSubagent),
 	)
 
 	// Auto-register coding agents from the global registry.

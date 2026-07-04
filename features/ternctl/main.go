@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/axsh/arctic-tern/client"
+	client "github.com/axsh/arctic-tern/client/v1"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
@@ -175,7 +175,7 @@ func cmdRun(c *client.Client, args []string) {
 	}
 
 	// Send message and stream output.
-	stream, err := session.SendMessage(ctx, *prompt)
+	stream, err := session.SendText(ctx, *prompt)
 	if err != nil {
 		log.Error("error sending message", "error", err.Error(), "session_id", session.ID)
 		fmt.Fprintf(os.Stderr, "Error sending message: %v\n", err)

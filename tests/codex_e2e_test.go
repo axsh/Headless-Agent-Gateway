@@ -339,17 +339,35 @@ func TestCodexE2E_HealthWithCodexAgent(t *testing.T) {
 	var health map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&health)
 
-	// agents should contain "codex"
-	agents, _ := health["agents"].([]interface{})
+	// status should be "ok"
+	status, _ := health["status"].(string)
+	if status != "ok" {
+		t.Errorf("health.status = %q, want %q", status, "ok")
+	}
+
+	// agents should contain "codex" (by querying /api/v1/agents)
+	respAgents, err := http.Get(baseURL + "/api/v1/agents")
+	if err != nil {
+		t.Fatalf("agents request failed: %v", err)
+	}
+	defer respAgents.Body.Close()
+
+	if respAgents.StatusCode != http.StatusOK {
+		t.Fatalf("agents: expected 200, got %d", respAgents.StatusCode)
+	}
+
+	var agents []map[string]interface{}
+	json.NewDecoder(respAgents.Body).Decode(&agents)
+
 	found := false
 	for _, a := range agents {
-		if name, ok := a.(string); ok && name == "codex" {
+		if name, ok := a["name"].(string); ok && name == "codex" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("health.agents does not contain 'codex': %v", agents)
+		t.Errorf("api/v1/agents does not contain 'codex': %v", agents)
 	}
 }
 

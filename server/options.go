@@ -12,12 +12,13 @@ import (
 type Option func(*options)
 
 type options struct {
-	cfg          *config.AppConfig
-	configPath   string
-	logger       logger.Logger
-	vault        vault.VaultStore
-	gateway      llmgateway.LLMGatewayBackend
-	agentService *agentservice.Server
+	cfg            *config.AppConfig
+	configPath     string
+	logger         logger.Logger
+	vault          vault.VaultStore
+	gateway        llmgateway.LLMGatewayBackend
+	agentService   *agentservice.Server
+	enableVersions []int
 }
 
 // WithConfig sets the configuration directly.
@@ -74,5 +75,15 @@ func WithKeyringVault(tenantID ...string) Option {
 func WithAgentService(as *agentservice.Server) Option {
 	return func(o *options) {
 		o.agentService = as
+	}
+}
+
+// WithEnableVersion specifies which API versions to enable.
+// Supported versions: 1.
+// If not called, all supported versions are enabled by default.
+// Returns an error from New() if an unsupported version is specified.
+func WithEnableVersion(versions ...int) Option {
+	return func(o *options) {
+		o.enableVersions = versions
 	}
 }

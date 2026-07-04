@@ -1,5 +1,4 @@
-// Deprecated: Use github.com/axsh/arctic-tern/client/v1 instead.
-package client
+package v1
 
 import (
 	"bytes"
@@ -72,9 +71,10 @@ func (c *Client) CreateSession(ctx context.Context, req SessionRequest) (*Sessio
 	}, nil
 }
 
-// SendMessage sends a message to the session and returns a Stream.
-func (s *Session) SendMessage(ctx context.Context, message string) (*Stream, error) {
-	body, err := json.Marshal(map[string]string{"message": message})
+// SendMessage sends a multimodal message to the session and returns a Stream.
+// The content parameter accepts a slice of ContentPart for text, images, etc.
+func (s *Session) SendMessage(ctx context.Context, content []ContentPart) (*Stream, error) {
+	body, err := json.Marshal(map[string]any{"content": content})
 	if err != nil {
 		return nil, fmt.Errorf("marshal message: %w", err)
 	}
@@ -101,6 +101,25 @@ func (s *Session) SendMessage(ctx context.Context, message string) (*Stream, err
 
 	return newStream(resp.Body), nil
 }
+
+// SendText is a convenience method for sending text-only messages.
+func (s *Session) SendText(ctx context.Context, message string) (*Stream, error) {
+	return s.SendMessage(ctx, []ContentPart{{Type: "text", Text: message}})
+}
+
+// SendImageFile is a convenience method that reads an image file from path,
+// automatically detects its media type, and sends it alongside a text prompt.
+func (s *Session) SendImageFile(ctx context.Context, path string, prompt string) (*Stream, error) {
+	parts, err := NewMessage().
+		Text(prompt).
+		ImageFile(path).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+	return s.SendMessage(ctx, parts)
+}
+
 
 // Terminate terminates the session.
 func (s *Session) Terminate(ctx context.Context) error {

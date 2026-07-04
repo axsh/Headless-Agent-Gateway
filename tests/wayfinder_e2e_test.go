@@ -274,17 +274,29 @@ func TestE2E_Wayfinder_Health(t *testing.T) {
 		t.Errorf("health.status = %q, want %q", status, "ok")
 	}
 
-	// agents should contain "wayfinder"
-	agents, _ := health["agents"].([]interface{})
+	// agents should contain "wayfinder" (by querying /api/v1/agents)
+	respAgents, err := http.Get(baseURL + "/api/v1/agents")
+	if err != nil {
+		t.Fatalf("agents request failed: %v", err)
+	}
+	defer respAgents.Body.Close()
+
+	if respAgents.StatusCode != http.StatusOK {
+		t.Fatalf("agents: expected 200, got %d", respAgents.StatusCode)
+	}
+
+	var agents []map[string]interface{}
+	json.NewDecoder(respAgents.Body).Decode(&agents)
+
 	found := false
 	for _, a := range agents {
-		if name, ok := a.(string); ok && name == "wayfinder" {
+		if name, ok := a["name"].(string); ok && name == "wayfinder" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("health.agents does not contain 'wayfinder': %v", agents)
+		t.Errorf("api/v1/agents does not contain 'wayfinder': %v", agents)
 	}
 }
 

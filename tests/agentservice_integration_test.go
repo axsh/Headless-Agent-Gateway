@@ -120,19 +120,23 @@ func TestAgentServiceHealthCheck(t *testing.T) {
 
 	var health struct {
 		Status      string            `json:"status"`
-		Agents      []string          `json:"agents"`
 		CLIVersions map[string]string `json:"cli_versions"`
 		Gateway     struct {
-			Status string `json:"status"`
+			Status        string `json:"status"`
+			LastCheckedAt string `json:"last_checked_at"`
 		} `json:"gateway"`
+		ServerSettings struct {
+			DisableSandbox bool `json:"disable_sandbox"`
+			EnableSubagent bool `json:"enable_subagent"`
+		} `json:"server_settings"`
 	}
 	json.NewDecoder(resp.Body).Decode(&health)
 
 	if health.Status != "ok" {
 		t.Errorf("health.status = %q, want ok", health.Status)
 	}
-	if len(health.Agents) != 1 || health.Agents[0] != "claudecode" {
-		t.Errorf("agents = %v, want [claudecode]", health.Agents)
+	if health.Gateway.LastCheckedAt == "" {
+		t.Error("gateway.last_checked_at should not be empty")
 	}
 	// cli_versions should exist (may be "unavailable" in test env)
 	if health.CLIVersions == nil {
@@ -202,7 +206,7 @@ func TestAgentServiceSSEStreaming(t *testing.T) {
 	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
 
 	// Send message with SSE
-	msgBody, _ := json.Marshal(map[string]string{"message": "test prompt"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test prompt"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))
@@ -266,7 +270,7 @@ func TestAgentServiceTaskLogIntegration(t *testing.T) {
 	}
 
 	// Send message (JSON mode to collect all at once)
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	resp, _ := http.Post(
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		"application/json", bytes.NewReader(msgBody))
@@ -304,7 +308,7 @@ func TestAgentServiceLogStreamSSE(t *testing.T) {
 
 	// Create another session and send a message to put it into completed state
 	sessionID2 := createAgentServiceSession(t, ts.URL, "claudecode")
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	resp, _ := http.Post(
 		ts.URL+"/api/v1/sessions/"+sessionID2+"/messages",
 		"application/json", bytes.NewReader(msgBody))
@@ -348,7 +352,7 @@ func TestAgentServiceSDKSessionID(t *testing.T) {
 	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
 
 	// Send message with SSE (triggers EventSystem with SessionID)
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))
@@ -479,7 +483,7 @@ func TestAgentServiceSSEStreamingContent(t *testing.T) {
 	ts, _ := setupAgentServiceTestServer(t)
 	sessionID := createAgentServiceSession(t, ts.URL, "claudecode")
 
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))
@@ -591,7 +595,7 @@ func TestAgentServiceSSEErrorPropagation(t *testing.T) {
 	defer ts.Close()
 
 	sessionID := createAgentServiceSession(t, ts.URL, "erroragent")
-	msgBody, _ := json.Marshal(map[string]string{"message": "test"})
+	msgBody, _ := json.Marshal(map[string]any{"content": []map[string]any{{"type": "text", "text": "test"}}})
 	req, _ := http.NewRequest("POST",
 		ts.URL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(msgBody))

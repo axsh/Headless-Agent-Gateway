@@ -90,3 +90,21 @@ func TestFeatures_Ternctl_Builds(t *testing.T) {
 		t.Fatalf("ternctl build failed: %v\n%s", err, output)
 	}
 }
+
+// TestExamples_MultimodalClient_Builds verifies that the multimodal-client example
+// compiles without errors.
+func TestExamples_MultimodalClient_Builds(t *testing.T) {
+	projectRoot, _ := filepath.Abs("..")
+	exampleDir := filepath.Join(projectRoot, "examples", "multimodal-client")
+
+	if _, err := os.Stat(exampleDir); os.IsNotExist(err) {
+		t.Fatalf("example directory does not exist: %s", exampleDir)
+	}
+
+	cmd := exec.Command("go", "build", "-o", nullOutput(), ".")
+	cmd.Dir = exampleDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("multimodal-client build failed: %v\n%s", err, output)
+	}
+}
