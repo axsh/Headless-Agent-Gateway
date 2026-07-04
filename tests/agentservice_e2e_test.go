@@ -258,7 +258,13 @@ func createE2ESessionWithModel(t *testing.T, baseURL, agent, model, workDir stri
 // sendE2EMessage sends a message and returns SSE response (caller must close body).
 func sendE2EMessage(t *testing.T, baseURL, sessionID, message string, timeout time.Duration) *http.Response {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"message": message})
+	type contentPart struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+	}
+	body, _ := json.Marshal(map[string]any{
+		"content": []contentPart{{Type: "text", Text: message}},
+	})
 	req, _ := http.NewRequest("POST",
 		baseURL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(body))
@@ -840,7 +846,9 @@ func TestE2E_WSLDelegation_FailReproduction(t *testing.T) {
 	}
 
 	// Now send a message to trigger process startup (where CWD is applied).
-	msgBody, _ := json.Marshal(map[string]string{"message": "say hello"})
+	msgBody, _ := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": "say hello"}},
+	})
 	msgResp, err := http.Post(baseURL+"/api/v1/sessions/"+sessionID+"/messages", "application/json", bytes.NewReader(msgBody))
 	if err != nil {
 		t.Fatalf("failed to send message: %v", err)
