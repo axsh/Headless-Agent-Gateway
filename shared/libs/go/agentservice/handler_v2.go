@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
 // MultimodalSupporter is an optional interface that agents can implement
@@ -72,26 +73,36 @@ func (s *Server) handleSendMessageV2(w http.ResponseWriter, r *http.Request) {
 
 	// Build the prompt string from content parts.
 	var promptText string
-	var savedFiles []string
+	var sessionParts []session.ContentPart
 	if hasMultimodal {
-		// Determine base directory for temp file storage.
-		baseDir := record.WorkDir
-		if baseDir == "" {
-			baseDir, _ = os.Getwd()
+		// Determine session directory for persistent image storage.
+		sessionDir := record.SessionDir
+		if sessionDir == "" {
+			// Fallback to WorkDir/.AgentName if SessionDir is not set (should normally be set).
+			if record.WorkDir != "" {
+				sessionDir = filepath.Join(record.WorkDir, "."+record.AgentName)
+			} else {
+				sessionDir, _ = os.Getwd()
+			}
 		}
-		promptText, savedFiles, err = BuildMultimodalPrompt(baseDir, sessionID, req.Content)
+
+		var err error
+		promptText, sessionParts, err = BuildMultimodalContent(sessionDir, req.Content)
 		if err != nil {
 			if s.logger != nil {
-				s.logger.Error("failed to build multimodal prompt", "error", err.Error(), "session_id", sessionID)
+				s.logger.Error("failed to build multimodal content", "error", err.Error(), "session_id", sessionID)
 			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if s.logger != nil {
-			s.logger.Debug("multimodal prompt built", "session_id", sessionID, "saved_files", len(savedFiles))
+			s.logger.Debug("multimodal content built", "session_id", sessionID, "session_parts", len(sessionParts))
 		}
 	} else {
 		promptText = codingagent.ExtractText(req.Content)
+		sessionParts = []session.ContentPart{
+			{Type: "text", Text: promptText},
+		}
 	}
 
 	if s.logger != nil {
@@ -127,17 +138,24 @@ func (s *Server) handleSendMessageV2(w http.ResponseWriter, r *http.Request) {
 		session.Close()
 		s.UnregisterActiveSession(sessionID)
 		s.UnregisterExecCancel(sessionID)
-		// Cleanup multimodal temp files after session completes.
-		if len(savedFiles) > 0 {
-			CleanupMultimodalFiles(savedFiles)
-			if s.logger != nil {
-				s.logger.Debug("cleaned up multimodal temp files", "session_id", sessionID, "count", len(savedFiles))
-			}
-		}
 	}()
+
+	// Record the user message with multimodal parts in the session state.
+	// This ensures that images are persisted in the session history.
+	if s.logger != nil {
+		s.logger.Debug("recording user message", "session_id", sessionID, "parts", len(sessionParts))
+	}
+	session.AddMessage(session.Message{
+		Role:         "user",
+		Content:      promptText,
+		ContentParts: sessionParts,
+		Timestamp:    time.Now(),
+	})
 
 	ch, err := session.Send(execCtx, promptText)
 	if err != nil {
+		// Remove the message we just added if send failed?
+		// Actually, standard behavior in tern is to keep it or mark session failed.
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
