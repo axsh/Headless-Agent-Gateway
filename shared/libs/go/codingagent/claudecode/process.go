@@ -165,9 +165,25 @@ func StartProcess(
 		return nil, nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 
-	// R3: Capture stderr for diagnostics.
+	// Capture stderr via pipe for real-time debug logging.
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("stderr pipe: %w", err)
+	}
+
 	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line)
+			stderrBuf.WriteString("\n")
+			log.Debug("CLI stderr line", "line", line)
+		}
+	}()
 
 	// R7: Suppress stdin warning by providing an empty reader that returns EOF immediately.
 	cmd.Stdin = bytes.NewReader(nil)
@@ -196,6 +212,10 @@ func StartProcess(
 				}
 			}
 		}
+
+		// Wait for stderr scanner to finish before calling cmd.Wait().
+		<-stderrDone
+
 		// R4: Check exit code and report stderr on failure.
 		if err := cmd.Wait(); err != nil {
 			errMsg := strings.TrimSpace(stderrBuf.String())
