@@ -15,13 +15,27 @@ const (
 
 // Message represents a conversation message with metadata for compaction.
 type Message struct {
-	Role       string           `json:"role"`
-	Content    string           `json:"content"`
-	Timestamp  time.Time        `json:"timestamp"`
-	Pinned     bool             `json:"pinned"`
-	Seq        int              `json:"seq"` // Global sequence number (immutable after assignment).
-	ToolCalls  []ToolCallRecord `json:"tool_calls,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Role         string           `json:"role"`
+	Content      string           `json:"content"`
+	ContentParts []ContentPart    `json:"content_parts,omitempty"`
+	Timestamp    time.Time        `json:"timestamp"`
+	Pinned       bool             `json:"pinned"`
+	Seq          int              `json:"seq"` // Global sequence number (immutable after assignment).
+	ToolCalls    []ToolCallRecord `json:"tool_calls,omitempty"`
+	ToolCallID   string           `json:"tool_call_id,omitempty"`
+}
+
+// ContentPart represents a part of a message content, allowing for multimodal data.
+type ContentPart struct {
+	Type  string         `json:"type"` // "text", "image"
+	Text  string         `json:"text,omitempty"`
+	Image *ImageMetadata `json:"image,omitempty"`
+}
+
+// ImageMetadata represents metadata for an image stored in the session directory.
+type ImageMetadata struct {
+	Path      string `json:"path"`       // Relative path from the session directory.
+	MediaType string `json:"media_type"` // e.g., "image/png"
 }
 
 // ToolCallRecord records a tool call within a message.
