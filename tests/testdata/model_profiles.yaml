@@ -47,3 +47,7 @@ providers:
       - name: default
         models:
           - name: gemma3:4b
+
+coding_agents:
+  codex:
+    max_prompt_bytes: 1048576 # 1MB

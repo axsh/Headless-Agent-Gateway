@@ -44,3 +44,7 @@ providers:
               tool_call_fallback: true
     network_config:
       base_url: "http://localhost:11434"
+
+coding_agents:
+  codex:
+    max_prompt_bytes: 1048576 # 1MB
