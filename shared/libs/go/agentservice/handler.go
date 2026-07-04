@@ -15,6 +15,7 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
 // MultimodalSupporter is an optional interface that agents can implement
@@ -226,28 +227,53 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build the prompt string from content parts.
+	// Build the prompt string from content parts and handle persistence.
 	var promptText string
 	var savedFiles []string
-	if hasMultimodal {
-		baseDir := record.WorkDir
-		if baseDir == "" {
-			baseDir, _ = os.Getwd()
+	var sessionParts []session.ContentPart
+
+	// Restore previous images if any (System Note injection).
+	recentImages, _ := LoadRecentImages(record.SessionDir)
+	if len(recentImages) > 0 {
+		var notes []string
+		for _, img := range recentImages {
+			notes = append(notes, fmt.Sprintf("[System Note: Previous image context restored from %s]", img))
 		}
-		promptText, savedFiles, err = BuildMultimodalPrompt(baseDir, sessionID, req.Content)
+		if len(notes) > 0 {
+			promptText = strings.Join(notes, "\n") + "\n\n"
+		}
+	}
+
+	if hasMultimodal {
+		// Use session directory for multimodal persistence.
+		promptTextPartial, sessionPartsPartial, err := BuildMultimodalContent(record.SessionDir, req.Content)
 		if err != nil {
 			if s.logger != nil {
-				s.logger.Error("failed to build multimodal prompt", "error", err.Error(), "session_id", sessionID)
+				s.logger.Error("failed to build multimodal content", "error", err.Error(), "session_id", sessionID)
 			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if s.logger != nil {
-			s.logger.Debug("multimodal prompt built", "session_id", sessionID, "saved_files", len(savedFiles))
-		}
+		promptText += promptTextPartial
+		sessionParts = sessionPartsPartial
 	} else {
-		promptText = codingagent.ExtractText(req.Content)
+		promptText += codingagent.ExtractText(req.Content)
+		for _, p := range req.Content {
+			if p.Type == "text" {
+				sessionParts = append(sessionParts, session.ContentPart{
+					Type: "text",
+					Text: p.Text,
+				})
+			}
+		}
 	}
+
+	// Append user message to persistent session history.
+	AppendSessionMessage(record.SessionDir, session.Message{
+		Role:         "user",
+		ContentParts: sessionParts,
+		Timestamp:    time.Now(),
+	})
 
 	if s.logger != nil {
 		s.logger.Debug("sending message to agent", "session_id", sessionID, "agent", record.AgentName, "model", record.Model)

@@ -116,7 +116,15 @@ stream, _ := session.SendImageFile(ctx, "screenshot.png", "Describe this image:"
 stream.Output(os.Stdout)
 ```
 
+### Persistent Multimodal Sessions
+
+Tern supports persistent multimodal context across conversational turns. When an image is sent in a session via the v2 API, it is automatically persisted in the session history. Subsequent messages in the same session (even after a resume) will automatically include previous images in the context, ensuring the model "remembers" visual information without needing to re-upload files.
+
+Text-only requests also work with the v2 content block format:
+
 **Option C: Complex Multimodal Layouts (Message Builder)**
+
+For multiple text blocks or multiple images in a single message:
 
 For multiple text blocks or multiple images in a single message:
 
