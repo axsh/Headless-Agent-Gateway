@@ -117,7 +117,9 @@ func createWayfinderSession(t *testing.T, baseURL, model, workDir string) string
 func sendWayfinderMessage(t *testing.T, baseURL, sessionID, message string, timeout time.Duration) (string, []codingagent.StreamEvent) {
 	t.Helper()
 
-	body, _ := json.Marshal(map[string]string{"message": message})
+	body, _ := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": message}},
+	})
 	req, _ := http.NewRequest("POST",
 		baseURL+"/api/v1/sessions/"+sessionID+"/messages",
 		bytes.NewReader(body))

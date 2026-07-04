@@ -48,10 +48,11 @@ func newTestServerV2() http.Handler {
 	return srv.HTTPHandler()
 }
 
-func createSessionForV2(t *testing.T, handler http.Handler, agentName string) string {
+func createSessionForV2(t *testing.T, handler http.Handler, agentName, sessionDir string) string {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{
-		"agent": agentName,
+		"agent":       agentName,
+		"session_dir": sessionDir,
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -71,7 +72,7 @@ func testBase64PNG() string {
 
 func TestHandleV2SendMessage_TextOnly(t *testing.T) {
 	handler := newTestServerV2()
-	sessionID := createSessionForV2(t, handler, "claudecode")
+	sessionID := createSessionForV2(t, handler, "claudecode", t.TempDir())
 
 	reqBody, _ := json.Marshal(map[string]any{
 		"content": []map[string]any{
@@ -89,7 +90,7 @@ func TestHandleV2SendMessage_TextOnly(t *testing.T) {
 
 func TestHandleV2SendMessage_WithImage(t *testing.T) {
 	handler := newTestServerV2()
-	sessionID := createSessionForV2(t, handler, "claudecode")
+	sessionID := createSessionForV2(t, handler, "claudecode", t.TempDir())
 
 	reqBody, _ := json.Marshal(map[string]any{
 		"content": []map[string]any{
@@ -111,7 +112,7 @@ func TestHandleV2SendMessage_WithImage(t *testing.T) {
 
 func TestHandleV2SendMessage_EmptyContent(t *testing.T) {
 	handler := newTestServerV2()
-	sessionID := createSessionForV2(t, handler, "claudecode")
+	sessionID := createSessionForV2(t, handler, "claudecode", t.TempDir())
 
 	reqBody, _ := json.Marshal(map[string]any{
 		"content": []map[string]any{},
@@ -126,7 +127,7 @@ func TestHandleV2SendMessage_EmptyContent(t *testing.T) {
 
 func TestHandleV2SendMessage_InvalidBase64(t *testing.T) {
 	handler := newTestServerV2()
-	sessionID := createSessionForV2(t, handler, "claudecode")
+	sessionID := createSessionForV2(t, handler, "claudecode", t.TempDir())
 
 	reqBody, _ := json.Marshal(map[string]any{
 		"content": []map[string]any{
@@ -162,7 +163,7 @@ func TestHandleV2SendMessage_SessionNotFound(t *testing.T) {
 
 func TestHandleV2SendMessage_WayfinderRejects(t *testing.T) {
 	handler := newTestServerV2()
-	sessionID := createSessionForV2(t, handler, "wayfinder")
+	sessionID := createSessionForV2(t, handler, "wayfinder", t.TempDir())
 
 	reqBody, _ := json.Marshal(map[string]any{
 		"content": []map[string]any{
@@ -184,7 +185,7 @@ func TestHandleV2SendMessage_WayfinderRejects(t *testing.T) {
 
 func TestHandleV2SendMessage_WayfinderTextOnly(t *testing.T) {
 	handler := newTestServerV2()
-	sessionID := createSessionForV2(t, handler, "wayfinder")
+	sessionID := createSessionForV2(t, handler, "wayfinder", t.TempDir())
 
 	// Text-only should work even for non-multimodal agents.
 	reqBody, _ := json.Marshal(map[string]any{

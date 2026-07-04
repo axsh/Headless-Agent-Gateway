@@ -25,9 +25,36 @@ func TestCodexBuildArgs(t *testing.T) {
 	if !strings.Contains(argsStr, `model="gpt-4o"`) {
 		t.Errorf("args should contain config override, got %q", argsStr)
 	}
-	// Prompt should be the last argument
-	if args[len(args)-1] != "create hello.txt" {
-		t.Errorf("last arg should be prompt, got %q", args[len(args)-1])
+	// When prompt is non-empty, last arg should be "-" (stdin mode)
+	if args[len(args)-1] != "-" {
+		t.Errorf("last arg should be '-' for stdin mode, got %q", args[len(args)-1])
+	}
+}
+
+func TestCodexBuildArgs_StdinMode(t *testing.T) {
+	args := codex.BuildArgs("some prompt text", nil)
+
+	// Last argument should be "-" to instruct codex to read from stdin.
+	if args[len(args)-1] != "-" {
+		t.Errorf("last arg should be '-' for stdin mode, got %q", args[len(args)-1])
+	}
+
+	// Prompt text itself must NOT appear in args.
+	for _, a := range args {
+		if a == "some prompt text" {
+			t.Error("prompt text should not appear in args (should be passed via stdin)")
+		}
+	}
+}
+
+func TestCodexBuildArgs_EmptyPrompt(t *testing.T) {
+	args := codex.BuildArgs("", nil)
+
+	// When prompt is empty, "-" should NOT be in args.
+	for _, a := range args {
+		if a == "-" {
+			t.Error("'-' should not be in args when prompt is empty")
+		}
 	}
 }
 
