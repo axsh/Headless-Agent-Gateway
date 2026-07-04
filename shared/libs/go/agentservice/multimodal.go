@@ -126,6 +126,73 @@ func BuildMultimodalContent(sessionDir string, parts []codingagent.ContentPart) 
 	return sb.String(), sessionParts, nil
 }
 
+// LoadRecentImages reads the session history and returns a list of absolute paths
+// to images found in previous user messages.
+func LoadRecentImages(sessionDir string) ([]string, error) {
+	histDir := filepath.Join(sessionDir, "history")
+	if _, err := os.Stat(histDir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	msgs, err := session.LoadHistory(histDir, 0, 1000000)
+	if err != nil {
+		return nil, fmt.Errorf("load history: %w", err)
+	}
+
+	var imagePaths []string
+	seen := make(map[string]bool)
+
+	for _, msg := range msgs {
+		if msg.Role != "user" {
+			continue
+		}
+		for _, part := range msg.ContentParts {
+			if part.Type == "image" && part.Image != nil && part.Image.Path != "" {
+				absPath := part.Image.Path
+				if !filepath.IsAbs(absPath) {
+					absPath = filepath.Join(sessionDir, absPath)
+				}
+				if !seen[absPath] {
+					imagePaths = append(imagePaths, absPath)
+					seen[absPath] = true
+				}
+			}
+		}
+	}
+
+	return imagePaths, nil
+}
+
+// AppendSessionMessage appends a message to the session history,
+// automatically determining the next sequence number.
+func AppendSessionMessage(sessionDir string, msg session.Message) error {
+	histDir := filepath.Join(sessionDir, "history")
+	if err := os.MkdirAll(histDir, 0755); err != nil {
+		return fmt.Errorf("create history dir: %w", err)
+	}
+
+	// Find the next sequence number by looking at existing files.
+	files, err := os.ReadDir(histDir)
+	if err != nil {
+		return fmt.Errorf("read history dir: %w", err)
+	}
+
+	maxSeq := 0
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".json") {
+			var seq int
+			if _, err := fmt.Sscanf(f.Name(), "%x.json", &seq); err == nil {
+				if seq > maxSeq {
+					maxSeq = seq
+				}
+			}
+		}
+	}
+
+	msg.Seq = maxSeq + 1
+	return session.AppendHistory(histDir, []session.Message{msg})
+}
+
 // CleanupMultimodalFiles removes all temp files created for a session.
 func CleanupMultimodalFiles(paths []string) {
 	for _, p := range paths {

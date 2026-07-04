@@ -3,12 +3,15 @@ package agentservice
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
-	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
+	wayfinder_session "github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
 // MultimodalSupporter is an optional interface that agents can implement
@@ -73,7 +76,7 @@ func (s *Server) handleSendMessageV2(w http.ResponseWriter, r *http.Request) {
 
 	// Build the prompt string from content parts.
 	var promptText string
-	var sessionParts []session.ContentPart
+	var sessionParts []wayfinder_session.ContentPart
 	if hasMultimodal {
 		// Determine session directory for persistent image storage.
 		sessionDir := record.SessionDir
@@ -100,8 +103,35 @@ func (s *Server) handleSendMessageV2(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		promptText = codingagent.ExtractText(req.Content)
-		sessionParts = []session.ContentPart{
+		sessionParts = []wayfinder_session.ContentPart{
 			{Type: "text", Text: promptText},
+		}
+	}
+
+	// Context restoration: append previous images to the prompt if this is a resumed session.
+	if record.AgentSessionID != "" {
+		sessionDir := record.SessionDir
+		if sessionDir == "" {
+			if record.WorkDir != "" {
+				sessionDir = filepath.Join(record.WorkDir, "."+record.AgentName)
+			} else {
+				sessionDir, _ = os.Getwd()
+			}
+		}
+
+		recentImages, err := LoadRecentImages(sessionDir)
+		if err == nil && len(recentImages) > 0 {
+			var sb strings.Builder
+			sb.WriteString(promptText)
+			sb.WriteString("\n\n---\n[System Note: Previous images in this session for context]\n")
+			for _, imgPath := range recentImages {
+				// Use basename for the label to keep it clean.
+				sb.WriteString(fmt.Sprintf("[Attached Image: %s]\n", filepath.Base(imgPath)))
+			}
+			promptText = sb.String()
+			if s.logger != nil {
+				s.logger.Debug("restored image context from history", "session_id", sessionID, "images", len(recentImages))
+			}
 		}
 	}
 
@@ -145,7 +175,18 @@ func (s *Server) handleSendMessageV2(w http.ResponseWriter, r *http.Request) {
 	if s.logger != nil {
 		s.logger.Debug("recording user message", "session_id", sessionID, "parts", len(sessionParts))
 	}
-	session.AddMessage(session.Message{
+
+	// Use derived sessionDir from earlier.
+	sessionDir := record.SessionDir
+	if sessionDir == "" {
+		if record.WorkDir != "" {
+			sessionDir = filepath.Join(record.WorkDir, "."+record.AgentName)
+		} else {
+			sessionDir, _ = os.Getwd()
+		}
+	}
+
+	AppendSessionMessage(sessionDir, wayfinder_session.Message{
 		Role:         "user",
 		Content:      promptText,
 		ContentParts: sessionParts,

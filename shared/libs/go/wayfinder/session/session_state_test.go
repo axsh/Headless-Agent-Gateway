@@ -113,3 +113,45 @@ func TestSessionState_ParentID_Set(t *testing.T) {
 		t.Errorf("ParentID = %v, want %q", restored.ParentID, parentID)
 	}
 }
+func TestSessionState_MultimodalSerialization(t *testing.T) {
+	now := time.Now().Truncate(time.Millisecond)
+	state := &SessionState{
+		SessionID: "s-multi",
+		Status:    StatusActive,
+		Messages: []Message{
+			{
+				Role: "user",
+				ContentParts: []ContentPart{
+					{Type: "text", Text: "Look at this image:"},
+					{Type: "image", Image: &ImageMetadata{Path: "multimodal/abc.png", MediaType: "image/png"}},
+				},
+				Timestamp: now,
+			},
+		},
+		CreatedAt: now,
+	}
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var restored SessionState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	if len(restored.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(restored.Messages))
+	}
+	parts := restored.Messages[0].ContentParts
+	if len(parts) != 2 {
+		t.Fatalf("len(ContentParts) = %d, want 2", len(parts))
+	}
+	if parts[0].Type != "text" || parts[0].Text != "Look at this image:" {
+		t.Errorf("parts[0] = %+v", parts[0])
+	}
+	if parts[1].Type != "image" || parts[1].Image == nil || parts[1].Image.Path != "multimodal/abc.png" {
+		t.Errorf("parts[1] = %+v", parts[1])
+	}
+}
