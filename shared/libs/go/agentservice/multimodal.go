@@ -10,12 +10,33 @@ import (
 	"strings"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
 // SaveImageToTempFile decodes Base64 image data and saves it to
 // {baseDir}/tmp/multimodal/{sessionID}_{hash}.{ext}.
 // Returns the absolute path to the saved file.
 func SaveImageToTempFile(baseDir string, sessionID string, source *codingagent.ImageSource) (string, error) {
+	return saveImage(filepath.Join(baseDir, "tmp", "multimodal"), sessionID+"_", source)
+}
+
+// SaveImageToSessionDir decodes Base64 image data and saves it to
+// {sessionDir}/multimodal/{hash}.{ext}.
+// Returns the relative path from sessionDir to the saved file.
+func SaveImageToSessionDir(sessionDir string, source *codingagent.ImageSource) (string, error) {
+	dir := filepath.Join(sessionDir, "multimodal")
+	absPath, err := saveImage(dir, "", source)
+	if err != nil {
+		return "", err
+	}
+	relPath, err := filepath.Rel(sessionDir, absPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get relative path: %w", err)
+	}
+	return relPath, nil
+}
+
+func saveImage(dir string, prefix string, source *codingagent.ImageSource) (string, error) {
 	if source.Data == "" {
 		return "", fmt.Errorf("image data is empty")
 	}
@@ -26,14 +47,18 @@ func SaveImageToTempFile(baseDir string, sessionID string, source *codingagent.I
 
 	ext := mediaTypeToExt(source.MediaType)
 	hash := sha256.Sum256(decoded)
-	filename := fmt.Sprintf("%s_%s%s", sessionID, hex.EncodeToString(hash[:8]), ext)
+	filename := fmt.Sprintf("%s%s%s", prefix, hex.EncodeToString(hash[:8]), ext)
 
-	dir := filepath.Join(baseDir, "tmp", "multimodal")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create multimodal dir: %w", err)
 	}
 
 	path := filepath.Join(dir, filename)
+	// Skip if file already exists.
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+
 	if err := os.WriteFile(path, decoded, 0644); err != nil {
 		return "", fmt.Errorf("write image file: %w", err)
 	}
@@ -64,6 +89,41 @@ func BuildMultimodalPrompt(baseDir, sessionID string, parts []codingagent.Conten
 		}
 	}
 	return sb.String(), savedFiles, nil
+}
+
+// BuildMultimodalContent processes []codingagent.ContentPart and returns a unified prompt string
+// and a list of session.ContentPart for history persistence.
+func BuildMultimodalContent(sessionDir string, parts []codingagent.ContentPart) (string, []session.ContentPart, error) {
+	var sb strings.Builder
+	var sessionParts []session.ContentPart
+	for _, p := range parts {
+		switch p.Type {
+		case "text":
+			sb.WriteString(p.Text)
+			sessionParts = append(sessionParts, session.ContentPart{
+				Type: "text",
+				Text: p.Text,
+			})
+		case "image":
+			if p.Source == nil {
+				return "", nil, fmt.Errorf("image content part missing source")
+			}
+			relPath, err := SaveImageToSessionDir(sessionDir, p.Source)
+			if err != nil {
+				return "", nil, fmt.Errorf("save image to session dir: %w", err)
+			}
+			absPath := filepath.Join(sessionDir, relPath)
+			sb.WriteString(fmt.Sprintf("\n[Attached image: %s]\n", absPath))
+			sessionParts = append(sessionParts, session.ContentPart{
+				Type: "image",
+				Image: &session.ImageMetadata{
+					Path:      relPath,
+					MediaType: p.Source.MediaType,
+				},
+			})
+		}
+	}
+	return sb.String(), sessionParts, nil
 }
 
 // CleanupMultimodalFiles removes all temp files created for a session.
