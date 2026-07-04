@@ -6,7 +6,7 @@ llm_gateway:
   model_profiles_path: "model_profiles.yaml"
 
 vault:
-  backend: "keyring"
+  backends: [keyring]
 
 agent_service:
   port: 3100
