@@ -14,7 +14,7 @@ llm_gateway:
   port: 14000
   model_profiles_path: "./model_profiles.yaml"
 vault:
-  backend: "env"
+  backends: [env]
 log:
   level: "info"
 `
@@ -29,8 +29,8 @@ log:
 	if cfg.LLMGateway.Port != 14000 {
 		t.Errorf("Port = %d, want 14000", cfg.LLMGateway.Port)
 	}
-	if cfg.Vault.Backend != "env" {
-		t.Errorf("Backend = %q, want %q", cfg.Vault.Backend, "env")
+	if len(cfg.Vault.Backends) != 1 || cfg.Vault.Backends[0] != "env" {
+		t.Errorf("Backends = %v, want [env]", cfg.Vault.Backends)
 	}
 	if cfg.Log.Level != "info" {
 		t.Errorf("Level = %q, want %q", cfg.Log.Level, "info")
