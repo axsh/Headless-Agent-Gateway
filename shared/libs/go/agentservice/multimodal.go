@@ -14,26 +14,11 @@ import (
 )
 
 // SaveImageToTempFile decodes Base64 image data and saves it to
-// {baseDir}/tmp/multimodal/{sessionID}_{hash}.{ext}.
+// {os.TempDir()}/arctic-tern-multimodal/{sessionID}_{hash}.{ext}.
 // Returns the absolute path to the saved file.
-func SaveImageToTempFile(baseDir string, sessionID string, source *codingagent.ImageSource) (string, error) {
-	return saveImage(filepath.Join(baseDir, "tmp", "multimodal"), sessionID+"_", source)
-}
-
-// SaveImageToSessionDir decodes Base64 image data and saves it to
-// {sessionDir}/multimodal/{hash}.{ext}.
-// Returns the relative path from sessionDir to the saved file.
-func SaveImageToSessionDir(sessionDir string, source *codingagent.ImageSource) (string, error) {
-	dir := filepath.Join(sessionDir, "multimodal")
-	absPath, err := saveImage(dir, "", source)
-	if err != nil {
-		return "", err
-	}
-	relPath, err := filepath.Rel(sessionDir, absPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get relative path: %w", err)
-	}
-	return relPath, nil
+func SaveImageToTempFile(sessionID string, source *codingagent.ImageSource) (string, error) {
+	dir := filepath.Join(os.TempDir(), "arctic-tern-multimodal")
+	return saveImage(dir, sessionID+"_", source)
 }
 
 func saveImage(dir string, prefix string, source *codingagent.ImageSource) (string, error) {
@@ -69,7 +54,7 @@ func saveImage(dir string, prefix string, source *codingagent.ImageSource) (stri
 // - text blocks are concatenated
 // - image blocks are saved to temp files and replaced with path references
 // Returns the combined prompt string and a list of saved file paths for cleanup.
-func BuildMultimodalPrompt(baseDir, sessionID string, parts []codingagent.ContentPart) (string, []string, error) {
+func BuildMultimodalPrompt(sessionID string, parts []codingagent.ContentPart) (string, []string, error) {
 	var sb strings.Builder
 	var savedFiles []string
 	for _, p := range parts {
@@ -80,7 +65,7 @@ func BuildMultimodalPrompt(baseDir, sessionID string, parts []codingagent.Conten
 			if p.Source == nil {
 				return "", nil, fmt.Errorf("image content part missing source")
 			}
-			path, err := SaveImageToTempFile(baseDir, sessionID, p.Source)
+			path, err := SaveImageToTempFile(sessionID, p.Source)
 			if err != nil {
 				return "", nil, fmt.Errorf("save image: %w", err)
 			}
@@ -89,78 +74,6 @@ func BuildMultimodalPrompt(baseDir, sessionID string, parts []codingagent.Conten
 		}
 	}
 	return sb.String(), savedFiles, nil
-}
-
-// BuildMultimodalContent processes []codingagent.ContentPart and returns a unified prompt string
-// and a list of session.ContentPart for history persistence.
-func BuildMultimodalContent(sessionDir string, parts []codingagent.ContentPart) (string, []session.ContentPart, error) {
-	var sb strings.Builder
-	var sessionParts []session.ContentPart
-	for _, p := range parts {
-		switch p.Type {
-		case "text":
-			sb.WriteString(p.Text)
-			sessionParts = append(sessionParts, session.ContentPart{
-				Type: "text",
-				Text: p.Text,
-			})
-		case "image":
-			if p.Source == nil {
-				return "", nil, fmt.Errorf("image content part missing source")
-			}
-			relPath, err := SaveImageToSessionDir(sessionDir, p.Source)
-			if err != nil {
-				return "", nil, fmt.Errorf("save image to session dir: %w", err)
-			}
-			absPath := filepath.Join(sessionDir, relPath)
-			sb.WriteString(fmt.Sprintf("\n[Attached image: %s]\n", absPath))
-			sessionParts = append(sessionParts, session.ContentPart{
-				Type: "image",
-				Image: &session.ImageMetadata{
-					Path:      relPath,
-					MediaType: p.Source.MediaType,
-				},
-			})
-		}
-	}
-	return sb.String(), sessionParts, nil
-}
-
-// LoadRecentImages reads the session history and returns a list of absolute paths
-// to images found in previous user messages.
-func LoadRecentImages(sessionDir string) ([]string, error) {
-	histDir := filepath.Join(sessionDir, "history")
-	if _, err := os.Stat(histDir); os.IsNotExist(err) {
-		return nil, nil
-	}
-
-	msgs, err := session.LoadHistory(histDir, 0, 1000000)
-	if err != nil {
-		return nil, fmt.Errorf("load history: %w", err)
-	}
-
-	var imagePaths []string
-	seen := make(map[string]bool)
-
-	for _, msg := range msgs {
-		if msg.Role != "user" {
-			continue
-		}
-		for _, part := range msg.ContentParts {
-			if part.Type == "image" && part.Image != nil && part.Image.Path != "" {
-				absPath := part.Image.Path
-				if !filepath.IsAbs(absPath) {
-					absPath = filepath.Join(sessionDir, absPath)
-				}
-				if !seen[absPath] {
-					imagePaths = append(imagePaths, absPath)
-					seen[absPath] = true
-				}
-			}
-		}
-	}
-
-	return imagePaths, nil
 }
 
 // AppendSessionMessage appends a message to the session history,

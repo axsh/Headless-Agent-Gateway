@@ -1,0 +1,23 @@
+{
+  "seq": 3,
+  "role": "user",
+  "content": "",
+  "content_parts": [
+    {
+      "type": "text",
+      "text": "Describe this image:"
+    },
+    {
+      "type": "image",
+      "image": {
+        "path": "multimodal\\4c4b6a3be1314ab8.png",
+        "media_type": "image/png"
+      }
+    },
+    {
+      "type": "text",
+      "text": "What do you see?"
+    }
+  ],
+  "timestamp": "2026-07-04T13:49:01.3976852+09:00"
+}

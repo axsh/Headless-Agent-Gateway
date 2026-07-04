@@ -48,9 +48,10 @@ func newStream(body io.ReadCloser) *Stream {
 
 // Output writes all text events to the given writer and blocks until completion.
 // Returns error if an error event is received.
+// Output writes all text events to the given writer and blocks until completion.
+// Returns error if an error event is received.
 func (s *Stream) Output(w io.Writer) error {
 	defer s.body.Close()
-	var lastErr error
 	for ev := range s.events() {
 		switch ev.Type {
 		case EventText:
@@ -62,7 +63,7 @@ func (s *Stream) Output(w io.Writer) error {
 		case EventSystem:
 			fmt.Fprintf(w, "[System] %s\n", ev.Text)
 		case EventError:
-			lastErr = fmt.Errorf("%s", ev.Error)
+			return fmt.Errorf("%s", ev.Error)
 		case EventResult:
 			// Result event, no output needed.
 		case EventNodeStart:
@@ -75,7 +76,7 @@ func (s *Stream) Output(w io.Writer) error {
 			fmt.Fprintf(w, "[WBS %s]\n", ev.Text)
 		}
 	}
-	return lastErr
+	return nil
 }
 
 // OnText sets a custom handler for text events.
@@ -106,7 +107,6 @@ func (s *Stream) OnToolUse(fn func(toolName string)) *Stream {
 // Blocks until the stream is completed.
 func (s *Stream) Run() error {
 	defer s.body.Close()
-	var lastErr error
 	for ev := range s.events() {
 		switch ev.Type {
 		case EventText:
@@ -122,13 +122,13 @@ func (s *Stream) Run() error {
 				s.onResult(ev)
 			}
 		case EventError:
-			lastErr = fmt.Errorf("%s", ev.Error)
 			if s.onError != nil {
 				s.onError(ev.Error)
 			}
+			return fmt.Errorf("%s", ev.Error)
 		}
 	}
-	return lastErr
+	return nil
 }
 
 // Events returns a channel of raw events for full control.
