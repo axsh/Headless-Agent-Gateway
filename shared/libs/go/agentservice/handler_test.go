@@ -81,9 +81,10 @@ func TestHandleCreateSession(t *testing.T) {
 	_, handler := newTestServer()
 
 	body, _ := json.Marshal(map[string]string{
-		"agent":    "claudecode",
-		"model":    "claude-sonnet",
-		"work_dir": "/workspace",
+		"agent":       "claudecode",
+		"model":       "claude-sonnet",
+		"work_dir":    "/workspace",
+		"session_dir": t.TempDir(),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -107,7 +108,10 @@ func TestHandleGetSession(t *testing.T) {
 	srv, handler := newTestServer()
 
 	// Create a session first
-	body, _ := json.Marshal(map[string]string{"agent": "claudecode"})
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"session_dir": t.TempDir(),
+	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -144,7 +148,10 @@ func TestHandleDeleteSession(t *testing.T) {
 	_, handler := newTestServer()
 
 	// Create a session
-	body, _ := json.Marshal(map[string]string{"agent": "claudecode"})
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"session_dir": t.TempDir(),
+	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -176,7 +183,10 @@ func TestHandleTerminateAgent(t *testing.T) {
 	_, handler := newTestServer()
 
 	// Create a session
-	body, _ := json.Marshal(map[string]string{"agent": "claudecode"})
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"session_dir": t.TempDir(),
+	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -273,8 +283,9 @@ func TestHandleCreateSession_CrossProvider(t *testing.T) {
 	_, handler := newTestServerWithModels()
 
 	body, _ := json.Marshal(map[string]string{
-		"agent": "claudecode",
-		"model": "gpt-4o", // exists in profiles, different provider but allowed
+		"agent":       "claudecode",
+		"model":       "gpt-4o", // exists in profiles, different provider but allowed
+		"session_dir": t.TempDir(),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -291,8 +302,9 @@ func TestHandleCreateSession_ValidModel(t *testing.T) {
 	_, handler := newTestServerWithModels()
 
 	body, _ := json.Marshal(map[string]string{
-		"agent": "claudecode",
-		"model": "claude-sonnet-4-20250514",
+		"agent":       "claudecode",
+		"model":       "claude-sonnet-4-20250514",
+		"session_dir": t.TempDir(),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -308,7 +320,8 @@ func TestHandleCreateSession_EmptyModel(t *testing.T) {
 	_, handler := newTestServerWithModels()
 
 	body, _ := json.Marshal(map[string]string{
-		"agent": "claudecode",
+		"agent":       "claudecode",
+		"session_dir": t.TempDir(),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -324,8 +337,9 @@ func TestHandleCreateSession_NoGatewayModels(t *testing.T) {
 	_, handler := newTestServer() // no models cached
 
 	body, _ := json.Marshal(map[string]string{
-		"agent": "claudecode",
-		"model": "any-model-name",
+		"agent":       "claudecode",
+		"model":       "any-model-name",
+		"session_dir": t.TempDir(),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -387,8 +401,9 @@ func TestIsValidModelCrossProvider(t *testing.T) {
 
 	// gpt-4o (OpenAI model) should be valid for claudecode agent (no provider filter).
 	body, _ := json.Marshal(map[string]string{
-		"agent": "claudecode",
-		"model": "gpt-4o",
+		"agent":       "claudecode",
+		"model":       "gpt-4o",
+		"session_dir": t.TempDir(),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
