@@ -226,48 +226,60 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build the prompt string from content parts and handle persistence.
+	// Build the prompt string from content parts.
 	var promptText string
 	var savedFiles []string
-	var sessionParts []session.ContentPart
-
-	// Restore previous images if any (System Note injection).
-	recentImages, _ := LoadRecentImages(record.SessionDir)
-	if len(recentImages) > 0 {
-		var notes []string
-		for _, img := range recentImages {
-			notes = append(notes, fmt.Sprintf("[System Note: Previous image context restored from %s]", img))
-		}
-		if len(notes) > 0 {
-			promptText = strings.Join(notes, "\n") + "\n\n"
-		}
-	}
 
 	if hasMultimodal {
-		// Use session directory for multimodal persistence.
-		promptTextPartial, sessionPartsPartial, err := BuildMultimodalContent(record.SessionDir, req.Content)
+		// Use temporary multimodal prompt builder (does not persist to session dir).
+		var err error
+		promptText, savedFiles, err = BuildMultimodalPrompt(record.WorkDir, sessionID, req.Content)
 		if err != nil {
 			if s.logger != nil {
-				s.logger.Error("failed to build multimodal content", "error", err.Error(), "session_id", sessionID)
+				s.logger.Error("failed to build multimodal prompt", "error", err.Error(), "session_id", sessionID)
 			}
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		promptText += promptTextPartial
-		sessionParts = sessionPartsPartial
 	} else {
-		promptText += codingagent.ExtractText(req.Content)
-		for _, p := range req.Content {
-			if p.Type == "text" {
-				sessionParts = append(sessionParts, session.ContentPart{
-					Type: "text",
-					Text: p.Text,
-				})
-			}
-		}
+		promptText = codingagent.ExtractText(req.Content)
 	}
 
-	// Append user message to persistent session history.
+	// Validate prompt size against configured limit.
+	maxBytes := 1048576 // Default 1MB
+	if s.profiles != nil && s.profiles.CodingAgents != nil {
+		if agentCfg, ok := s.profiles.CodingAgents[record.AgentName]; ok && agentCfg.MaxPromptBytes > 0 {
+			maxBytes = agentCfg.MaxPromptBytes
+		}
+	}
+	if len(promptText) > maxBytes {
+		errMsg := fmt.Sprintf("prompt size (%d bytes) exceeds the limit (%d bytes)", len(promptText), maxBytes)
+		if s.logger != nil {
+			s.logger.Warn("prompt too large", "session_id", sessionID, "size", len(promptText), "limit", maxBytes)
+		}
+		http.Error(w, errMsg, http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	// Append user message to persistent session history (text parts only to keep it stateless).
+	var sessionParts []session.ContentPart
+	for _, p := range req.Content {
+		if p.Type == "text" {
+			sessionParts = append(sessionParts, session.ContentPart{
+				Type: "text",
+				Text: p.Text,
+			})
+		} else if p.Type == "image" {
+			// Record image presence without the binary data or path.
+			sessionParts = append(sessionParts, session.ContentPart{
+				Type: "image",
+				Image: &session.ImageMetadata{
+					MediaType: p.Source.MediaType,
+					Path:      "", // No persistent path in stateless mode
+				},
+			})
+		}
+	}
 	AppendSessionMessage(record.SessionDir, session.Message{
 		Role:         "user",
 		ContentParts: sessionParts,
