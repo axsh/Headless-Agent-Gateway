@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -355,10 +356,19 @@ func TestServer_TaskLog(t *testing.T) {
 }
 
 func TestServer_WebSocketURL(t *testing.T) {
+	// Get a free port for AgentService to avoid default 3100 conflict.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("get free port: %v", err)
+	}
+	asPort := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
 	stub := llmgateway.NewStubGateway()
 	cfg := &config.AppConfig{
-		WebSocket: config.WebSocketConfig{Port: 0},
-		Vault:     config.VaultConfig{Backends: []string{"env"}},
+		WebSocket:    config.WebSocketConfig{Port: 0},
+		AgentService: config.AgentServiceConfig{Port: asPort},
+		Vault:        config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithGateway(stub), WithConfig(cfg))
 	if err != nil {
