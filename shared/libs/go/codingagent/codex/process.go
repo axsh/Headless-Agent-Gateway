@@ -51,7 +51,7 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 	env := make(map[string]string)
 
 	// R4: Build OPENAI_API_KEY with metadata for gateway session tracking.
-	apiKey := "not-needed"
+	apiKey := "tern-internal-key-placeholder"
 	fallbackStr := "false"
 	if ac.ToolCallFallback {
 		fallbackStr = "true"
@@ -149,7 +149,12 @@ func StartProcess(
 	var maskedEnv []string
 	for _, envVar := range env {
 		if strings.HasPrefix(envVar, "OPENAI_API_KEY=") {
-			maskedEnv = append(maskedEnv, "OPENAI_API_KEY=****")
+			val := strings.TrimPrefix(envVar, "OPENAI_API_KEY=")
+			display := val
+			if len(val) > 10 {
+				display = val[:10] + "..."
+			}
+			maskedEnv = append(maskedEnv, "OPENAI_API_KEY="+display)
 		} else {
 			maskedEnv = append(maskedEnv, envVar)
 		}
@@ -210,7 +215,7 @@ func StartProcess(
 		}
 	}()
 
-	log.Info("starting codex CLI process", "work_dir", cfg.WorkDir, "model", cfg.Model)
+	log.Info("starting codex CLI process", "work_dir", cfg.WorkDir, "model", cfg.Model, "cmd", cmd.String())
 	if err := cmd.Start(); err != nil {
 		stdinWriter.Close()
 		cancel()

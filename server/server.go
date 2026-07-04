@@ -107,7 +107,7 @@ func New(opts ...Option) (*Server, error) {
 		}
 		gatewayToken = hex.EncodeToString(tokenBytes)
 		if log != nil {
-			log.Debug("gateway auth token auto-generated")
+			log.Debug("gateway auth token auto-generated", "token", gatewayToken)
 		}
 	}
 	// Inject token into gateway
