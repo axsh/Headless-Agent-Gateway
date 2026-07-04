@@ -12,6 +12,15 @@ type ModelProfilesConfig struct {
 
 	// Governance holds routing rules (future implementation).
 	Governance GovernanceConfig `yaml:"governance,omitempty"`
+
+	// CodingAgents holds configurations for specific coding agents (e.g. codex).
+	CodingAgents map[string]AgentConfig `yaml:"coding_agents,omitempty"`
+}
+
+// AgentConfig holds per-agent configuration.
+type AgentConfig struct {
+	// MaxPromptBytes is the maximum allowed size for the combined message and image data.
+	MaxPromptBytes int `yaml:"max_prompt_bytes"`
 }
 
 // DefaultProfileConfig holds the default provider/model selection.
