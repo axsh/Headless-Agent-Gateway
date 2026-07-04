@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,7 @@ type ProcessManager struct {
 
 // BuildArgs constructs codex CLI arguments for non-interactive execution.
 // Uses "codex exec --json" with config overrides via -c flags.
+// When prompt is non-empty, "-" is appended to instruct codex to read from stdin.
 func BuildArgs(prompt string, configOverrides []string) []string {
 	args := []string{
 		"exec",
@@ -38,7 +40,9 @@ func BuildArgs(prompt string, configOverrides []string) []string {
 		"--ignore-user-config",
 	}
 	args = append(args, configOverrides...)
-	args = append(args, prompt)
+	if prompt != "" {
+		args = append(args, "-")
+	}
 	return args
 }
 
@@ -181,18 +185,47 @@ func StartProcess(
 		return nil, nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 
-	// Suppress stdin warning/blocking by providing an empty reader that returns EOF immediately.
-	cmd.Stdin = bytes.NewReader(nil)
+	// Deliver prompt via stdin pipe. The "-" arg in BuildArgs tells codex
+	// to read instructions from stdin, avoiding Windows command-line length limits.
+	stdinReader, stdinWriter := io.Pipe()
+	cmd.Stdin = stdinReader
 
-	// R3: Capture stderr for diagnostics.
+	// Capture stderr via pipe for real-time debug logging.
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("stderr pipe: %w", err)
+	}
+
 	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line)
+			stderrBuf.WriteString("\n")
+			log.Debug("CLI stderr line", "line", line)
+		}
+	}()
 
 	log.Info("starting codex CLI process", "work_dir", cfg.WorkDir, "model", cfg.Model)
 	if err := cmd.Start(); err != nil {
+		stdinWriter.Close()
 		cancel()
 		return nil, nil, fmt.Errorf("start codex: %w", err)
 	}
+
+	// Write prompt to stdin in a separate goroutine, then close to signal EOF.
+	go func() {
+		defer stdinWriter.Close()
+		if cfg.Prompt != "" {
+			if _, err := io.WriteString(stdinWriter, cfg.Prompt); err != nil {
+				log.Warn("failed to write prompt to stdin", "error", err)
+			}
+		}
+	}()
 
 	ch := make(chan codingagent.StreamEvent, 64)
 	pm := &ProcessManager{cmd: cmd, cancel: cancel, codexHome: codexHome, logger: log}
@@ -216,9 +249,12 @@ func StartProcess(
 					return
 				}
 			} else {
-				log.Trace("unhandled codex event type (ignored)", "line", line)
+				log.Debug("unhandled codex event type (ignored)", "line", line)
 			}
 		}
+
+		// Wait for stderr scanner to finish before calling cmd.Wait().
+		<-stderrDone
 
 		// R3: Check exit code and report stderr on failure.
 		if err := cmd.Wait(); err != nil {
