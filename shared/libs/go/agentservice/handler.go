@@ -233,7 +233,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if hasMultimodal {
 		// Use temporary multimodal prompt builder (does not persist to session dir).
 		var err error
-		promptText, savedFiles, err = BuildMultimodalPrompt(record.WorkDir, sessionID, req.Content)
+		promptText, savedFiles, err = BuildMultimodalPrompt(sessionID, req.Content)
 		if err != nil {
 			if s.logger != nil {
 				s.logger.Error("failed to build multimodal prompt", "error", err.Error(), "session_id", sessionID)

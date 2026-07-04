@@ -14,10 +14,11 @@ import (
 )
 
 // SaveImageToTempFile decodes Base64 image data and saves it to
-// {baseDir}/tmp/multimodal/{sessionID}_{hash}.{ext}.
+// {os.TempDir()}/arctic-tern-multimodal/{sessionID}_{hash}.{ext}.
 // Returns the absolute path to the saved file.
-func SaveImageToTempFile(baseDir string, sessionID string, source *codingagent.ImageSource) (string, error) {
-	return saveImage(filepath.Join(baseDir, "tmp", "multimodal"), sessionID+"_", source)
+func SaveImageToTempFile(sessionID string, source *codingagent.ImageSource) (string, error) {
+	dir := filepath.Join(os.TempDir(), "arctic-tern-multimodal")
+	return saveImage(dir, sessionID+"_", source)
 }
 
 func saveImage(dir string, prefix string, source *codingagent.ImageSource) (string, error) {
@@ -53,7 +54,7 @@ func saveImage(dir string, prefix string, source *codingagent.ImageSource) (stri
 // - text blocks are concatenated
 // - image blocks are saved to temp files and replaced with path references
 // Returns the combined prompt string and a list of saved file paths for cleanup.
-func BuildMultimodalPrompt(baseDir, sessionID string, parts []codingagent.ContentPart) (string, []string, error) {
+func BuildMultimodalPrompt(sessionID string, parts []codingagent.ContentPart) (string, []string, error) {
 	var sb strings.Builder
 	var savedFiles []string
 	for _, p := range parts {
@@ -64,7 +65,7 @@ func BuildMultimodalPrompt(baseDir, sessionID string, parts []codingagent.Conten
 			if p.Source == nil {
 				return "", nil, fmt.Errorf("image content part missing source")
 			}
-			path, err := SaveImageToTempFile(baseDir, sessionID, p.Source)
+			path, err := SaveImageToTempFile(sessionID, p.Source)
 			if err != nil {
 				return "", nil, fmt.Errorf("save image: %w", err)
 			}
