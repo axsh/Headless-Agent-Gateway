@@ -2,6 +2,7 @@ package agentservice_test
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,11 @@ func TestLogStreamSSE_CompletedSession(t *testing.T) {
 	handler := srv.HTTPHandler()
 
 	// Create and complete a session
-	createBody := strings.NewReader(`{"agent":"claudecode"}`)
+	reqData, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"session_dir": t.TempDir(),
+	})
+	createBody := bytes.NewReader(reqData)
 	createReq := httptest.NewRequest("POST", "/api/v1/sessions", createBody)
 	createW := httptest.NewRecorder()
 	handler.ServeHTTP(createW, createReq)
