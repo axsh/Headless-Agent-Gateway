@@ -134,8 +134,14 @@ type RetrySettings struct {
 
 // VaultConfig holds VaultStore settings.
 type VaultConfig struct {
-	// Backend is the VaultStore backend type: "env", "file", "keyring".
-	Backend string `yaml:"backend"`
+	// Backend is the old singular backend field (deprecated).
+	// If set, resolveVault() returns a migration error.
+	Backend string `yaml:"backend,omitempty"`
+
+	// Backends is the ordered list of vault backends to try.
+	// Required. Supported values: "keyring", "env", "file".
+	// The resolution order matches the list order.
+	Backends []string `yaml:"backends"`
 
 	// FilePath is the file path for FileVaultBackend.
 	FilePath string `yaml:"file_path,omitempty"`

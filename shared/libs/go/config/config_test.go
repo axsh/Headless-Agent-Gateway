@@ -22,7 +22,7 @@ llm_gateway:
   model_profiles_path: "./model_profiles.yaml"
   metrics_enabled: false
 vault:
-  backend: "env"
+  backends: [env]
 log:
   level: "info"
 `,
@@ -32,7 +32,7 @@ log:
 					ModelProfilesPath: "./model_profiles.yaml",
 					MetricsEnabled:    false,
 				},
-				Vault: VaultConfig{Backend: "env"},
+				Vault: VaultConfig{Backends: []string{"env"}},
 				Log:   LogConfig{Level: "info"},
 			},
 		},
@@ -40,10 +40,10 @@ log:
 			name: "minimal config",
 			input: `
 vault:
-  backend: "env"
+  backends: [env]
 `,
 			want: AppConfig{
-				Vault: VaultConfig{Backend: "env"},
+				Vault: VaultConfig{Backends: []string{"env"}},
 			},
 		},
 		{
@@ -69,16 +69,36 @@ llm_gateway:
 			name: "file vault backend",
 			input: `
 vault:
-  backend: "file"
+  backends: [file]
   file_path: "/etc/tern/vault.json"
   aes_enabled: true
 `,
 			want: AppConfig{
 				Vault: VaultConfig{
-					Backend:    "file",
+					Backends:   []string{"file"},
 					FilePath:   "/etc/tern/vault.json",
 					AESEnabled: true,
 				},
+			},
+		},
+		{
+			name: "backends list order",
+			input: `
+vault:
+  backends: [keyring, env]
+`,
+			want: AppConfig{
+				Vault: VaultConfig{Backends: []string{"keyring", "env"}},
+			},
+		},
+		{
+			name: "old backend field preserved",
+			input: `
+vault:
+  backend: "keyring"
+`,
+			want: AppConfig{
+				Vault: VaultConfig{Backend: "keyring"},
 			},
 		},
 		{

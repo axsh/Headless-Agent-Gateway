@@ -56,7 +56,7 @@ func TestGeminiE2E_NonStream(t *testing.T) {
 			ModelProfilesPath: profilesPath,
 		},
 		Vault: config.VaultConfig{
-			Backend: "keyring",
+			Backends: []string{"keyring"},
 		},
 		AgentService: config.AgentServiceConfig{
 			Port: getFreePort(t), // dynamic free port
@@ -137,7 +137,7 @@ func TestGeminiE2E_Stream(t *testing.T) {
 			ModelProfilesPath: profilesPath,
 		},
 		Vault: config.VaultConfig{
-			Backend: "keyring",
+			Backends: []string{"keyring"},
 		},
 		AgentService: config.AgentServiceConfig{
 			Port: getFreePort(t), // dynamic free port
@@ -218,7 +218,7 @@ func TestGeminiE2E_CawaClient_FileCreation(t *testing.T) {
 			ModelProfilesPath: profilesPath,
 		},
 		Vault: config.VaultConfig{
-			Backend: "keyring",
+			Backends: []string{"keyring"},
 		},
 		AgentService: config.AgentServiceConfig{
 			Port: asPort,
