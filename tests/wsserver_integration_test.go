@@ -19,6 +19,7 @@ import (
 func TestWebSocket_LogStreaming(t *testing.T) {
 	cfg := &config.AppConfig{
 		WebSocket: config.WebSocketConfig{Port: 0},
+		Vault:     config.VaultConfig{Backends: []string{"env"}},
 	}
 	stub := llmgateway.NewStubGateway()
 	srv, err := server.New(server.WithConfig(cfg), server.WithGateway(stub))
@@ -90,6 +91,7 @@ func TestWebSocket_LogStreaming(t *testing.T) {
 func TestWebSocket_HierarchicalLogStructure(t *testing.T) {
 	cfg := &config.AppConfig{
 		WebSocket: config.WebSocketConfig{Port: 0},
+		Vault:     config.VaultConfig{Backends: []string{"env"}},
 	}
 	stub := llmgateway.NewStubGateway()
 	srv, err := server.New(server.WithConfig(cfg), server.WithGateway(stub))
@@ -178,6 +180,7 @@ func TestWebSocket_HierarchicalLogStructure(t *testing.T) {
 func TestWebSocket_SnapshotContainsPreExistingLogs(t *testing.T) {
 	cfg := &config.AppConfig{
 		WebSocket: config.WebSocketConfig{Port: 0},
+		Vault:     config.VaultConfig{Backends: []string{"env"}},
 	}
 	stub := llmgateway.NewStubGateway()
 	srv, err := server.New(server.WithConfig(cfg), server.WithGateway(stub))

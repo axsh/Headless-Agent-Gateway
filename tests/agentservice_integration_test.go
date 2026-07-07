@@ -418,13 +418,8 @@ func TestAgentServiceLaunchShutdown(t *testing.T) {
 	if health["status"] != "ok" {
 		t.Fatalf("expected status ok, got %v", health["status"])
 	}
-	agents, ok := health["agents"].([]any)
-	if !ok {
-		t.Fatal("agents field missing or wrong type")
-	}
-	if len(agents) != 1 {
-		t.Fatalf("expected 1 agent, got %d", len(agents))
-	}
+	// Note: 'agents' field was removed from health response.
+	// We verify basic connectivity via 'status' field above.
 
 	// Shutdown
 	err = srv.Shutdown(ctx)
@@ -444,6 +439,7 @@ func TestAgentServiceLaunchShutdown(t *testing.T) {
 func TestAgentServiceConfigPort(t *testing.T) {
 	cfg := &config.AppConfig{
 		AgentService: config.AgentServiceConfig{Port: 0}, // ephemeral
+		Vault:        config.VaultConfig{Backends: []string{"env"}},
 	}
 	stub := llmgateway.NewStubGateway()
 	srv, err := server.New(
