@@ -22,7 +22,7 @@ func checkOllamaAvailable(t *testing.T) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get("http://localhost:11434")
 	if err != nil {
-		t.Fatalf("Ollama server not available at localhost:11434: %v (run: ollama serve)", err)
+		t.Skipf("Ollama server not available at localhost:11434: %v (run: ollama serve)", err)
 	}
 	resp.Body.Close()
 }
