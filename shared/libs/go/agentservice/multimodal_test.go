@@ -20,26 +20,25 @@ func testImageData() string {
 }
 
 func TestSaveImageToTempFile_PNG(t *testing.T) {
-	baseDir := t.TempDir()
 	source := &codingagent.ImageSource{
 		Type:      "base64",
 		MediaType: "image/png",
 		Data:      testImageData(),
 	}
 
-	path, err := SaveImageToTempFile(baseDir, "session-001", source)
+	path, err := SaveImageToTempFile("session-001", source)
 	require.NoError(t, err)
 	require.NotEmpty(t, path)
+	t.Cleanup(func() { os.Remove(path) })
 
 	// Verify file exists.
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.False(t, info.IsDir())
 
-	// Verify file is under tmp/multimodal/.
-	relPath, err := filepath.Rel(baseDir, path)
-	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(relPath, filepath.Join("tmp", "multimodal")))
+	// Verify file is under {TempDir}/arctic-tern-multimodal/.
+	expectedDir := filepath.Join(os.TempDir(), "arctic-tern-multimodal")
+	assert.True(t, strings.HasPrefix(path, expectedDir))
 
 	// Verify extension.
 	assert.True(t, strings.HasSuffix(path, ".png"))
@@ -52,46 +51,43 @@ func TestSaveImageToTempFile_PNG(t *testing.T) {
 }
 
 func TestSaveImageToTempFile_JPEG(t *testing.T) {
-	baseDir := t.TempDir()
 	source := &codingagent.ImageSource{
 		Type:      "base64",
 		MediaType: "image/jpeg",
 		Data:      testImageData(),
 	}
 
-	path, err := SaveImageToTempFile(baseDir, "session-002", source)
+	path, err := SaveImageToTempFile("session-002", source)
 	require.NoError(t, err)
+	t.Cleanup(func() { os.Remove(path) })
 	assert.True(t, strings.HasSuffix(path, ".jpg"))
 }
 
 func TestSaveImageToTempFile_InvalidBase64(t *testing.T) {
-	baseDir := t.TempDir()
 	source := &codingagent.ImageSource{
 		Type:      "base64",
 		MediaType: "image/png",
 		Data:      "!!!not-valid-base64!!!",
 	}
 
-	_, err := SaveImageToTempFile(baseDir, "session-003", source)
+	_, err := SaveImageToTempFile("session-003", source)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid base64 data")
 }
 
 func TestSaveImageToTempFile_EmptyData(t *testing.T) {
-	baseDir := t.TempDir()
 	source := &codingagent.ImageSource{
 		Type:      "base64",
 		MediaType: "image/png",
 		Data:      "",
 	}
 
-	_, err := SaveImageToTempFile(baseDir, "session-004", source)
+	_, err := SaveImageToTempFile("session-004", source)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "image data is empty")
 }
 
 func TestBuildMultimodalPrompt(t *testing.T) {
-	baseDir := t.TempDir()
 	parts := []codingagent.ContentPart{
 		{Type: "text", Text: "Look at this image: "},
 		{Type: "image", Source: &codingagent.ImageSource{
@@ -100,8 +96,9 @@ func TestBuildMultimodalPrompt(t *testing.T) {
 		{Type: "text", Text: "What do you see?"},
 	}
 
-	prompt, savedFiles, err := BuildMultimodalPrompt(baseDir, "session-005", parts)
+	prompt, savedFiles, err := BuildMultimodalPrompt("session-005", parts)
 	require.NoError(t, err)
+	t.Cleanup(func() { CleanupMultimodalFiles(savedFiles) })
 
 	// Text parts are concatenated.
 	assert.Contains(t, prompt, "Look at this image: ")
@@ -117,38 +114,35 @@ func TestBuildMultimodalPrompt(t *testing.T) {
 }
 
 func TestBuildMultimodalPrompt_TextOnly(t *testing.T) {
-	baseDir := t.TempDir()
 	parts := []codingagent.ContentPart{
 		{Type: "text", Text: "Hello, world!"},
 	}
 
-	prompt, savedFiles, err := BuildMultimodalPrompt(baseDir, "session-006", parts)
+	prompt, savedFiles, err := BuildMultimodalPrompt("session-006", parts)
 	require.NoError(t, err)
 	assert.Equal(t, "Hello, world!", prompt)
 	assert.Empty(t, savedFiles)
 }
 
 func TestBuildMultimodalPrompt_ImageMissingSource(t *testing.T) {
-	baseDir := t.TempDir()
 	parts := []codingagent.ContentPart{
 		{Type: "image"}, // Source is nil
 	}
 
-	_, _, err := BuildMultimodalPrompt(baseDir, "session-007", parts)
+	_, _, err := BuildMultimodalPrompt("session-007", parts)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "image content part missing source")
 }
 
 func TestCleanupMultimodalFiles(t *testing.T) {
-	baseDir := t.TempDir()
 	source := &codingagent.ImageSource{
 		Type: "base64", MediaType: "image/png", Data: testImageData(),
 	}
 
 	// Save two files.
-	path1, err := SaveImageToTempFile(baseDir, "session-008a", source)
+	path1, err := SaveImageToTempFile("session-008a", source)
 	require.NoError(t, err)
-	path2, err := SaveImageToTempFile(baseDir, "session-008b", source)
+	path2, err := SaveImageToTempFile("session-008b", source)
 	require.NoError(t, err)
 
 	// Verify files exist before cleanup.
