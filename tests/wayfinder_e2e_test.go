@@ -4,7 +4,7 @@
 //
 // Prerequisites:
 //   - LLM API keys registered via bin/vault-cli (for Claude, GPT, Gemini)
-//   - Ollama running locally with qwen3:8b pulled (for Ollama tests)
+//   - Ollama running locally with qwen2.5-coder:7b pulled (for Ollama tests)
 package llm_test
 
 import (
@@ -480,11 +480,6 @@ func TestE2E_Wayfinder_FullScenario_Gemini(t *testing.T) {
 
 func TestE2E_Wayfinder_FullScenario_Ollama(t *testing.T) {
 	checkOllamaAvailable(t)
-	// Skip: small local models (7B) don't reliably produce structured tool calls
-	// via Bifrost SDK. They often return tool calls as JSON text in the response
-	// body rather than as structured function_call objects. This test is kept
-	// for manual verification with larger models that support tool calling.
-	t.Skip("Ollama small models don't reliably support structured tool calling")
 	runFullScenario(t, "qwen2.5-coder:7b")
 }
 

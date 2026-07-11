@@ -16,13 +16,13 @@ import (
 	"time"
 )
 
-// checkOllamaAvailable verifies that the Ollama server is running.
+// checkOllamaAvailable skips the test when the Ollama server is not running.
 func checkOllamaAvailable(t *testing.T) {
 	t.Helper()
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get("http://localhost:11434")
 	if err != nil {
-		t.Fatalf("Ollama server not available at localhost:11434: %v (run: ollama serve)", err)
+		t.Skipf("Ollama server not available at localhost:11434: %v (run: ollama serve)", err)
 	}
 	resp.Body.Close()
 }
