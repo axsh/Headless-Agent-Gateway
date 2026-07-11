@@ -34,7 +34,7 @@ Tern の Coding Agent 連携（Codex / Claude Code）は、**「1 メッセー�
 - イベントに含めるフィールド（最低限）:
   - `content` (string): エージェントからの問い合わせテキスト
   - `prompt_id` (string, optional): 同一実行内で複数回の問い合わせを区別する ID
-  - `choices` ([]string, optional): 選択肢が判明している場合の候補リスト
+  - `choices` ([]string, optional): 構造化データソースから取得できた場合のみ設定（R12 参照）。未提供時は省略または空配列
 - クライアントライブラリ（`client/v1`）にも対応する `EventUserInputRequired` 定数とパース処理を追加する。
 
 #### R2: セッションステータス `suspended` の追加
@@ -126,23 +126,35 @@ Tern の Coding Agent 連携（Codex / Claude Code）は、**「1 メッセー�
 #### R10: Wayfinder `ask_user` のイベント統合
 
 - Wayfinder の `ask_user` ツール発火時、既存の `ErrFeedbackRequired` サスペンドに加え、クライアント向け SSE に `user_input_required` イベントを送出する。
+- `ask_user` ツール入力の `prompt` を `content` に、`choices`（指定時）を R12 に従って `choices` フィールドにマッピングする。
 - Wayfinder セッションも `suspended` ステータスを agentservice 経由でクライアントに可視化する（Wayfinder 内部の `StatusSuspended` との整合）。
 
-### 任意要件
-
-#### O1: `execution_mode` 設定
+#### R11: `execution_mode` 設定
 
 - `model_profiles.yaml` の `coding_agents.<agent>` に `execution_mode: interactive | single_shot` を追加する。
-- デフォルト: Codex / Claude Code は `interactive`、既存テスト互換のため切り替え可能とする。
+- 許可値は `interactive` および `single_shot` のみ。未設定または不正値の場合は `interactive` をデフォルトとする。
+- 各 Coding Agent アダプターはセッション作成時に当該設定を読み取り、R4 の stdin 動作を切り替える。
+- 既存 E2E テスト用 config（`tests/testdata/model_profiles.yaml` 等）では `single_shot` を明示し、リグレッションを防止する。
 
-#### O2: 問い合わせテキストのヒューリスティック検出
+#### R12: `choices` の構造化（ヒューリスティック禁止）
 
-- 最後に送出した `EventText` が疑問文パターン（`?` で終わる等）かつ idle 状態の場合に `user_input_required` を送出する。
-- 誤検知リスクがあるため初期リリースでは **任意**。stderr / プロトコル検出を優先する。
+`choices` フィールドは、**構造化データソースから明示的に取得できる場合のみ**設定する。自由テキストのパースや疑問文判定などのヒューリスティックによる抽出は**行わない**。
 
-#### O3: `choices` の構造化
+| データソース | 取得方法 | 対象 |
+|-------------|----------|------|
+| Wayfinder `ask_user` ツール入力 | ツールスキーマの `choices` 配列をそのままマッピング（R10 と合わせて拡張） | Wayfinder 必須 |
+| Codex CLI JSONL イベント | イベント JSON 内に明示的な `choices` 配列フィールドが存在する場合のみ抽出 | Codex（該当イベントがある場合） |
+| Claude Code CLI JSONL イベント | 同上 | Claude Code（該当イベントがある場合） |
 
-- エージェントが選択肢を提示している場合、パースして `choices` フィールドに格納する。
+- Wayfinder `ask_user` ツールスキーマを拡張し、オプション引数 `choices`（`[]string`）を追加する:
+  ```json
+  {
+    "prompt": "Which approach should I use?",
+    "choices": ["Option A: ...", "Option B: ..."]
+  }
+  ```
+- `choices` が未指定の場合は、イベントの `choices` フィールドを省略する（空配列を送る実装も可だが、クライアントは「選択肢なし」と解釈する）。
+- Codex / Claude Code については、現行 CLI プロトコルに構造化 `choices` が存在しないため、**テキストからの推定は行わず** `choices` は通常省略される。将来 CLI が構造化フィールドを追加した場合のみパーサーを拡張する。
 
 ---
 
@@ -301,7 +313,9 @@ func (s *Stream) RunWithHandlers(h StreamHandlers) error {
 
 ### 7. Wayfinder 統合
 
-- `shared/libs/go/wayfinder/agent_core.go` の `ask_user` 処理で `codingagent.StreamEvent{Type: EventUserInputRequired, ...}` を emit
+- `shared/libs/go/wayfinder/tools/register.go` の `ask_user` スキーマに `choices`（`type: array`, `items: string`）を追加
+- `shared/libs/go/wayfinder/tools/tool_ask_user.go` で `choices` 入力を受け取り、`user_input_required` イベントにマッピング
+- `shared/libs/go/wayfinder/agent_core.go` の `ask_user` 処理で `codingagent.StreamEvent{Type: EventUserInputRequired, Choices: ...}` を emit
 - agentservice が Wayfinder セッションの場合も `suspended` を SessionRecord に反映
 
 ---
@@ -358,6 +372,13 @@ func (s *Stream) RunWithHandlers(h StreamHandlers) error {
 2. `user_input_required` イベントが送出されることを確認する。
 3. `respond` で回答後、エージェントが再開することを確認する。
 
+### シナリオ 8: Wayfinder ask_user の choices 構造化
+
+1. Wayfinder が `ask_user` を `choices: ["A", "B", "C"]` 付きで呼び出す状況を再現する（モックまたは統合テスト）。
+2. `user_input_required` イベントの `choices` フィールドに `["A", "B", "C"]` が含まれることを確認する。
+3. `choices` 未指定の `ask_user` では `choices` フィールドが省略される（または空）ことを確認する。
+4. Codex / Claude Code 経路では、テキストに選択肢らしき内容があっても `choices` が設定されないことを確認する（ヒューリスティック非適用の確認）。
+
 ---
 
 ## テスト項目 (Testing for the Requirements)
@@ -390,6 +411,8 @@ func (s *Stream) RunWithHandlers(h StreamHandlers) error {
      - `TestInteractive_ConcurrentMessageRejected`: 409 検証
      - `TestInteractive_IdleTimeout_MockAdapter`: タイムアウト検証
      - `TestInteractive_ClientRunWithHandlers`: SDK コールバックループ検証
+     - `TestInteractive_AskUserChoices`: Wayfinder `ask_user` の `choices` マッピング検証
+     - `TestInteractive_NoHeuristicChoices`: テキストのみの問い合わせで `choices` が設定されないことの検証
 
 5. 統合テスト（Wayfinder、該当する場合）:
    ```bash
@@ -410,7 +433,8 @@ func (s *Stream) RunWithHandlers(h StreamHandlers) error {
 | R8: 並行 SendMessage 拒否 | `TestInteractive_ConcurrentMessageRejected` |
 | R9: SDK コールバック | `TestInteractive_ClientRunWithHandlers` |
 | R10: Wayfinder 統合 | `TestE2E_Wayfinder` 拡張または Wayfinder 単体テスト |
-| O1: execution_mode | `TestInteractive_SingleShotRegression`（新規） |
+| R11: execution_mode | `TestInteractive_SingleShotRegression`（新規）、`TestCodexBuildArgs` / process テスト |
+| R12: choices 構造化 | `TestInteractive_AskUserChoices`, `TestInteractive_NoHeuristicChoices` |
 
 ### ログ検証ポイント
 
@@ -426,6 +450,7 @@ func (s *Stream) RunWithHandlers(h StreamHandlers) error {
 |------|------|------|
 | 初期 SSE 継続方式 | 方式 B（respond が新 SSE を返す） | 実装コスト低。SDK がループで吸収 |
 | デフォルト execution_mode | `interactive`（E2E は `single_shot` で明示） | 本仕様の目的は対話対応。テスト互換は config で担保 |
+| choices の取得 | 構造化ソースのみ（Wayfinder ツール入力、CLI JSON 明示フィールド） | ヒューリスティックによる誤検知を排除 |
 | OnUserInputRequired 未設定時 | エラーで中断 | 意図しない自動応答を防ぐ |
 | suspended 中の操作 | `respond` と `terminate` のみ許可 | 状態機械を単純に保つ |
 
@@ -450,6 +475,6 @@ func (s *Stream) RunWithHandlers(h StreamHandlers) error {
 ## 非スコープ（本仕様では扱わない）
 
 - `GET /sessions/:id/events` による SSE 再接続（方式 A）の実装
-- 問い合わせテキストの高度な NLP 解析による誤検知ゼロ化
+- 問い合わせテキストからの `choices` ヒューリスティック抽出（R12 で禁止）
 - GUI クライアントの実装（SDK を通じた利用を想定）
 - Codex / Claude Code CLI 自体の挙動変更
