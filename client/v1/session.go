@@ -120,6 +120,48 @@ func (s *Session) SendImageFile(ctx context.Context, path string, prompt string)
 	return s.SendMessage(ctx, parts)
 }
 
+// Respond sends user input to a suspended session and returns a continuation stream.
+func (s *Session) Respond(ctx context.Context, content string) (*Stream, error) {
+	body, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		return nil, fmt.Errorf("marshal respond request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.client.baseURL+"/api/v1/sessions/"+s.ID+"/respond",
+		bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create respond request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := s.client.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send respond request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("respond failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return newStream(resp.Body), nil
+}
+
+// SendTextWithHandlers sends a text message and runs the interactive handler loop.
+func (s *Session) SendTextWithHandlers(ctx context.Context, message string, h StreamHandlers) error {
+	stream, err := s.SendText(ctx, message)
+	if err != nil {
+		return err
+	}
+	if h.OnText == nil {
+		h.OnText = func(text string) { fmt.Print(text) }
+	}
+	return stream.RunWithHandlers(ctx, s, h)
+}
+
 
 // Terminate terminates the session.
 func (s *Session) Terminate(ctx context.Context) error {

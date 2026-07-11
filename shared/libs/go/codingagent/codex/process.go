@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -19,14 +21,48 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
-const gracefulShutdownTimeout = 5 * time.Second
+const (
+	gracefulShutdownTimeout  = 5 * time.Second
+	defaultIdleTimeoutSec    = 300
+	defaultMaxExecutionSec   = 3600
+)
 
 // ProcessManager manages a Codex CLI subprocess.
 type ProcessManager struct {
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
-	codexHome string // temporary CODEX_HOME directory to clean up
-	logger    logger.Logger
+	cmd         *exec.Cmd
+	cancel      context.CancelFunc
+	codexHome   string // temporary CODEX_HOME directory to clean up
+	logger      logger.Logger
+	stdinWriter io.WriteCloser
+	stdinMu     sync.Mutex
+}
+
+// WriteStdin writes additional input to the running CLI process.
+func (pm *ProcessManager) WriteStdin(text string) error {
+	pm.stdinMu.Lock()
+	defer pm.stdinMu.Unlock()
+	if pm.stdinWriter == nil {
+		return fmt.Errorf("stdin not available (single_shot or closed)")
+	}
+	if _, err := io.WriteString(pm.stdinWriter, text); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(pm.stdinWriter, "\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func resolveTimeouts(cfg *codingagent.SessionConfig) (idleSec, maxSec int) {
+	idleSec = cfg.IdleTimeoutSeconds
+	if idleSec == 0 {
+		idleSec = defaultIdleTimeoutSec
+	}
+	maxSec = cfg.MaxExecutionSeconds
+	if maxSec == 0 {
+		maxSec = defaultMaxExecutionSec
+	}
+	return idleSec, maxSec
 }
 
 // BuildArgs constructs codex CLI arguments for non-interactive execution.
@@ -204,14 +240,35 @@ func StartProcess(
 
 	var stderrBuf bytes.Buffer
 	stderrDone := make(chan struct{})
+	ch := make(chan codingagent.StreamEvent, 64)
+	var lastActivity atomic.Int64
+	now := time.Now().UnixNano()
+	lastActivity.Store(now)
+	touchActivity := func() { lastActivity.Store(time.Now().UnixNano()) }
+
 	go func() {
 		defer close(stderrDone)
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
+			touchActivity()
 			stderrBuf.WriteString(line)
 			stderrBuf.WriteString("\n")
 			log.Debug("CLI stderr line", "line", line)
+			if matched, content := DetectStdinWaitFromStderr(line); matched {
+				msg := content
+				if msg == "" {
+					msg = "Agent is waiting for user input"
+				}
+				select {
+				case ch <- codingagent.StreamEvent{
+					Type:    codingagent.EventUserInputRequired,
+					Content: msg,
+				}:
+				case <-procCtx.Done():
+					return
+				}
+			}
 		}
 	}()
 
@@ -222,9 +279,12 @@ func StartProcess(
 		return nil, nil, fmt.Errorf("start codex: %w", err)
 	}
 
-	// Write prompt to stdin in a separate goroutine, then close to signal EOF.
+	// Write prompt to stdin; close after write only in single_shot mode.
+	interactive := cfg.ExecutionMode != codingagent.ExecutionModeSingleShot
 	go func() {
-		defer stdinWriter.Close()
+		if !interactive {
+			defer stdinWriter.Close()
+		}
 		if cfg.Prompt != "" {
 			if _, err := io.WriteString(stdinWriter, cfg.Prompt); err != nil {
 				log.Warn("failed to write prompt to stdin", "error", err)
@@ -232,8 +292,38 @@ func StartProcess(
 		}
 	}()
 
-	ch := make(chan codingagent.StreamEvent, 64)
-	pm := &ProcessManager{cmd: cmd, cancel: cancel, codexHome: codexHome, logger: log}
+	pm := &ProcessManager{
+		cmd:         cmd,
+		cancel:      cancel,
+		codexHome:   codexHome,
+		logger:      log,
+		stdinWriter: stdinWriter,
+	}
+
+	idleSec, maxSec := resolveTimeouts(cfg)
+	startedAt := time.Now()
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-procCtx.Done():
+				return
+			case <-ticker.C:
+				if time.Since(startedAt) > time.Duration(maxSec)*time.Second {
+					pm.emitTimeout(ch, procCtx, fmt.Sprintf("agent max execution timeout after %ds", maxSec))
+					pm.Stop()
+					return
+				}
+				last := time.Unix(0, lastActivity.Load())
+				if time.Since(last) > time.Duration(idleSec)*time.Second {
+					pm.emitTimeout(ch, procCtx, fmt.Sprintf("agent idle timeout after %ds", idleSec))
+					pm.Stop()
+					return
+				}
+			}
+		}
+	}()
 
 	// Read JSONL events from stdout (codex exec --json outputs JSONL).
 	go func() {
@@ -241,10 +331,19 @@ func StartProcess(
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
+			touchActivity()
 			if line == "" {
 				continue
 			}
 			log.Trace("CLI stdout line", "line", line)
+
+			if inputEv := DetectUserInputFromExecEvent(line); inputEv != nil {
+				select {
+				case ch <- *inputEv:
+				case <-procCtx.Done():
+					return
+				}
+			}
 
 			ev := ParseExecEvent(line)
 			if ev != nil {
@@ -284,12 +383,29 @@ func StartProcess(
 	return ch, pm, nil
 }
 
+func (pm *ProcessManager) emitTimeout(ch chan<- codingagent.StreamEvent, ctx context.Context, msg string) {
+	select {
+	case ch <- codingagent.StreamEvent{Type: codingagent.EventError, Content: msg}:
+	case <-ctx.Done():
+	}
+}
+
+func (pm *ProcessManager) closeStdin() {
+	pm.stdinMu.Lock()
+	defer pm.stdinMu.Unlock()
+	if pm.stdinWriter != nil {
+		pm.stdinWriter.Close()
+		pm.stdinWriter = nil
+	}
+}
+
 // Stop gracefully terminates the subprocess and cleans up the codex home.
 // 1. Send SIGTERM (Unix) or Kill (Windows)
 // 2. Wait up to 5 seconds for exit
 // 3. Force kill if timeout
 // 4. Clean up temporary CODEX_HOME directory
 func (pm *ProcessManager) Stop() error {
+	pm.closeStdin()
 	if pm.cmd.Process == nil {
 		return nil
 	}

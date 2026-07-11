@@ -48,3 +48,10 @@ providers:
 coding_agents:
   codex:
     max_prompt_bytes: 1048576 # 1MB
+    max_execution_seconds: 3600
+    idle_timeout_seconds: 300
+    execution_mode: interactive
+  claudecode:
+    max_execution_seconds: 3600
+    idle_timeout_seconds: 300
+    execution_mode: interactive

@@ -28,6 +28,7 @@ type SessionRecord struct {
 // Session status constants.
 const (
 	StatusActive    = "active"
+	StatusSuspended = "suspended"
 	StatusCompleted = "completed"
 	StatusError     = "error"
 	StatusClosed    = "closed"

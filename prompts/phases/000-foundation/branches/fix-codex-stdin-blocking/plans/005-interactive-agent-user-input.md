@@ -698,3 +698,48 @@ Coding Agent（Codex / Claude Code / Wayfinder）の実行中に発生するユ�
 *   **更新内容**: 仕様レビュー時点でインタラクティブ実行の概要は追記済み。実装完了後、以下を再確認する:
     *   `Respond` / `SendTextWithHandlers` の API シグネチャが実装と一致しているか
     *   Roadmap の `Interactive agent execution` を `[x]` に更新するか判断
+
+---
+
+## 実装時変更履歴
+
+### 変更 1: eventRelay による SSE 継続（方式 B）
+
+**影響ステップ**: Step 6 (agentservice exec registry + respond API)
+
+**変更前の計画**:
+
+> `handleRespond` 新設（方式 B）: 既存 `agentSess.Send` のチャネルから継続イベントを `streamSSE` で返す（新 SSE 接続）。
+
+**実装時に発見した問題**:
+
+Go チャネルは単一 consumer のみ。初回 SSE と respond SSE が同一 `<-chan StreamEvent` を共有できない。
+
+**変更後の設計**:
+
+`exec_registry` に `eventRelay` を追加。agent チャネルを 1 本の pump goroutine がバッファし、各 SSE 接続は `streamOffset` から sequential に読み取る。`user_input_required` 受信時は first SSE を終了し、respond が offset 以降を継続する。
+
+**既存コードへの影響**:
+
+API 契約（方式 B）は維持。クライアント SDK の `RunWithHandlers` ループは計画通り。
+
+### 変更 2: server 起動時の model_profiles 注入
+
+**影響ステップ**: Step 3 / Step 10 (E2E リグレッション)
+
+**変更前の計画**:
+
+> E2E 用 `tests/testdata/model_profiles.yaml` に `execution_mode: single_shot` を設定
+
+**実装時に発見した問題**:
+
+`server.resolveAgentService` が `SetModelProfiles` を呼んでおらず、handler の `resolveAgentConfig` が常にデフォルト `interactive` を返した。E2E で CLI が stdin 待ちになり 120s タイムアウト。
+
+**変更後の設計**:
+
+`server/server.go` の `resolveAgentService` で `config.LoadModelProfiles` を実行し `as.SetModelProfiles(profiles)` を呼ぶ。
+
+**既存コードへの影響**:
+
+E2E / 本番とも `model_profiles.yaml` の `coding_agents` 設定が agentservice に反映される。後方互換性あり。
+

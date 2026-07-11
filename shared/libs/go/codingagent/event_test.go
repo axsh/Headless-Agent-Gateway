@@ -71,17 +71,41 @@ func TestStreamEventJSONMarshal(t *testing.T) {
 			},
 		},
 		{
-			name: "EventSystem contains session_id",
+			name: "EventUserInputRequired with prompt_id and choices",
 			event: codingagent.StreamEvent{
-				Type:      codingagent.EventSystem,
-				SessionID: "sess-abc-123",
+				Type:     codingagent.EventUserInputRequired,
+				Content:  "Which option?",
+				PromptID: "prompt-1",
+				Choices:  []string{"A", "B"},
 			},
 			checks: func(t *testing.T, data map[string]any) {
-				if data["type"] != "system" {
-					t.Errorf("type = %v, want system", data["type"])
+				if data["type"] != "user_input_required" {
+					t.Errorf("type = %v, want user_input_required", data["type"])
 				}
-				if data["session_id"] != "sess-abc-123" {
-					t.Errorf("session_id = %v, want sess-abc-123", data["session_id"])
+				if data["content"] != "Which option?" {
+					t.Errorf("content = %v", data["content"])
+				}
+				if data["prompt_id"] != "prompt-1" {
+					t.Errorf("prompt_id = %v", data["prompt_id"])
+				}
+				choices, ok := data["choices"].([]any)
+				if !ok || len(choices) != 2 {
+					t.Fatalf("choices = %v", data["choices"])
+				}
+			},
+		},
+		{
+			name: "EventUserInputRequired without choices omits choices field",
+			event: codingagent.StreamEvent{
+				Type:    codingagent.EventUserInputRequired,
+				Content: "Enter value:",
+			},
+			checks: func(t *testing.T, data map[string]any) {
+				if data["type"] != "user_input_required" {
+					t.Errorf("type = %v, want user_input_required", data["type"])
+				}
+				if _, ok := data["choices"]; ok {
+					t.Error("choices should be omitted when empty")
 				}
 			},
 		},
@@ -119,9 +143,9 @@ func TestStreamEventJSONUnmarshal(t *testing.T) {
 			wantType: codingagent.EventToolUse,
 		},
 		{
-			name:     "unknown type does not error",
-			input:    `{"type":"unknown_type"}`,
-			wantType: "unknown_type",
+			name:     "user_input_required event",
+			input:    `{"type":"user_input_required","content":"Pick one","prompt_id":"p1","choices":["yes","no"]}`,
+			wantType: codingagent.EventUserInputRequired,
 		},
 	}
 
@@ -145,11 +169,12 @@ func TestEventTypeConstants(t *testing.T) {
 		codingagent.EventToolResult: "tool_result",
 		codingagent.EventResult:     "result",
 		codingagent.EventError:      "error",
-		codingagent.EventSystem:     "system",
+		codingagent.EventSystem:             "system",
+		codingagent.EventUserInputRequired:  "user_input_required",
 	}
 
-	if len(expected) != 6 {
-		t.Fatalf("expected 6 event types, got %d", len(expected))
+	if len(expected) != 7 {
+		t.Fatalf("expected 7 event types, got %d", len(expected))
 	}
 
 	for et, want := range expected {

@@ -24,12 +24,16 @@ const (
 	EventNodeFailed EventType = "node_failed"
 	// EventProgress indicates WBS overall progress (e.g., "2/5").
 	EventProgress EventType = "progress"
+	// EventUserInputRequired indicates the agent is waiting for user input.
+	EventUserInputRequired EventType = "user_input_required"
 )
 
 // StreamEvent is a streaming event from a coding agent.
 type StreamEvent struct {
 	Type      EventType              `json:"type"`
 	Content   string                 `json:"content,omitempty"`
+	PromptID  string                 `json:"prompt_id,omitempty"`
+	Choices   []string               `json:"choices,omitempty"`
 	ToolName  string                 `json:"tool_name,omitempty"`
 	ToolInput map[string]interface{} `json:"tool_input,omitempty"`
 	SessionID string                 `json:"session_id,omitempty"`

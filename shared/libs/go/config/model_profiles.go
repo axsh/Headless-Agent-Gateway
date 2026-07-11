@@ -1,6 +1,16 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+)
+
+const (
+	DefaultMaxPromptBytes      = 1048576
+	DefaultMaxExecutionSeconds = 3600
+	DefaultIdleTimeoutSeconds  = 300
+)
 
 // ModelProfilesConfig represents model_profiles.yaml.
 type ModelProfilesConfig struct {
@@ -21,6 +31,38 @@ type ModelProfilesConfig struct {
 type AgentConfig struct {
 	// MaxPromptBytes is the maximum allowed size for the combined message and image data.
 	MaxPromptBytes int `yaml:"max_prompt_bytes"`
+	// MaxExecutionSeconds is the maximum wall-clock time for a single agent execution.
+	MaxExecutionSeconds int `yaml:"max_execution_seconds"`
+	// IdleTimeoutSeconds is the maximum time without stdout/stderr output before timeout.
+	IdleTimeoutSeconds int `yaml:"idle_timeout_seconds"`
+	// ExecutionMode controls stdin behavior: "interactive" or "single_shot".
+	ExecutionMode string `yaml:"execution_mode"`
+}
+
+// WithDefaults returns a copy with zero values replaced by defaults.
+func (c AgentConfig) WithDefaults() AgentConfig {
+	out := c
+	if out.MaxPromptBytes == 0 {
+		out.MaxPromptBytes = DefaultMaxPromptBytes
+	}
+	if out.MaxExecutionSeconds == 0 {
+		out.MaxExecutionSeconds = DefaultMaxExecutionSeconds
+	}
+	if out.IdleTimeoutSeconds == 0 {
+		out.IdleTimeoutSeconds = DefaultIdleTimeoutSeconds
+	}
+	out.ExecutionMode = codingagent.NormalizeExecutionMode(out.ExecutionMode)
+	return out
+}
+
+// ResolveAgentConfig returns agent config with defaults applied.
+func ResolveAgentConfig(profiles *ModelProfilesConfig, agentName string) AgentConfig {
+	if profiles != nil && profiles.CodingAgents != nil {
+		if cfg, ok := profiles.CodingAgents[agentName]; ok {
+			return cfg.WithDefaults()
+		}
+	}
+	return AgentConfig{}.WithDefaults()
 }
 
 // DefaultProfileConfig holds the default provider/model selection.

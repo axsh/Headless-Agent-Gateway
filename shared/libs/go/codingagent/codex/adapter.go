@@ -111,6 +111,9 @@ func (s *codexSession) ID() string { return s.id }
 // Close terminates the session and stops the subprocess.
 func (s *codexSession) Close() error { return s.pm.Stop() }
 
+// WriteStdin writes additional input to the running Codex process.
+func (s *codexSession) WriteStdin(text string) error { return s.pm.WriteStdin(text) }
+
 // SupportsMultimodal returns true: Codex CLI supports image inputs.
 func (a *CodexAdapter) SupportsMultimodal() bool {
 	return true

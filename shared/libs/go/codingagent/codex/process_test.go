@@ -71,7 +71,7 @@ func TestCodexBuildEnv(t *testing.T) {
 			ac:      &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000"},
 			cfg:     &codingagent.SessionConfig{},
 			wantKey: "OPENAI_API_KEY",
-			wantVal: "not-needed;fallback=false;sid=default",
+			wantVal: "tern-internal-key-placeholder;fallback=false;sid=default",
 		},
 		{
 			name: "additional env vars are included",
@@ -120,7 +120,7 @@ func TestCodexBuildEnv_SessionMetadata(t *testing.T) {
 			name:      "default session ID and no fallback",
 			ac:        &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000"},
 			cfg:       &codingagent.SessionConfig{},
-			wantValue: "not-needed;fallback=false;sid=default",
+			wantValue: "tern-internal-key-placeholder;fallback=false;sid=default",
 		},
 		{
 			name: "explicit session ID and fallback true",
@@ -129,13 +129,13 @@ func TestCodexBuildEnv_SessionMetadata(t *testing.T) {
 				ToolCallFallback: true,
 			},
 			cfg:       &codingagent.SessionConfig{AgentSessionID: "sess-abc"},
-			wantValue: "not-needed;fallback=true;sid=sess-abc",
+			wantValue: "tern-internal-key-placeholder;fallback=true;sid=sess-abc",
 		},
 		{
 			name:      "no fallback with explicit session ID",
 			ac:        &codingagent.AdapterConfig{GatewayURL: "http://localhost:14000"},
 			cfg:       &codingagent.SessionConfig{AgentSessionID: "sess-xyz"},
-			wantValue: "not-needed;fallback=false;sid=sess-xyz",
+			wantValue: "tern-internal-key-placeholder;fallback=false;sid=sess-xyz",
 		},
 	}
 
@@ -196,7 +196,7 @@ func TestBuildEnv_CodexGatewayToken(t *testing.T) {
 	if !ok {
 		t.Fatal("OPENAI_API_KEY not found in env")
 	}
-	want := "not-needed;token=codex-secret-token;fallback=false;sid=default"
+	want := "tern-internal-key-placeholder;token=codex-secret-token;fallback=false;sid=default"
 	if val != want {
 		t.Errorf("OPENAI_API_KEY = %q, want %q", val, want)
 	}
