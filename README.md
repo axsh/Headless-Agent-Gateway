@@ -82,6 +82,12 @@ defer srv.Shutdown(ctx)
 
 Tern client libraries ([examples/minimal-client](examples/minimal-client/main.go), [examples/multimodal-client](examples/multimodal-client/main.go)) simplify session interaction.
 
+For long-running SSE streams, disable the HTTP client timeout:
+
+```go
+c := client.New("http://localhost:3100", client.WithNoTimeout())
+```
+
 #### 1. Setup and Session Initialization
 
 First, import the library, connect to the Tern server, and create an active session:
@@ -89,7 +95,7 @@ First, import the library, connect to the Tern server, and create an active sess
 ```go
 import client "github.com/axsh/arctic-tern/client/v1"
 
-c := client.New("http://localhost:3100")
+c := client.New("http://localhost:3100", client.WithNoTimeout())
 
 session, _ := c.CreateSession(ctx, client.SessionRequest{
     Agent:   "claudecode",          // Use Wayfinder, Claude Code, or Codex
@@ -116,15 +122,7 @@ stream, _ := session.SendImageFile(ctx, "screenshot.png", "Describe this image:"
 stream.Output(os.Stdout)
 ```
 
-### Persistent Multimodal Sessions
-
-Tern supports persistent multimodal context across conversational turns. When an image is sent in a session via the v2 API, it is automatically persisted in the session history. Subsequent messages in the same session (even after a resume) will automatically include previous images in the context, ensuring the model "remembers" visual information without needing to re-upload files.
-
-Text-only requests also work with the v2 content block format:
-
 **Option C: Complex Multimodal Layouts (Message Builder)**
-
-For multiple text blocks or multiple images in a single message:
 
 For multiple text blocks or multiple images in a single message:
 
@@ -138,6 +136,42 @@ parts, _ := client.NewMessage().
 stream, _ := session.SendMessage(ctx, parts)
 stream.Output(os.Stdout)
 ```
+
+#### 3. Interactive Agent Execution
+
+Coding Agents (Codex, Claude Code) may ask the user for input during a task. Tern detects this and emits a `user_input_required` SSE event. The session enters `suspended` status until the client responds.
+
+**Respond to a user-input request (low-level API):**
+
+```go
+// After receiving user_input_required on the SSE stream:
+stream, _ := session.Respond(ctx, "Yes, proceed with Option A")
+stream.Output(os.Stdout)
+```
+
+**Handle user input with callbacks (recommended):**
+
+```go
+err := session.SendTextWithHandlers(ctx, "Refactor the auth module", client.StreamHandlers{
+    OnText: func(text string) { fmt.Print(text) },
+    OnUserInputRequired: func(ev client.UserInputRequiredEvent) (string, error) {
+        // ev.Content holds the question; ev.Choices holds structured options (Wayfinder only)
+        return "Use the default approach and continue", nil
+    },
+})
+```
+
+If `OnUserInputRequired` is not set, the SDK stops with an error when input is required. This prevents unintended auto-responses.
+
+While a session is `suspended`, only `respond` and `terminate` are accepted. Sending a new message to the same session returns HTTP 409 Conflict.
+
+If a session appears stuck, call `session.Terminate(ctx)` to cancel the underlying agent process.
+
+### Multimodal Messages and Context
+
+Tern acts as a stateless proxy for multimodal content: each `SendMessage` request carries the content for that turn. The server does not automatically re-inject images from prior turns. Re-send images when the agent needs visual context from earlier messages.
+
+Codex enforces a 1 MB stdin limit. Configure per-agent limits in `model_profiles.yaml` under `coding_agents` (see Quick Start). Requests exceeding the limit are rejected before the agent starts.
 
 ### Agent and Model Interoperability
 
@@ -217,7 +251,7 @@ Tern consists of three major components.
 
 Coding Agent Web API.
 
-CAWA defines a common interface for Coding Agents. The v1 API uses structured content blocks supporting both text-only and multimodal inputs (text + images).
+CAWA defines a common interface for Coding Agents. The v1 API uses structured content blocks supporting both text-only and multimodal inputs (text + images). It also supports interactive execution: agents can request user input mid-task via `user_input_required` events, and clients reply through the `respond` endpoint.
 
 ### LLMGP
 
@@ -250,10 +284,11 @@ Additional architectural details will be documented separately.
 * [x] Tern SDK v1
 * [x] CAWA API v1 (multimodal content blocks)
 * [x] Multimodal support (image input via v1 API)
+* [ ] Interactive agent execution (`user_input_required`, `respond`, `suspended`)
 
 ### Phase 2
 
-* [ ] Agent interaction protocol
+* [ ] Agent interaction protocol (SSE reconnect, advanced orchestration)
 * [ ] MCP support
 * [ ] Tern CLI
 * [ ] Tern SDK v2
@@ -413,7 +448,25 @@ providers:
               tool_call_fallback: true
     network_config:
       base_url: "http://localhost:11434"
+
+coding_agents:
+  codex:
+    max_prompt_bytes: 1048576      # 1 MB stdin limit
+    max_execution_seconds: 3600
+    idle_timeout_seconds: 300
+    execution_mode: interactive    # interactive | single_shot
+  claudecode:
+    max_execution_seconds: 3600
+    idle_timeout_seconds: 300
+    execution_mode: interactive
 ```
+
+`execution_mode` controls how the server talks to the CLI:
+
+| Mode | Behavior |
+| --- | --- |
+| `interactive` | Keeps stdin open so the agent can request user input mid-task (default) |
+| `single_shot` | Sends the prompt and closes stdin immediately (legacy behavior) |
 
 ### 3. Start the server
 
@@ -458,6 +511,8 @@ When the task completes, ternctl outputs session details as JSON:
 }
 ```
 
+Session `status` values include `active`, `suspended` (waiting for user input), `completed`, `error`, and `closed`. Check status with `ternctl session --id <session-id>`.
+
 ### 5. Continue an existing session
 
 Use `--resume` with the session `id` from the previous output to continue the conversation:
@@ -475,7 +530,7 @@ The agent resumes the previous session with full context of the prior conversati
 ```go
 import client "github.com/axsh/arctic-tern/client/v1"
 
-c := client.New("http://localhost:3100")
+c := client.New("http://localhost:3100", client.WithNoTimeout())
 session, _ := c.CreateSession(ctx, client.SessionRequest{
     Agent:   "claudecode",
     WorkDir: ".",
@@ -489,6 +544,14 @@ stream.Output(os.Stdout)
 // 2. Multimodal message with image (convenience method)
 stream, _ = session.SendImageFile(ctx, "screenshot.png", "What is in this screenshot?")
 stream.Output(os.Stdout)
+
+// 3. Interactive message with user-input callback
+_ = session.SendTextWithHandlers(ctx, "Refactor auth.go", client.StreamHandlers{
+    OnText: func(text string) { fmt.Print(text) },
+    OnUserInputRequired: func(ev client.UserInputRequiredEvent) (string, error) {
+        return "Proceed with the safer option", nil
+    },
+})
 ```
 
 ---

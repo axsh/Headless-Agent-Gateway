@@ -469,6 +469,19 @@ func (s *Stream) RunWithHandlers(h StreamHandlers) error {
 | `client/v1/stream.go`, `session.go` | ハンドラ・Respond |
 | `features/ternctl/main.go` | 任意: `--auto-answer` フラグ |
 | `settings/example/model_profiles.yaml` | 設定追加 |
+| `README.md` | インタラクティブ実行、ステートレスマルチモーダル、`coding_agents` 設定の追記 |
+
+---
+
+## Documentation
+
+#### [MODIFY] `README.md`
+
+* **Client Examples**: `WithNoTimeout()` の推奨、インタラクティブ実行（`user_input_required` / `Respond` / `SendTextWithHandlers`）の説明とコード例
+* **Multimodal**: ステートレス・プロキシ型（サーバー側の画像自動復元なし）への記述更新
+* **Quick Start**: `model_profiles.yaml` の `coding_agents` セクション（`execution_mode`, タイムアウト設定）の追記
+* **Session status**: `suspended` を含むステータス一覧の追記
+* **Roadmap**: Interactive agent execution の項目追加
 
 ---
 
