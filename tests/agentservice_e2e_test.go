@@ -73,7 +73,7 @@ func startE2EServer(t *testing.T) (string, func()) {
 log:
   level: "trace"
 vault:
-  backend: "keyring"
+  backends: [keyring]
 websocket:
   port: %d
 agent_service:
@@ -489,7 +489,7 @@ func TestE2E_CodingAgentError(t *testing.T) {
 log:
   level: "info"
 vault:
-  backend: "keyring"
+  backends: [keyring]
 websocket:
   port: %d
 agent_service:

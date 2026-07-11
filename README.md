@@ -88,6 +88,42 @@ For long-running SSE streams, disable the HTTP client timeout:
 c := client.New("http://localhost:3100", client.WithNoTimeout())
 ```
 
+### Vault API Examples
+
+Tern also provides a reusable Vault API package at [`vault/`](vault), designed for tool authors who want Vault functionality without embedding CLI parsing logic.
+
+#### 1. Low-level Vault Operations
+
+```go
+import (
+    sharedvault "github.com/axsh/arctic-tern/shared/libs/go/vault"
+    apivault "github.com/axsh/arctic-tern/vault"
+)
+
+svc := apivault.NewService(sharedvault.NewKeyringVaultBackend())
+_, _ = svc.Set("anthropic", "", "sk-ant-...")
+res, _ := svc.Get("anthropic", "", false)
+states, _ := svc.Status([]string{"anthropic", "openai", "google"})
+_ = res
+_ = states
+```
+
+#### 2. High-level CLI Facade (main-ready)
+
+```go
+runner := apivault.NewCLIRunner(apivault.CLIConfig{
+    Store:      sharedvault.NewKeyringVaultBackend(),
+    Stdin:      os.Stdin,
+    Stdout:     os.Stdout,
+    Stderr:     os.Stderr,
+    AppName:    "vault-cli",
+    AppVersion: "0.1.0",
+})
+os.Exit(runner.Run(os.Args[1:]))
+```
+
+The `features/vault-cli` binary uses this facade and now serves as a minimal sample entrypoint for the public Vault API.
+
 #### 1. Setup and Session Initialization
 
 First, import the library, connect to the Tern server, and create an active session:

@@ -29,14 +29,15 @@ func TestSaveImageToTempFile_PNG(t *testing.T) {
 	path, err := SaveImageToTempFile("session-001", source)
 	require.NoError(t, err)
 	require.NotEmpty(t, path)
+	t.Cleanup(func() { os.Remove(path) })
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.False(t, info.IsDir())
 
-	relPath, err := filepath.Rel(filepath.Join(os.TempDir(), "arctic-tern-multimodal"), path)
-	require.NoError(t, err)
-	assert.False(t, strings.Contains(relPath, ".."))
+	// Verify file is under {TempDir}/arctic-tern-multimodal/.
+	expectedDir := filepath.Join(os.TempDir(), "arctic-tern-multimodal")
+	assert.True(t, strings.HasPrefix(path, expectedDir))
 
 	assert.True(t, strings.HasSuffix(path, ".png"))
 
@@ -55,6 +56,7 @@ func TestSaveImageToTempFile_JPEG(t *testing.T) {
 
 	path, err := SaveImageToTempFile("session-002", source)
 	require.NoError(t, err)
+	t.Cleanup(func() { os.Remove(path) })
 	assert.True(t, strings.HasSuffix(path, ".jpg"))
 }
 
@@ -93,6 +95,7 @@ func TestBuildMultimodalPrompt(t *testing.T) {
 
 	prompt, savedFiles, err := BuildMultimodalPrompt("session-005", parts)
 	require.NoError(t, err)
+	t.Cleanup(func() { CleanupMultimodalFiles(savedFiles) })
 
 	assert.Contains(t, prompt, "Look at this image: ")
 	assert.Contains(t, prompt, "What do you see?")
@@ -129,6 +132,7 @@ func TestCleanupMultimodalFiles(t *testing.T) {
 		Type: "base64", MediaType: "image/png", Data: testImageData(),
 	}
 
+	// Save two files.
 	path1, err := SaveImageToTempFile("session-008a", source)
 	require.NoError(t, err)
 	path2, err := SaveImageToTempFile("session-008b", source)

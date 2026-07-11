@@ -77,13 +77,16 @@ func New(opts ...Option) (*Server, error) {
 			"gateway_port", cfg.LLMGateway.Port,
 			"ws_port", cfg.WebSocket.Port,
 			"agent_port", cfg.AgentService.Port,
-			"vault_backend", cfg.Vault.Backend)
+			"vault_backends", cfg.Vault.Backends)
 		log.Debug("resolving logger", "level", cfg.Log.Level)
-		log.Debug("resolving vault", "backend", cfg.Vault.Backend)
+		log.Debug("resolving vault", "backends", cfg.Vault.Backends)
 	}
 
 	// Step 4: Resolve VaultStore.
-	vs := resolveVault(o, cfg)
+	vs, err := resolveVault(o, cfg, log)
+	if err != nil {
+		return nil, fmt.Errorf("tern: %w", err)
+	}
 
 	// Step 5: Resolve Gateway.
 	if log != nil {
@@ -327,17 +330,91 @@ func resolveLogger(o *options, cfg *config.AppConfig) logger.Logger {
 }
 
 // resolveVault resolves the VaultStore from options.
-// If WithVaultStore is set, use it. Otherwise select based on Config.Vault.Backend.
-func resolveVault(o *options, cfg *config.AppConfig) vault.VaultStore {
+// If WithVaultStore is set, use it. Otherwise build from Config.Vault.Backends.
+func resolveVault(o *options, cfg *config.AppConfig, log logger.Logger) (vault.VaultStore, error) {
+	// 1. WithVaultStore option takes priority.
 	if o.vault != nil {
-		return o.vault
+		return o.vault, nil
 	}
-	switch cfg.Vault.Backend {
-	case "keyring":
-		return vault.NewKeyringVaultBackend()
-	default:
-		return vault.NewEnvVaultBackend()
+
+	// 2. Detect deprecated backend (singular) field (R5).
+	if cfg.Vault.Backend != "" {
+		return nil, fmt.Errorf(
+			"vault.backend (singular) is no longer supported. "+
+				"Use vault.backends (plural) instead.\n\n"+
+				"Migration example:\n"+
+				"  # Before\n"+
+				"  vault:\n"+
+				"    backend: %s\n\n"+
+				"  # After\n"+
+				"  vault:\n"+
+				"    backends: [%s]",
+			cfg.Vault.Backend, cfg.Vault.Backend)
 	}
+
+	// 3. Validate backends is set and non-empty (R2).
+	if len(cfg.Vault.Backends) == 0 {
+		return nil, fmt.Errorf(
+			"vault.backends is required but not configured.\n\n" +
+				"Add a 'backends' list to the vault section of your config file to specify\n" +
+				"which secret backends to use and in what order they should be tried.\n\n" +
+				"Example configurations:\n\n" +
+				"  # Use OS keyring (recommended for desktop environments)\n" +
+				"  vault:\n" +
+				"    backends: [keyring]\n\n" +
+				"  # Use OS keyring first, fall back to environment variables\n" +
+				"  vault:\n" +
+				"    backends: [keyring, env]\n\n" +
+				"  # Use encrypted file backend\n" +
+				"  vault:\n" +
+				"    backends: [file]\n" +
+				"    file_path: /path/to/secrets.json\n\n" +
+				"Supported backends: keyring, env, file")
+	}
+
+	// 4. Build each backend and validate (R3).
+	supported := map[string]bool{"env": true, "keyring": true, "file": true}
+	names := make([]string, 0, len(cfg.Vault.Backends))
+	stores := make([]vault.VaultStore, 0, len(cfg.Vault.Backends))
+
+	for _, name := range cfg.Vault.Backends {
+		if !supported[name] {
+			return nil, fmt.Errorf(
+				"unsupported vault backend %q in vault.backends.\n\n"+
+					"Supported backends: keyring, env, file\n\n"+
+					"Check your config file for typos in the vault.backends list.",
+				name)
+		}
+		switch name {
+		case "env":
+			stores = append(stores, vault.NewEnvVaultBackend())
+		case "keyring":
+			stores = append(stores, vault.NewKeyringVaultBackend())
+		case "file":
+			if cfg.Vault.FilePath == "" {
+				return nil, fmt.Errorf(
+					"vault backend \"file\" requires vault.file_path to be set.\n\n" +
+						"Example:\n" +
+						"  vault:\n" +
+						"    backends: [file]\n" +
+						"    file_path: /path/to/secrets.json")
+			}
+			fb, err := vault.NewFileVaultBackend(cfg.Vault.FilePath)
+			if err != nil {
+				return nil, fmt.Errorf("vault file backend: %w", err)
+			}
+			stores = append(stores, fb)
+		}
+		names = append(names, name)
+	}
+
+	// 5. If only one backend, return it directly (no chain overhead).
+	if len(stores) == 1 {
+		return stores[0], nil
+	}
+
+	// 6. Build chain (R4).
+	return vault.NewChainVaultBackend(names, stores, log), nil
 }
 
 // resolveGateway resolves the LLMGatewayBackend from options.

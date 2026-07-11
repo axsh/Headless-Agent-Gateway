@@ -87,18 +87,24 @@ func TestMultimodal_Persistence_And_Restoration(t *testing.T) {
 			}},
 		},
 	})
-	http.Post(ts.URL+"/api/v2/sessions/"+sessionID+"/messages", "application/json", bytes.NewReader(msg1))
+	http.Post(ts.URL+"/api/v1/sessions/"+sessionID+"/messages", "application/json", bytes.NewReader(msg1))
 
 	// Verify image file exists in session dir.
 	multimodalDir := filepath.Join(tmpDir, "multimodal")
-	files, _ := os.ReadDir(multimodalDir)
+	files, err := os.ReadDir(multimodalDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
 	if len(files) != 1 {
-		t.Errorf("expected 1 image file in %s, got %d", multimodalDir, len(files))
+		t.Fatalf("expected 1 image file in %s, got %d", multimodalDir, len(files))
 	}
 
 	// Verify history file contains content_parts.
 	histFile := filepath.Join(tmpDir, "history", "0000001.json")
-	histData, _ := os.ReadFile(histFile)
+	histData, err := os.ReadFile(histFile)
+	if err != nil {
+		t.Fatalf("ReadFile history failed: %v", err)
+	}
 	if !strings.Contains(string(histData), "content_parts") || !strings.Contains(string(histData), "image") {
 		t.Errorf("history file missing multimodal parts: %s", string(histData))
 	}
@@ -109,7 +115,7 @@ func TestMultimodal_Persistence_And_Restoration(t *testing.T) {
 			{"type": "text", "text": "Second message"},
 		},
 	})
-	http.Post(ts.URL+"/api/v2/sessions/"+sessionID+"/messages", "application/json", bytes.NewReader(msg2))
+	http.Post(ts.URL+"/api/v1/sessions/"+sessionID+"/messages", "application/json", bytes.NewReader(msg2))
 
 	// The last prompt received by the agent should contain the "System Note" with the previous image.
 	if !strings.Contains(agent.lastPrompt, "[System Note: Previous images in this session for context]") {

@@ -47,7 +47,7 @@ func startWayfinderE2EServer(t *testing.T) (string, func()) {
 log:
   level: "debug"
 vault:
-  backend: "keyring"
+  backends: [keyring]
 websocket:
   port: %d
 agent_service:

@@ -53,7 +53,7 @@ func startCodexE2EServer(t *testing.T) (string, func()) {
 log:
   level: "info"
 vault:
-  backend: "keyring"
+  backends: [keyring]
 websocket:
   port: %d
 agent_service:
@@ -252,7 +252,7 @@ func TestCodexE2E_ErrorPropagation(t *testing.T) {
 log:
   level: "info"
 vault:
-  backend: "keyring"
+  backends: [keyring]
 websocket:
   port: %d
 agent_service:

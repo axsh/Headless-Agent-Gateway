@@ -17,7 +17,7 @@ log:
       address: "localhost:514"
       tag: "tern"
 vault:
-  backend: "keyring"
+  backends: [keyring]
 websocket:
   port: 18080
 agent_service:
