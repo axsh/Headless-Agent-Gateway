@@ -102,6 +102,11 @@ func RegisterAllTools(reg *Registry, tc *ToolContext) {
 			"type": "object",
 			"properties": map[string]any{
 				"prompt": map[string]any{"type": "string", "description": "The question or instruction to present to the user"},
+				"choices": map[string]any{
+					"type": "array",
+					"items": map[string]any{"type": "string"},
+					"description": "Optional list of choices for the user",
+				},
 			},
 			"required": []string{"prompt"},
 		}, newAskUser(tc))

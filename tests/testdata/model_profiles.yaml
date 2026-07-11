@@ -51,3 +51,6 @@ providers:
 coding_agents:
   codex:
     max_prompt_bytes: 1048576 # 1MB
+    execution_mode: single_shot
+  claudecode:
+    execution_mode: single_shot

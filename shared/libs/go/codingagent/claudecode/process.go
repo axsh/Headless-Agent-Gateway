@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -16,14 +19,57 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
-const gracefulShutdownTimeout = 5 * time.Second
+const (
+	gracefulShutdownTimeout = 5 * time.Second
+	defaultIdleTimeoutSec   = 300
+	defaultMaxExecutionSec  = 3600
+)
 
 // ProcessManager manages a Claude CLI subprocess.
 type ProcessManager struct {
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
-	logger    logger.Logger
-	stderrBuf *bytes.Buffer
+	cmd         *exec.Cmd
+	cancel      context.CancelFunc
+	logger      logger.Logger
+	stderrBuf   *bytes.Buffer
+	stdinWriter io.WriteCloser
+	stdinMu     sync.Mutex
+}
+
+// WriteStdin writes additional input to the running CLI process.
+func (pm *ProcessManager) WriteStdin(text string) error {
+	pm.stdinMu.Lock()
+	defer pm.stdinMu.Unlock()
+	if pm.stdinWriter == nil {
+		return fmt.Errorf("stdin not available (single_shot or closed)")
+	}
+	if _, err := io.WriteString(pm.stdinWriter, text); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(pm.stdinWriter, "\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (pm *ProcessManager) closeStdin() {
+	pm.stdinMu.Lock()
+	defer pm.stdinMu.Unlock()
+	if pm.stdinWriter != nil {
+		pm.stdinWriter.Close()
+		pm.stdinWriter = nil
+	}
+}
+
+func resolveTimeouts(cfg *codingagent.SessionConfig) (idleSec, maxSec int) {
+	idleSec = cfg.IdleTimeoutSeconds
+	if idleSec == 0 {
+		idleSec = defaultIdleTimeoutSec
+	}
+	maxSec = cfg.MaxExecutionSeconds
+	if maxSec == 0 {
+		maxSec = defaultMaxExecutionSec
+	}
+	return idleSec, maxSec
 }
 
 // BuildArgs constructs claude CLI arguments from SessionConfig.
@@ -174,19 +220,35 @@ func StartProcess(
 
 	var stderrBuf bytes.Buffer
 	stderrDone := make(chan struct{})
+	ch := make(chan codingagent.StreamEvent, 64)
+	var lastActivity atomic.Int64
+	lastActivity.Store(time.Now().UnixNano())
+	touchActivity := func() { lastActivity.Store(time.Now().UnixNano()) }
+
+	interactive := cfg.ExecutionMode != codingagent.ExecutionModeSingleShot
+	var stdinReader io.Reader
+	var stdinWriter io.WriteCloser
+	if interactive {
+		var sw io.WriteCloser
+		stdinReader, sw = io.Pipe()
+		stdinWriter = sw
+	} else {
+		stdinReader = bytes.NewReader(nil)
+	}
+
 	go func() {
 		defer close(stderrDone)
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
+			touchActivity()
 			stderrBuf.WriteString(line)
 			stderrBuf.WriteString("\n")
 			log.Debug("CLI stderr line", "line", line)
 		}
 	}()
 
-	// R7: Suppress stdin warning by providing an empty reader that returns EOF immediately.
-	cmd.Stdin = bytes.NewReader(nil)
+	cmd.Stdin = stdinReader
 
 	log.Info("starting claude CLI process", "work_dir", cfg.WorkDir, "model", cfg.Model)
 	if err := cmd.Start(); err != nil {
@@ -194,14 +256,45 @@ func StartProcess(
 		return nil, nil, fmt.Errorf("start claude: %w", err)
 	}
 
-	ch := make(chan codingagent.StreamEvent, 64)
-	pm := &ProcessManager{cmd: cmd, cancel: cancel, logger: log, stderrBuf: &stderrBuf}
+	pm := &ProcessManager{
+		cmd:         cmd,
+		cancel:      cancel,
+		logger:      log,
+		stderrBuf:   &stderrBuf,
+		stdinWriter: stdinWriter,
+	}
+
+	idleSec, maxSec := resolveTimeouts(cfg)
+	startedAt := time.Now()
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-procCtx.Done():
+				return
+			case <-ticker.C:
+				if time.Since(startedAt) > time.Duration(maxSec)*time.Second {
+					emitTimeout(ch, procCtx, fmt.Sprintf("agent max execution timeout after %ds", maxSec))
+					pm.Stop()
+					return
+				}
+				last := time.Unix(0, lastActivity.Load())
+				if time.Since(last) > time.Duration(idleSec)*time.Second {
+					emitTimeout(ch, procCtx, fmt.Sprintf("agent idle timeout after %ds", idleSec))
+					pm.Stop()
+					return
+				}
+			}
+		}
+	}()
 
 	go func() {
 		defer close(ch)
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
+			touchActivity()
 			log.Trace("CLI stdout line", "line", line)
 			ev := ParseJSONLinesEvent(line, log)
 			if ev != nil {
@@ -239,11 +332,19 @@ func StartProcess(
 	return ch, pm, nil
 }
 
+func emitTimeout(ch chan<- codingagent.StreamEvent, ctx context.Context, msg string) {
+	select {
+	case ch <- codingagent.StreamEvent{Type: codingagent.EventError, Content: msg}:
+	case <-ctx.Done():
+	}
+}
+
 // Stop gracefully terminates the subprocess.
 // 1. Send SIGTERM (Unix) or Kill (Windows)
 // 2. Wait up to 5 seconds for exit
 // 3. Force kill if timeout
 func (pm *ProcessManager) Stop() error {
+	pm.closeStdin()
 	if pm.cmd.Process == nil {
 		return nil
 	}

@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// checkOllamaAvailable verifies that the Ollama server is running.
+// checkOllamaAvailable skips the test when the Ollama server is not running.
 func checkOllamaAvailable(t *testing.T) {
 	t.Helper()
 	client := &http.Client{Timeout: 2 * time.Second}

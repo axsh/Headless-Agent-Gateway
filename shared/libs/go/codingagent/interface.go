@@ -30,3 +30,8 @@ type Session interface {
 	// Close terminates the session and cleans up the subprocess.
 	Close() error
 }
+
+// StdinWriter allows writing additional input to a running CLI session.
+type StdinWriter interface {
+	WriteStdin(text string) error
+}

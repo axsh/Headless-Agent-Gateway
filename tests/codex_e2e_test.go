@@ -520,16 +520,35 @@ func TestCodexE2E_TernctlRealCommand(t *testing.T) {
 
 	// Resolve ternctl binary path (handles Windows .exe extension)
 	ternctlName := "../bin/ternctl"
+	ternctlBin := ""
 	if runtime.GOOS == "windows" {
-		// On Windows, exec.Command requires .exe extension.
-		// Try with .exe first, then without.
-		if _, err := os.Stat(ternctlName + ".exe"); err == nil {
-			ternctlName = ternctlName + ".exe"
+		absBase, absErr := filepath.Abs(ternctlName)
+		if absErr != nil {
+			t.Fatalf("resolve ternctl path: %v", absErr)
+		}
+		if _, err := os.Stat(absBase + ".exe"); err == nil {
+			ternctlBin = absBase + ".exe"
+		} else if _, err := os.Stat(absBase); err == nil {
+			// Git Bash builds may emit a PE binary without the .exe suffix; CreateProcess needs .exe.
+			exePath := filepath.Join(t.TempDir(), "ternctl.exe")
+			data, readErr := os.ReadFile(absBase)
+			if readErr != nil {
+				t.Fatalf("read ternctl binary: %v", readErr)
+			}
+			if writeErr := os.WriteFile(exePath, data, 0755); writeErr != nil {
+				t.Fatalf("write ternctl.exe: %v", writeErr)
+			}
+			ternctlBin = exePath
+		}
+	} else {
+		var absErr error
+		ternctlBin, absErr = filepath.Abs(ternctlName)
+		if absErr != nil {
+			t.Fatalf("resolve ternctl path: %v", absErr)
 		}
 	}
-	ternctlBin, err := filepath.Abs(ternctlName)
-	if err != nil {
-		t.Fatalf("resolve ternctl path: %v", err)
+	if ternctlBin == "" {
+		t.Fatalf("ternctl binary not found (looked for ../bin/ternctl)")
 	}
 	if _, err := os.Stat(ternctlBin); err != nil {
 		t.Fatalf("ternctl binary not found at %s: %v", ternctlBin, err)

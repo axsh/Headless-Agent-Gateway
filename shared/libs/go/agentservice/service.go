@@ -45,6 +45,7 @@ type Server struct {
 	activeSessions  map[string]codingagent.Session
 	execCancelMu    sync.Mutex
 	execCancels     map[string]context.CancelFunc // sessionID -> execution cancel
+	execRegistry    *execRegistry
 	enabledVersions   map[int]bool                  // API versions to register
 	disableSandbox    bool
 	enableSubagent    bool
@@ -93,6 +94,7 @@ func New(opts ...ServerOption) *Server {
 		sessions:       NewMemorySessionStore(),
 		activeSessions: make(map[string]codingagent.Session),
 		execCancels:    make(map[string]context.CancelFunc),
+		execRegistry:   newExecRegistry(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -110,6 +112,7 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 		sessions:       store,
 		activeSessions: make(map[string]codingagent.Session),
 		execCancels:    make(map[string]context.CancelFunc),
+		execRegistry:   newExecRegistry(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -336,6 +339,8 @@ func (s *Server) routeSessionByID(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if strings.HasSuffix(path, "/messages") {
 		s.handleSendMessage(w, r)
+	} else if strings.HasSuffix(path, "/respond") {
+		s.handleRespond(w, r)
 	} else if strings.HasSuffix(path, "/terminate") {
 		s.handleTerminate(w, r)
 	} else if strings.HasSuffix(path, "/logs") {

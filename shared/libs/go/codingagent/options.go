@@ -30,6 +30,13 @@ type SessionConfig struct {
 
 	// MaxTurns limits the number of agent turns. 0 means CLI default.
 	MaxTurns int
+
+	// ExecutionMode controls stdin behavior: "interactive" or "single_shot".
+	ExecutionMode string
+	// IdleTimeoutSeconds is the max idle time without stdout/stderr output.
+	IdleTimeoutSeconds int
+	// MaxExecutionSeconds is the max wall-clock execution time.
+	MaxExecutionSeconds int
 }
 
 // WithModel sets the model name.
@@ -75,6 +82,21 @@ func WithMaxTurns(n int) SessionOption {
 // WithSessionDir sets the session data storage directory.
 func WithSessionDir(dir string) SessionOption {
 	return func(c *SessionConfig) { c.SessionDir = dir }
+}
+
+// WithExecutionMode sets the execution mode for stdin handling.
+func WithExecutionMode(mode string) SessionOption {
+	return func(c *SessionConfig) { c.ExecutionMode = NormalizeExecutionMode(mode) }
+}
+
+// WithIdleTimeout sets the idle timeout in seconds.
+func WithIdleTimeout(seconds int) SessionOption {
+	return func(c *SessionConfig) { c.IdleTimeoutSeconds = seconds }
+}
+
+// WithMaxExecution sets the max execution time in seconds.
+func WithMaxExecution(seconds int) SessionOption {
+	return func(c *SessionConfig) { c.MaxExecutionSeconds = seconds }
 }
 
 // NewSessionConfig applies the given SessionOptions and returns a SessionConfig.
@@ -126,6 +148,23 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 	if cfg.SessionDir != "" {
 		if abs, err := filepath.Abs(cfg.SessionDir); err == nil {
 			cfg.SessionDir = abs
+		}
+	}
+	if cfg.ExecutionMode == "" {
+		cfg.ExecutionMode = NormalizeExecutionMode(ac.ExecutionMode)
+	}
+	if cfg.IdleTimeoutSeconds == 0 {
+		if ac.IdleTimeoutSeconds > 0 {
+			cfg.IdleTimeoutSeconds = ac.IdleTimeoutSeconds
+		} else {
+			cfg.IdleTimeoutSeconds = 300
+		}
+	}
+	if cfg.MaxExecutionSeconds == 0 {
+		if ac.MaxExecutionSeconds > 0 {
+			cfg.MaxExecutionSeconds = ac.MaxExecutionSeconds
+		} else {
+			cfg.MaxExecutionSeconds = 3600
 		}
 	}
 }

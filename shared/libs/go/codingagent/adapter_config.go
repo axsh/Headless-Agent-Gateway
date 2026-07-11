@@ -52,4 +52,13 @@ type AdapterConfig struct {
 	// EnableSubagent enables subagent delegation for WBS node execution.
 	// When true, each WBS node runs in an independent child session.
 	EnableSubagent bool
+
+	// MaxPromptBytes is the maximum allowed prompt size in bytes.
+	MaxPromptBytes int
+	// ExecutionMode controls stdin behavior: "interactive" or "single_shot".
+	ExecutionMode string
+	// IdleTimeoutSeconds is the max idle time without stdout/stderr output.
+	IdleTimeoutSeconds int
+	// MaxExecutionSeconds is the max wall-clock execution time.
+	MaxExecutionSeconds int
 }

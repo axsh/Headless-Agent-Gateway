@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -293,7 +294,7 @@ func TestAskUser_ReturnsErrFeedbackRequired(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected ErrFeedbackRequired, got nil")
 	}
-	if err != ErrFeedbackRequired {
+	if !errors.Is(err, ErrFeedbackRequired) {
 		t.Errorf("expected ErrFeedbackRequired, got %v", err)
 	}
 	if result != "[WAITING FOR USER] What color do you prefer?" {

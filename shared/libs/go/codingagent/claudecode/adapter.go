@@ -94,6 +94,9 @@ func (s *claudeSession) ID() string { return s.id }
 // Close terminates the session and stops the subprocess.
 func (s *claudeSession) Close() error { return s.pm.Stop() }
 
+// WriteStdin writes additional input to the running Claude process.
+func (s *claudeSession) WriteStdin(text string) error { return s.pm.WriteStdin(text) }
+
 // SupportsMultimodal returns true: Claude Code CLI supports image inputs.
 func (a *ClaudeCodeAdapter) SupportsMultimodal() bool {
 	return true

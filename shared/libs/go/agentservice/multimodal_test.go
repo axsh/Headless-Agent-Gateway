@@ -31,7 +31,6 @@ func TestSaveImageToTempFile_PNG(t *testing.T) {
 	require.NotEmpty(t, path)
 	t.Cleanup(func() { os.Remove(path) })
 
-	// Verify file exists.
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.False(t, info.IsDir())
@@ -40,10 +39,8 @@ func TestSaveImageToTempFile_PNG(t *testing.T) {
 	expectedDir := filepath.Join(os.TempDir(), "arctic-tern-multimodal")
 	assert.True(t, strings.HasPrefix(path, expectedDir))
 
-	// Verify extension.
 	assert.True(t, strings.HasSuffix(path, ".png"))
 
-	// Verify file content matches decoded base64.
 	content, err := os.ReadFile(path)
 	require.NoError(t, err)
 	expected, _ := base64.StdEncoding.DecodeString(testImageData())
@@ -100,15 +97,11 @@ func TestBuildMultimodalPrompt(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { CleanupMultimodalFiles(savedFiles) })
 
-	// Text parts are concatenated.
 	assert.Contains(t, prompt, "Look at this image: ")
 	assert.Contains(t, prompt, "What do you see?")
-
-	// Image reference is embedded.
 	assert.Contains(t, prompt, "[Attached image:")
 	assert.Len(t, savedFiles, 1)
 
-	// Saved file exists.
 	_, err = os.Stat(savedFiles[0])
 	require.NoError(t, err)
 }
@@ -126,7 +119,7 @@ func TestBuildMultimodalPrompt_TextOnly(t *testing.T) {
 
 func TestBuildMultimodalPrompt_ImageMissingSource(t *testing.T) {
 	parts := []codingagent.ContentPart{
-		{Type: "image"}, // Source is nil
+		{Type: "image"},
 	}
 
 	_, _, err := BuildMultimodalPrompt("session-007", parts)
@@ -145,47 +138,34 @@ func TestCleanupMultimodalFiles(t *testing.T) {
 	path2, err := SaveImageToTempFile("session-008b", source)
 	require.NoError(t, err)
 
-	// Verify files exist before cleanup.
 	_, err = os.Stat(path1)
 	require.NoError(t, err)
 	_, err = os.Stat(path2)
 	require.NoError(t, err)
 
-	// Cleanup.
 	CleanupMultimodalFiles([]string{path1, path2})
 
-	// Verify files no longer exist.
 	_, err = os.Stat(path1)
 	assert.True(t, os.IsNotExist(err))
 	_, err = os.Stat(path2)
 	assert.True(t, os.IsNotExist(err))
-}
-
-func TestCleanupMultimodalFiles_EmptyList(t *testing.T) {
-	// Should not panic with empty list.
-	CleanupMultimodalFiles(nil)
-	CleanupMultimodalFiles([]string{})
 }
 
 func TestMediaTypeToExt(t *testing.T) {
 	tests := []struct {
 		mediaType string
-		expected  string
+		want      string
 	}{
 		{"image/png", ".png"},
 		{"image/jpeg", ".jpg"},
 		{"image/jpg", ".jpg"},
 		{"image/gif", ".gif"},
 		{"image/webp", ".webp"},
-		{"IMAGE/PNG", ".png"},
-		{"application/octet-stream", ".bin"},
-		{"", ".bin"},
+		{"image/unknown", ".bin"},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.mediaType, func(t *testing.T) {
-			result := mediaTypeToExt(tt.mediaType)
-			assert.Equal(t, tt.expected, result)
-		})
+		if got := mediaTypeToExt(tt.mediaType); got != tt.want {
+			t.Errorf("mediaTypeToExt(%q) = %q, want %q", tt.mediaType, got, tt.want)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package v1
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,14 +23,33 @@ const (
 	EventNodeComplete EventType = "node_complete"
 	EventNodeFailed   EventType = "node_failed"
 	EventProgress     EventType = "progress"
+	EventUserInputRequired EventType = "user_input_required"
 )
+
+// UserInputRequiredEvent carries structured user-input request data.
+type UserInputRequiredEvent struct {
+	Content  string
+	PromptID string
+	Choices  []string
+}
+
+// StreamHandlers configures callbacks for interactive streaming.
+type StreamHandlers struct {
+	OnText              func(text string)
+	OnToolUse           func(toolName string)
+	OnToolResult        func(content string)
+	OnUserInputRequired func(ev UserInputRequiredEvent) (response string, err error)
+	OnError             func(err string) error
+	OnResult            func()
+}
 
 // Event is a single streaming event from the server.
 type Event struct {
-	Type     EventType
-	Text     string
-	ToolName string
-	Error    string
+	Type               EventType
+	Text               string
+	ToolName           string
+	Error              string
+	UserInputRequired  UserInputRequiredEvent
 }
 
 // Stream processes SSE events from a session message.
@@ -74,6 +94,8 @@ func (s *Stream) Output(w io.Writer) error {
 			fmt.Fprintf(w, "[Node Failed: %s]\n", ev.Text)
 		case EventProgress:
 			fmt.Fprintf(w, "[WBS %s]\n", ev.Text)
+		case EventUserInputRequired:
+			fmt.Fprintf(w, "[User Input Required] %s\n", ev.UserInputRequired.Content)
 		}
 	}
 	return nil
@@ -131,6 +153,56 @@ func (s *Stream) Run() error {
 	return nil
 }
 
+// RunWithHandlers executes the stream with interactive handler callbacks.
+func (s *Stream) RunWithHandlers(ctx context.Context, session *Session, h StreamHandlers) error {
+	stream := s
+	for {
+		for ev := range stream.events() {
+			switch ev.Type {
+			case EventText:
+				if h.OnText != nil {
+					h.OnText(ev.Text)
+				}
+			case EventToolUse:
+				if h.OnToolUse != nil {
+					h.OnToolUse(ev.ToolName)
+				}
+			case EventToolResult:
+				if h.OnToolResult != nil {
+					h.OnToolResult(ev.Text)
+				}
+			case EventUserInputRequired:
+				if h.OnUserInputRequired == nil {
+					return fmt.Errorf("user input required but no handler configured")
+				}
+				answer, err := h.OnUserInputRequired(ev.UserInputRequired)
+				if err != nil {
+					return err
+				}
+				var err2 error
+				stream, err2 = session.Respond(ctx, answer)
+				if err2 != nil {
+					return err2
+				}
+				goto nextStream
+			case EventError:
+				if h.OnError != nil {
+					if err := h.OnError(ev.Error); err != nil {
+						return err
+					}
+				}
+				return fmt.Errorf("%s", ev.Error)
+			case EventResult:
+				if h.OnResult != nil {
+					h.OnResult()
+				}
+			}
+		}
+		return nil
+	nextStream:
+	}
+}
+
 // Events returns a channel of raw events for full control.
 func (s *Stream) Events() <-chan Event {
 	ch := make(chan Event)
@@ -162,9 +234,11 @@ func (s *Stream) events() <-chan Event {
 				return
 			}
 			var raw struct {
-				Type     string `json:"type"`
-				Content  string `json:"content"`
-				ToolName string `json:"tool_name,omitempty"`
+				Type     string   `json:"type"`
+				Content  string   `json:"content"`
+				ToolName string   `json:"tool_name,omitempty"`
+				PromptID string   `json:"prompt_id,omitempty"`
+				Choices  []string `json:"choices,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &raw); err != nil {
 				continue
@@ -176,6 +250,13 @@ func (s *Stream) events() <-chan Event {
 			}
 			if ev.Type == EventError {
 				ev.Error = raw.Content
+			}
+			if ev.Type == EventUserInputRequired {
+				ev.UserInputRequired = UserInputRequiredEvent{
+					Content:  raw.Content,
+					PromptID: raw.PromptID,
+					Choices:  raw.Choices,
+				}
 			}
 			ch <- ev
 		}

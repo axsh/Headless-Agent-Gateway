@@ -264,6 +264,12 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 			// Handle ask_user: suspend and return.
 			if errors.Is(toolErr, tools.ErrFeedbackRequired) {
 				ac.logger.Info("ask_user invoked, suspending session")
+				req, _ := tools.FeedbackFromError(toolErr)
+				ac.emitter.Emit(codingagent.StreamEvent{
+					Type:     codingagent.EventUserInputRequired,
+					Content:  req.Prompt,
+					Choices:  req.Choices,
+				})
 				ac.saveSession(session.StatusSuspended)
 				return result, tools.ErrFeedbackRequired
 			}

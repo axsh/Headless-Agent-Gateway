@@ -170,7 +170,7 @@ func New(opts ...Option) (*Server, error) {
 		caCertPath = tlsMgr.CACertFilePath()
 	}
 
-	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent)
+	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg, configDir, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent)
 	as.SetEnabledVersions(enableVersions)
 
 	wsPort := cfg.WebSocket.Port
@@ -450,7 +450,7 @@ func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log 
 // resolveAgentService returns the externally provided AgentService or builds one.
 // When building internally, it also auto-registers all coding agents that
 // self-registered via init() in the codingagent global registry.
-func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, disableSandbox bool, enableSubagent bool) *agentservice.Server {
+func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, cfg *config.AppConfig, configDir string, disableSandbox bool, enableSubagent bool) *agentservice.Server {
 	if o.agentService != nil {
 		return o.agentService
 	}
@@ -470,6 +470,20 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		agentservice.WithSandboxDisabled(disableSandbox),
 		agentservice.WithSubagentEnabled(enableSubagent),
 	)
+
+	if cfg != nil && cfg.LLMGateway.ModelProfilesPath != "" {
+		profilesPath := cfg.LLMGateway.ModelProfilesPath
+		if !filepath.IsAbs(profilesPath) && configDir != "" {
+			profilesPath = filepath.Join(configDir, profilesPath)
+		}
+		if profiles, err := config.LoadModelProfiles(profilesPath); err != nil {
+			if log != nil {
+				log.Warn("failed to load model profiles for agent service", "error", err.Error(), "path", profilesPath)
+			}
+		} else {
+			as.SetModelProfiles(profiles)
+		}
+	}
 
 	// Auto-register coding agents from the global registry.
 	defaultModel := ""

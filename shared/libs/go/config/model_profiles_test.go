@@ -3,6 +3,7 @@ package config
 import (
 	"testing"
 
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"gopkg.in/yaml.v3"
 )
 
@@ -312,6 +313,73 @@ func TestModelBehavior_MaxOutputTokens(t *testing.T) {
 				t.Errorf("MaxOutputTokens = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAgentConfig_WithDefaults(t *testing.T) {
+	cfg := AgentConfig{
+		MaxPromptBytes:      2048,
+		MaxExecutionSeconds: 0,
+		IdleTimeoutSeconds:  0,
+		ExecutionMode:       "",
+	}.WithDefaults()
+
+	if cfg.MaxPromptBytes != 2048 {
+		t.Errorf("MaxPromptBytes = %d, want 2048", cfg.MaxPromptBytes)
+	}
+	if cfg.MaxExecutionSeconds != DefaultMaxExecutionSeconds {
+		t.Errorf("MaxExecutionSeconds = %d, want %d", cfg.MaxExecutionSeconds, DefaultMaxExecutionSeconds)
+	}
+	if cfg.IdleTimeoutSeconds != DefaultIdleTimeoutSeconds {
+		t.Errorf("IdleTimeoutSeconds = %d, want %d", cfg.IdleTimeoutSeconds, DefaultIdleTimeoutSeconds)
+	}
+	if cfg.ExecutionMode != codingagent.ExecutionModeInteractive {
+		t.Errorf("ExecutionMode = %q, want interactive", cfg.ExecutionMode)
+	}
+}
+
+func TestResolveAgentConfig(t *testing.T) {
+	profiles := &ModelProfilesConfig{
+		CodingAgents: map[string]AgentConfig{
+			"codex": {ExecutionMode: "single_shot", MaxPromptBytes: 512},
+		},
+	}
+	got := ResolveAgentConfig(profiles, "codex")
+	if got.ExecutionMode != codingagent.ExecutionModeSingleShot {
+		t.Errorf("ExecutionMode = %q", got.ExecutionMode)
+	}
+	if got.MaxPromptBytes != 512 {
+		t.Errorf("MaxPromptBytes = %d", got.MaxPromptBytes)
+	}
+
+	defaults := ResolveAgentConfig(profiles, "unknown")
+	if defaults.ExecutionMode != codingagent.ExecutionModeInteractive {
+		t.Errorf("default ExecutionMode = %q", defaults.ExecutionMode)
+	}
+}
+
+func TestAgentConfig_YAMLUnmarshal(t *testing.T) {
+	input := `
+coding_agents:
+  codex:
+    max_prompt_bytes: 1048576
+    max_execution_seconds: 7200
+    idle_timeout_seconds: 120
+    execution_mode: single_shot
+`
+	var cfg ModelProfilesConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	agent := cfg.CodingAgents["codex"].WithDefaults()
+	if agent.MaxExecutionSeconds != 7200 {
+		t.Errorf("MaxExecutionSeconds = %d", agent.MaxExecutionSeconds)
+	}
+	if agent.IdleTimeoutSeconds != 120 {
+		t.Errorf("IdleTimeoutSeconds = %d", agent.IdleTimeoutSeconds)
+	}
+	if agent.ExecutionMode != codingagent.ExecutionModeSingleShot {
+		t.Errorf("ExecutionMode = %q", agent.ExecutionMode)
 	}
 }
 

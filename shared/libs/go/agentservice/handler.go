@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
 	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
@@ -26,6 +27,15 @@ type MultimodalSupporter interface {
 // SendMessageRequest is the request body for POST /api/v1/sessions/:id/messages.
 type SendMessageRequest struct {
 	Content []codingagent.ContentPart `json:"content"`
+}
+
+// RespondRequest is the request body for POST /api/v1/sessions/:id/respond.
+type RespondRequest struct {
+	Content string `json:"content"`
+}
+
+func (s *Server) resolveAgentConfig(agentName string) config.AgentConfig {
+	return config.ResolveAgentConfig(s.profiles, agentName)
 }
 
 // handleListAgents handles GET /api/v1/agents.
@@ -197,6 +207,17 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if exec, ok := s.execRegistry.Get(sessionID); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error":  "session busy",
+			"status": exec.status,
+			"hint":   "respond or terminate",
+		})
+		return
+	}
+
 	var req SendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -246,12 +267,8 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate prompt size against configured limit.
-	maxBytes := 1048576 // Default 1MB
-	if s.profiles != nil && s.profiles.CodingAgents != nil {
-		if agentCfg, ok := s.profiles.CodingAgents[record.AgentName]; ok && agentCfg.MaxPromptBytes > 0 {
-			maxBytes = agentCfg.MaxPromptBytes
-		}
-	}
+	agentCfg := s.resolveAgentConfig(record.AgentName)
+	maxBytes := agentCfg.MaxPromptBytes
 	if len(promptText) > maxBytes {
 		errMsg := fmt.Sprintf("prompt size (%d bytes) exceeds the limit (%d bytes)", len(promptText), maxBytes)
 		if s.logger != nil {
@@ -295,6 +312,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		codingagent.WithModel(record.Model),
 		codingagent.WithPrompt(promptText),
 		codingagent.WithWorkDir(record.WorkDir),
+		codingagent.WithExecutionMode(agentCfg.ExecutionMode),
+		codingagent.WithIdleTimeout(agentCfg.IdleTimeoutSeconds),
+		codingagent.WithMaxExecution(agentCfg.MaxExecutionSeconds),
 	}
 	if record.AgentSessionID != "" {
 		opts = append(opts, codingagent.WithAgentSessionID(record.AgentSessionID))
@@ -308,19 +328,24 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	execCtx, execCancel := context.WithCancel(context.Background())
 	s.RegisterExecCancel(sessionID, execCancel)
 
-	session, err := agent.CreateSession(execCtx, opts...)
+	agentSess, err := agent.CreateSession(execCtx, opts...)
 	if err != nil {
 		execCancel()
 		s.UnregisterExecCancel(sessionID)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.RegisterActiveSession(sessionID, session)
+	s.RegisterActiveSession(sessionID, agentSess)
+
+	finishExecution := false
 	defer func() {
-		session.Close()
+		if !finishExecution {
+			return
+		}
+		agentSess.Close()
 		s.UnregisterActiveSession(sessionID)
 		s.UnregisterExecCancel(sessionID)
-		// Cleanup multimodal temp files after session completes.
+		s.execRegistry.Unregister(sessionID)
 		if len(savedFiles) > 0 {
 			CleanupMultimodalFiles(savedFiles)
 			if s.logger != nil {
@@ -329,17 +354,46 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	ch, err := session.Send(execCtx, promptText)
+	ch, err := agentSess.Send(execCtx, promptText)
 	if err != nil {
+		finishExecution = true
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		s.streamSSE(r.Context(), w, ch, sessionID)
-	} else {
-		s.respondJSON(r.Context(), w, ch, sessionID)
+	relay := newEventRelay(ch)
+	stdin, _ := agentSess.(codingagent.StdinWriter)
+	active := &activeExecution{
+		sessionID: sessionID,
+		agentSess: agentSess,
+		stdin:     stdin,
+		relay:     relay,
+		status:    codingagent.StatusActive,
 	}
+	if err := s.execRegistry.Register(sessionID, active); err != nil {
+		finishExecution = true
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error":  "session busy",
+			"status": codingagent.StatusActive,
+			"hint":   "respond or terminate",
+		})
+		return
+	}
+
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		_, suspended := s.streamSSERelay(r.Context(), w, active, true)
+		if suspended {
+			return
+		}
+	} else {
+		suspended := s.respondJSONRelay(r.Context(), w, active, true)
+		if suspended {
+			return
+		}
+	}
+	finishExecution = true
 }
 
 // toAgentLogEntry converts a StreamEvent to an AgentLogEntry for TaskLog.
@@ -354,6 +408,232 @@ func generateLogID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// handleRespond handles POST /api/v1/sessions/:id/respond.
+func (s *Server) handleRespond(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/"), "/")
+	if len(parts) < 2 || parts[1] != "respond" {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	sessionID := parts[0]
+
+	exec, ok := s.execRegistry.Get(sessionID)
+	if !ok {
+		http.Error(w, "no active execution", http.StatusConflict)
+		return
+	}
+
+	record, err := s.sessions.Get(sessionID)
+	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	if record.Status != codingagent.StatusSuspended && exec.status != codingagent.StatusSuspended {
+		http.Error(w, "session is not suspended", http.StatusConflict)
+		return
+	}
+
+	var req RespondRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Content == "" {
+		http.Error(w, "content is required", http.StatusBadRequest)
+		return
+	}
+
+	if exec.stdin == nil {
+		http.Error(w, "stdin not available for this agent", http.StatusInternalServerError)
+		return
+	}
+	if err := exec.stdin.WriteStdin(req.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	record.Status = codingagent.StatusActive
+	s.sessions.Update(record)
+	s.execRegistry.SetStatus(sessionID, codingagent.StatusActive)
+	exec.status = codingagent.StatusActive
+
+	if !strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		http.Error(w, "Accept: text/event-stream required", http.StatusNotAcceptable)
+		return
+	}
+
+	_, _ = s.streamSSERelay(r.Context(), w, exec, false)
+
+	exec.agentSess.Close()
+	s.UnregisterActiveSession(sessionID)
+	s.UnregisterExecCancel(sessionID)
+	s.execRegistry.Unregister(sessionID)
+}
+
+// streamSSERelay streams events from a relay. Returns next offset and whether execution suspended.
+func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec *activeExecution, stopOnUserInput bool) (int, bool) {
+	sessionID := exec.sessionID
+	if s.logger != nil {
+		s.logger.Debug("starting SSE stream", "session_id", sessionID)
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return exec.streamOffset, false
+	}
+
+	ch := exec.relay.stream(exec.streamOffset, stopOnUserInput)
+	eventCount := 0
+	var hasError bool
+	var errorMsg string
+	suspended := false
+
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if s.logger != nil {
+				s.logger.Warn("client disconnected during SSE stream",
+					"session_id", sessionID,
+					"events_sent", eventCount)
+			}
+			return exec.streamOffset, suspended
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		case ev, ok := <-ch:
+			if !ok {
+				goto done
+			}
+			eventCount++
+			exec.streamOffset++
+			if ev.Type == codingagent.EventError {
+				hasError = true
+				errorMsg = ev.Content
+			}
+			if ev.Type == codingagent.EventUserInputRequired {
+				suspended = true
+				if rec, err := s.sessions.Get(sessionID); err == nil {
+					rec.Status = codingagent.StatusSuspended
+					s.sessions.Update(rec)
+				}
+				s.execRegistry.SetStatus(sessionID, codingagent.StatusSuspended)
+				exec.status = codingagent.StatusSuspended
+			}
+
+			data, _ := json.Marshal(ev)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+
+			if s.taskLog != nil {
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+			}
+
+			if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
+				if record, err := s.sessions.Get(sessionID); err == nil {
+					record.AgentSessionID = ev.SessionID
+					s.sessions.Update(record)
+				}
+			}
+
+			if suspended && stopOnUserInput {
+				fmt.Fprintf(w, "data: [DONE]\n\n")
+				flusher.Flush()
+				return exec.streamOffset, true
+			}
+		}
+	}
+done:
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
+
+	if record, err := s.sessions.Get(sessionID); err == nil {
+		if hasError {
+			record.Status = codingagent.StatusError
+			if errorMsg != "" {
+				record.Error = errorMsg
+			} else {
+				record.Error = "unknown error occurred during execution"
+			}
+		} else {
+			record.Status = codingagent.StatusCompleted
+		}
+		s.sessions.Update(record)
+	}
+	return exec.streamOffset, suspended
+}
+
+func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, exec *activeExecution, stopOnUserInput bool) bool {
+	sessionID := exec.sessionID
+	ch := exec.relay.stream(exec.streamOffset, stopOnUserInput)
+	var events []codingagent.StreamEvent
+	var hasError bool
+	var errorMsg string
+	suspended := false
+
+	for {
+		select {
+		case <-ctx.Done():
+			return suspended
+		case ev, ok := <-ch:
+			if !ok {
+				goto done
+			}
+			exec.streamOffset++
+			events = append(events, ev)
+			if ev.Type == codingagent.EventError {
+				hasError = true
+				errorMsg = ev.Content
+			}
+			if ev.Type == codingagent.EventUserInputRequired {
+				suspended = true
+				if rec, err := s.sessions.Get(sessionID); err == nil {
+					rec.Status = codingagent.StatusSuspended
+					s.sessions.Update(rec)
+				}
+				s.execRegistry.SetStatus(sessionID, codingagent.StatusSuspended)
+				exec.status = codingagent.StatusSuspended
+				if stopOnUserInput {
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(events)
+					return true
+				}
+			}
+			if s.taskLog != nil {
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+			}
+		}
+	}
+done:
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
+
+	if record, err := s.sessions.Get(sessionID); err == nil {
+		if hasError {
+			record.Status = codingagent.StatusError
+			if errorMsg != "" {
+				record.Error = errorMsg
+			}
+		} else {
+			record.Status = codingagent.StatusCompleted
+		}
+		s.sessions.Update(record)
+	}
+	return suspended
 }
 
 // streamSSE sends streaming events in SSE format.
