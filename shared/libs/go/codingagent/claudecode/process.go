@@ -291,6 +291,7 @@ func StartProcess(
 
 	go func() {
 		defer close(ch)
+		defer cancel() // Option A: cancel procCtx when stdout closes so the timeout goroutine exits cleanly
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -333,6 +334,7 @@ func StartProcess(
 }
 
 func emitTimeout(ch chan<- codingagent.StreamEvent, ctx context.Context, msg string) {
+	defer func() { recover() }() // Option B: absorb panic if ch is already closed
 	select {
 	case ch <- codingagent.StreamEvent{Type: codingagent.EventError, Content: msg}:
 	case <-ctx.Done():
