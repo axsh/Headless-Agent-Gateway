@@ -1,0 +1,23 @@
+{
+  "seq": 17,
+  "role": "user",
+  "content": "",
+  "content_parts": [
+    {
+      "type": "text",
+      "text": "Describe this image:"
+    },
+    {
+      "type": "image",
+      "image": {
+        "path": "",
+        "media_type": "image/png"
+      }
+    },
+    {
+      "type": "text",
+      "text": "What do you see?"
+    }
+  ],
+  "timestamp": "2026-07-31T00:21:47.5292485+09:00"
+}

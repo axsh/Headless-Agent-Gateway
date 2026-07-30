@@ -1,0 +1,12 @@
+{
+  "seq": 10,
+  "role": "user",
+  "content": "",
+  "content_parts": [
+    {
+      "type": "text",
+      "text": "test"
+    }
+  ],
+  "timestamp": "2026-07-31T00:20:06.4978164+09:00"
+}

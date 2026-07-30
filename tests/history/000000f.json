@@ -1,0 +1,12 @@
+{
+  "seq": 15,
+  "role": "user",
+  "content": "",
+  "content_parts": [
+    {
+      "type": "text",
+      "text": "Hello from v2 integration test"
+    }
+  ],
+  "timestamp": "2026-07-31T00:21:47.0823472+09:00"
+}

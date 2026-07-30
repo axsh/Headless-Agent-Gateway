@@ -1,0 +1,12 @@
+{
+  "seq": 19,
+  "role": "user",
+  "content": "",
+  "content_parts": [
+    {
+      "type": "text",
+      "text": "Hello v1 content block"
+    }
+  ],
+  "timestamp": "2026-07-31T00:21:49.1483213+09:00"
+}
