@@ -1,0 +1,12 @@
+{
+  "seq": 6,
+  "role": "user",
+  "content": "",
+  "content_parts": [
+    {
+      "type": "text",
+      "text": "test prompt"
+    }
+  ],
+  "timestamp": "2026-07-31T00:20:04.5968024+09:00"
+}
