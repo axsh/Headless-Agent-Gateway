@@ -492,7 +492,7 @@ func TestResolveAgentService_NilGateway(t *testing.T) {
 	log := logger.NewDefault(logger.LevelDebug)
 	tl := tasklog.New()
 
-	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", nil, &config.AppConfig{}, "", false, false, nil, "")
+	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", nil, &config.AppConfig{}, "", false, false, nil, "", nil)
 	if as == nil {
 		t.Fatal("resolveAgentService returned nil")
 	}
@@ -506,7 +506,7 @@ func TestResolveAgentService_WithStubGateway(t *testing.T) {
 	tl := tasklog.New()
 	stub := llmgateway.NewStubGateway()
 
-	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false, nil, "")
+	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false, nil, "", nil)
 	if as == nil {
 		t.Fatal("resolveAgentService returned nil")
 	}
@@ -521,7 +521,7 @@ func TestResolveAgentService_ExternalBypass(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
 
 	// When o.agentService is set, resolveAgentService should return it directly.
-	got := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false, nil, "")
+	got := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false, nil, "", nil)
 	if got != externalAS {
 		t.Error("expected externally provided AgentService to be returned directly")
 	}

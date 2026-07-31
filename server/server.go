@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	artifactstorage "github.com/axsh/arctic-tern/shared/libs/go/artifact/storage"
 	"github.com/axsh/arctic-tern/shared/libs/go/artifact/store"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
@@ -172,8 +173,9 @@ func New(opts ...Option) (*Server, error) {
 		caCertPath = tlsMgr.CACertFilePath()
 	}
 
-	// Initialize ArtifactStore using the config dir as the database location.
+	// Initialize ArtifactStore and UserArtifactStorage using the config dir.
 	var artifactSt store.ArtifactStore
+	var userArtSt *artifactstorage.UserArtifactStorage
 	artifactWorkDir := ""
 	if configDir != "" {
 		dbDir := filepath.Join(configDir, "artifacts")
@@ -187,9 +189,15 @@ func New(opts ...Option) (*Server, error) {
 				log.Warn("failed to initialize artifact store", "error", err.Error())
 			}
 		}
+		userFilesDir := filepath.Join(configDir, "user-artifacts")
+		if st, err := artifactstorage.New(userFilesDir); err == nil {
+			userArtSt = st
+		} else if log != nil {
+			log.Warn("failed to initialize user artifact storage", "error", err.Error())
+		}
 	}
 
-	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg, configDir, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent, artifactSt, artifactWorkDir)
+	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg, configDir, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent, artifactSt, artifactWorkDir, userArtSt)
 	as.SetEnabledVersions(enableVersions)
 
 	wsPort := cfg.WebSocket.Port
@@ -484,7 +492,7 @@ func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log 
 // resolveAgentService returns the externally provided AgentService or builds one.
 // When building internally, it also auto-registers all coding agents that
 // self-registered via init() in the codingagent global registry.
-func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, cfg *config.AppConfig, configDir string, disableSandbox bool, enableSubagent bool, artifactSt store.ArtifactStore, artifactWorkDir string) *agentservice.Server {
+func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, cfg *config.AppConfig, configDir string, disableSandbox bool, enableSubagent bool, artifactSt store.ArtifactStore, artifactWorkDir string, userArtSt *artifactstorage.UserArtifactStorage) *agentservice.Server {
 	if o.agentService != nil {
 		return o.agentService
 	}
@@ -506,6 +514,9 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 	}
 	if artifactSt != nil {
 		asOpts = append(asOpts, agentservice.WithArtifactStore(artifactSt, artifactWorkDir))
+	}
+	if userArtSt != nil {
+		asOpts = append(asOpts, agentservice.WithArtifactStorage(userArtSt))
 	}
 	as := agentservice.New(asOpts...)
 

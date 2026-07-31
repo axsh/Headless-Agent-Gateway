@@ -16,6 +16,7 @@ import (
 
 	"github.com/axsh/arctic-tern/shared/libs/go/artifact/analyzer"
 	artifactapi "github.com/axsh/arctic-tern/shared/libs/go/artifact/api"
+	artifactstorage "github.com/axsh/arctic-tern/shared/libs/go/artifact/storage"
 	"github.com/axsh/arctic-tern/shared/libs/go/artifact/store"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
@@ -56,8 +57,9 @@ type Server struct {
 	gatewayHealthMu   sync.Mutex
 	pollCancel        context.CancelFunc
 	// Artifact support (optional; nil disables artifact tracking and API).
-	artifactStore   store.ArtifactStore
-	artifactWorkDir string
+	artifactStore    store.ArtifactStore
+	artifactStorage  *artifactstorage.UserArtifactStorage
+	artifactWorkDir  string
 }
 
 // ServerOption configures a Server.
@@ -100,6 +102,14 @@ func WithArtifactStore(s store.ArtifactStore, workDir string) ServerOption {
 	return func(srv *Server) {
 		srv.artifactStore = s
 		srv.artifactWorkDir = workDir
+	}
+}
+
+// WithArtifactStorage attaches a UserArtifactStorage to the server, enabling the
+// /api/v1/artifacts/user routes and MCP tool registration.
+func WithArtifactStorage(st *artifactstorage.UserArtifactStorage) ServerOption {
+	return func(srv *Server) {
+		srv.artifactStorage = st
 	}
 }
 
@@ -328,10 +338,15 @@ func (s *Server) HTTPHandler() http.Handler {
 		mux.HandleFunc("/api/v1/sessions", s.routeSessions)
 		mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
 
-		// Register artifact routes when an ArtifactStore is configured.
+		// Register system artifact routes when an ArtifactStore is configured.
 		if s.artifactStore != nil {
 			artifactapi.NewSystemArtifactHandler(s.artifactStore).
 				RegisterRoutes(mux, "/api/v1/artifacts/system")
+		}
+		// Register user artifact routes when both store and storage are configured.
+		if s.artifactStore != nil && s.artifactStorage != nil {
+			artifactapi.NewUserArtifactHandler(s.artifactStore, s.artifactStorage).
+				RegisterRoutes(mux, "/api/v1/artifacts/user")
 		}
 	}
 	return mux
