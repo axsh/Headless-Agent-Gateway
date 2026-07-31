@@ -654,6 +654,32 @@ When an MCP server is configured, Coding Agents can access user artifacts direct
 
 The agent receives the raw file content as a tool result, without needing filesystem access.
 
+### Runnable Example: artifact-pipeline
+
+The `examples/artifact-pipeline/` directory contains a complete runnable example
+demonstrating the full artifact lifecycle end-to-end:
+
+```bash
+# 1. Start the tern server (in a separate terminal)
+cd examples/minimal-server && go run . -config ../../settings/example/config.yaml
+
+# 2. Prepare a sample input file
+echo "Name: Alice\nRole: Engineer\nSkills: Go, Docker" > input.txt
+
+# 3. Run the pipeline: upload -> agent generate -> download
+cd examples/artifact-pipeline
+go run . --input ../input.txt --key inputs/profile.txt --output-key output.txt
+# [Step 1] Uploaded: inputs/profile.txt (42 bytes, sha256: ..., status: created)
+# [Step 2] Artifact content fetched: 42 bytes
+# [Step 2] Session created: sess-XXXXX
+# [Step 2] Agent response: ...
+# [Step 3] Generated files in session sess-XXXXX (1 total):
+#   output.txt  (create)
+# [Step 3] Downloaded: output.txt -> ./output.txt (128 bytes)
+```
+
+Additional flags: `--agent`, `--model`, `--server`, `--work-dir`, `--save`.
+
 ---
 
 ## Documentation
