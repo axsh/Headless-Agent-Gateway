@@ -592,6 +592,70 @@ _ = session.SendTextWithHandlers(ctx, "Refactor auth.go", client.StreamHandlers{
 
 ---
 
+## Artifact API Examples
+
+Tern tracks every file created or modified by Coding Agents as a **System Artifact**, and lets users upload their own data as **User Artifacts**.
+
+### Listing system artifacts (files written by agents)
+
+```go
+import client "github.com/axsh/arctic-tern/client/v1"
+
+c := client.New("http://localhost:3100")
+
+// List all Go files written in a specific session.
+page, _ := c.SystemArtifacts().List(ctx, client.SystemArtifactFilter{
+    Q:          "**/*.go",
+    SessionIDs: []string{"sess-abc123"},
+    PerPage:    20,
+})
+for _, item := range page.Items {
+    fmt.Printf("%s  op=%s  session=%s\n", item.Key, item.Operation, item.SessionID)
+}
+```
+
+### Downloading a single file
+
+```go
+rc, _ := c.SystemArtifacts().Download(ctx, "internal/handler.go")
+defer rc.Close()
+io.Copy(os.Stdout, rc)
+```
+
+### Downloading multiple files as a ZIP archive
+
+```go
+rc, _ := c.SystemArtifacts().Archive(ctx, client.ArchiveRequest{
+    Q: "**/*.go", // all Go files across all sessions
+})
+defer rc.Close()
+os.WriteFile("artifacts.zip", readAll(rc), 0o644)
+```
+
+### Uploading a user artifact
+
+```go
+// Upload from an io.Reader.
+resp, _ := c.UserArtifacts().Put(ctx, "datasets/train.csv", file)
+fmt.Println(resp.SHA)
+
+// Or upload from a local file path.
+resp, _ = c.UserArtifacts().PutFile(ctx, "configs/prompt.yaml", "/path/to/prompt.yaml")
+```
+
+### Retrieving a user artifact (from a Coding Agent via MCP)
+
+When an MCP server is configured, Coding Agents can access user artifacts directly:
+
+```
+# MCP tool: get_user_artifact
+# key: datasets/train.csv
+```
+
+The agent receives the raw file content as a tool result, without needing filesystem access.
+
+---
+
 ## Documentation
 
 ### Project Structure
