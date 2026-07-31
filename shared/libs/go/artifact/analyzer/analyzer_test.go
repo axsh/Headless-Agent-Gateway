@@ -62,7 +62,7 @@ func TestAnalyzer_CursorWrite(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot)
+	analyzer.New(tl, ms, projectRoot, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{
 		"path":     projectRoot + "/internal/user.go",
@@ -83,7 +83,7 @@ func TestAnalyzer_CursorStrReplace(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot)
+	analyzer.New(tl, ms, projectRoot, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "StrReplace", map[string]any{
 		"path": projectRoot + "/a.go",
@@ -101,7 +101,7 @@ func TestAnalyzer_CursorDelete(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot)
+	analyzer.New(tl, ms, projectRoot, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Delete", map[string]any{
 		"path": projectRoot + "/tmp/old.go",
@@ -119,7 +119,7 @@ func TestAnalyzer_ClaudeCodeEdit(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot)
+	analyzer.New(tl, ms, projectRoot, nil)
 
 	// Claude Code uses "file_path" instead of "path".
 	injectToolUseEvent(t, tl, "sess-1", "Edit", map[string]any{
@@ -138,7 +138,7 @@ func TestAnalyzer_TextEvent_Ignored(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot)
+	analyzer.New(tl, ms, projectRoot, nil)
 
 	// A plain text event should not produce any artifact events.
 	tl.Add(tasklog.NewAgentLogSendEntry("log-1", "sess-1", `{"type":"text","content":"hello"}`))
@@ -152,7 +152,7 @@ func TestAnalyzer_UnknownTool_Ignored(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot)
+	analyzer.New(tl, ms, projectRoot, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Read", map[string]any{
 		"path": projectRoot + "/a.go",
@@ -167,7 +167,7 @@ func TestAnalyzer_PathOutsideProjectRoot(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := "/myproject"
 
-	analyzer.New(tl, ms, projectRoot)
+	analyzer.New(tl, ms, projectRoot, nil)
 
 	// Path outside project root should be stored as-is (no panic).
 	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{

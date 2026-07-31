@@ -15,14 +15,27 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"path/filepath"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	v1 "github.com/axsh/arctic-tern/client/v1"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// artifactPipelineModel is the LLM used for the full artifact pipeline E2E test.
+// claude-haiku-4-5 is fast and cost-effective while supporting tool use.
+const artifactPipelineModel = "claude-haiku-4-5"
+
+const artifactPipelineInput = `Name: Alice
+Title: Principal Engineer
+Technologies: Go, Docker, Kubernetes
+Background: 5 years experience in distributed systems
+`
 
 // startArtifactE2EServer starts a tern server and returns the AgentService base URL
 // and a cleanup function. It reuses the existing startE2EServer helper.
@@ -211,6 +224,97 @@ func TestE2E_SystemArtifact_FilterBySession(t *testing.T) {
 	page, err := c.SystemArtifacts().List(ctx, v1.SystemArtifactFilter{SessionIDs: []string{"nonexistent"}})
 	require.NoError(t, err)
 	assert.Equal(t, 0, page.TotalCount)
+}
+
+// TestE2E_ArtifactPipeline_FullLifecycle exercises the complete artifact pipeline
+// with a real Tern server, real API keys (via vault keyring), and real LLM (claudecode):
+//   1. Upload a user artifact
+//   2. Download it and write to workDir for the agent to read
+//   3. Ask the agent to create output.txt summarizing the input
+//   4. Verify system artifact events are recorded (ToolCallAnalyzer)
+//   5. Download the generated file via SystemArtifacts API
+func TestE2E_ArtifactPipeline_FullLifecycle(t *testing.T) {
+	baseURL, cleanup := startArtifactE2EServer(t)
+	defer cleanup()
+
+	c := v1.New(baseURL)
+	ctx := context.Background()
+	workDir := t.TempDir()
+
+	artifactKey := "e2e/pipeline/input.txt"
+
+	// Step 1: Upload user artifact.
+	putResp, err := c.UserArtifacts().Put(ctx, artifactKey, strings.NewReader(artifactPipelineInput))
+	require.NoError(t, err)
+	assert.Equal(t, "created", putResp.Status)
+	t.Logf("[Step 1] uploaded user artifact: %s (%d bytes)", putResp.Key, putResp.Size)
+
+	// Step 2: Download and write to workDir so the agent can read via file tools.
+	rc, err := c.UserArtifacts().Download(ctx, artifactKey)
+	require.NoError(t, err)
+	content, err := io.ReadAll(rc)
+	rc.Close()
+	require.NoError(t, err)
+	assert.Equal(t, artifactPipelineInput, string(content))
+
+	inputPath := filepath.Join(workDir, "artifact_input.txt")
+	require.NoError(t, os.WriteFile(inputPath, content, 0o644))
+	t.Logf("[Step 2] wrote artifact to workDir: %s", inputPath)
+
+	// Step 3: Create session and send generation prompt.
+	sessionID := createE2ESessionWithModel(t, baseURL, "claudecode", artifactPipelineModel, workDir)
+	t.Logf("[Step 3] session created: %s", sessionID)
+
+	prompt := `Read the file "artifact_input.txt" in the current directory, then create a new file called output.txt that summarizes the key points.`
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 180*time.Second)
+	defer resp.Body.Close()
+
+	events, gotDone := parseE2ESSEEvents(t, resp)
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("agent error: %s", ev.Content)
+		}
+	}
+	t.Logf("[Step 3] SSE completed: %d events", len(events))
+
+	// Step 4: Verify system artifacts were recorded for this session.
+	page, err := c.SystemArtifacts().List(ctx, v1.SystemArtifactFilter{
+		SessionIDs: []string{sessionID},
+		Operation:  "create",
+	})
+	require.NoError(t, err)
+	t.Logf("[Step 4] system artifacts in session: %d", page.TotalCount)
+	for _, item := range page.Items {
+		t.Logf("  key=%s op=%s tool=%s", item.Key, item.Operation, item.ToolName)
+	}
+	require.GreaterOrEqual(t, page.TotalCount, 1, "expected at least one system artifact create event after agent Write tool call")
+
+	var downloadKey string
+	for _, item := range page.Items {
+		if filepath.Base(item.Key) == "output.txt" {
+			downloadKey = item.Key
+			break
+		}
+	}
+	require.NotEmpty(t, downloadKey, "expected a system artifact with basename output.txt")
+
+	// Step 5: Download generated file via SystemArtifacts API.
+	dlRC, err := c.SystemArtifacts().Download(ctx, downloadKey)
+	require.NoError(t, err)
+	defer dlRC.Close()
+	downloaded, err := io.ReadAll(dlRC)
+	require.NoError(t, err)
+	require.NotEmpty(t, downloaded, "downloaded system artifact content should not be empty")
+	t.Logf("[Step 5] downloaded %q: %d bytes", downloadKey, len(downloaded))
+
+	// Also verify the file exists on disk in workDir.
+	diskPath := filepath.Join(workDir, "output.txt")
+	diskContent, err := os.ReadFile(diskPath)
+	require.NoError(t, err, "output.txt should exist on disk in workDir")
+	assert.NotEmpty(t, diskContent)
 }
 
 // ---- helpers ----

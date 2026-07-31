@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -148,7 +149,8 @@ func (h *SystemArtifactHandler) handleContent(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	f, err := os.Open(latest.ActualPath)
+	resolved := resolveArtifactPath(latest.ActualPath)
+	f, err := os.Open(resolved)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -210,7 +212,8 @@ func (h *SystemArtifactHandler) handleArchive(w http.ResponseWriter, r *http.Req
 		if actualPath == "" {
 			continue
 		}
-		f, err := os.Open(actualPath)
+		resolved := resolveArtifactPath(actualPath)
+		f, err := os.Open(resolved)
 		if err != nil {
 			continue // skip missing files silently
 		}
@@ -245,4 +248,26 @@ func systemItemsJSON(events []store.SystemArtifactEvent) []map[string]any {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v) //nolint:errcheck
+}
+
+// resolveArtifactPath maps stored ActualPath values to a path the OS can open.
+// On Windows with Git Bash/MSYS, agents may report paths like /tmp/... while
+// the physical file lives under %TEMP%/...
+func resolveArtifactPath(actualPath string) string {
+	candidates := []string{actualPath, filepath.FromSlash(actualPath)}
+	if runtime.GOOS == "windows" {
+		slash := filepath.ToSlash(actualPath)
+		if strings.HasPrefix(slash, "/tmp/") {
+			if temp := os.Getenv("TEMP"); temp != "" {
+				suffix := strings.TrimPrefix(slash, "/tmp/")
+				candidates = append(candidates, filepath.Join(temp, suffix))
+			}
+		}
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return actualPath
 }

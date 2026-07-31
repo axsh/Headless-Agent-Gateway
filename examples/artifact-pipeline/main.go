@@ -30,6 +30,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	client "github.com/axsh/arctic-tern/client/v1"
@@ -74,8 +75,9 @@ func runUpload(ctx context.Context, c *client.Client, localPath, key string) err
 	return nil
 }
 
-// runGenerate fetches the artifact content, sends it to a coding agent, streams the
-// response, and returns the session ID for subsequent artifact retrieval.
+// runGenerate fetches the artifact, writes it to a file in workDir so the coding
+// agent can read it via its file-access tools, sends a generation prompt, streams
+// the response, and returns the session ID for subsequent artifact retrieval.
 func runGenerate(ctx context.Context, c *client.Client, key, agentName, model, workDir string) (string, error) {
 	rc, err := c.UserArtifacts().Download(ctx, key)
 	if err != nil {
@@ -87,6 +89,18 @@ func runGenerate(ctx context.Context, c *client.Client, key, agentName, model, w
 		return "", fmt.Errorf("read artifact content: %w", err)
 	}
 	fmt.Printf("[Step 2] Artifact content fetched: %d bytes\n", len(content))
+
+	// Write the artifact as a file so the agent can read it through its file tools.
+	// This avoids any prompt-encoding issues with the content.
+	inputFile := "artifact_input.txt"
+	inputPath := filepath.Join(workDir, inputFile)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return "", fmt.Errorf("create work dir: %w", err)
+	}
+	if err := os.WriteFile(inputPath, content, 0o644); err != nil {
+		return "", fmt.Errorf("write artifact to work dir: %w", err)
+	}
+	fmt.Printf("[Step 2] Artifact written to: %s\n", inputPath)
 
 	session, err := c.CreateSession(ctx, client.SessionRequest{
 		Agent:   agentName,
@@ -100,10 +114,8 @@ func runGenerate(ctx context.Context, c *client.Client, key, agentName, model, w
 	fmt.Printf("[Step 2] Session created: %s\n", session.ID)
 
 	prompt := fmt.Sprintf(
-		"The following is the content of the uploaded artifact %q.\n\n"+
-			"---\n%s\n---\n\n"+
-			"Based on this content, create a new file called output.txt that summarizes the key points.",
-		key, string(content))
+		"Read the file %q in the current directory, then create a new file called output.txt that summarizes the key points.",
+		inputFile)
 
 	stream, err := session.SendText(ctx, prompt)
 	if err != nil {
@@ -140,9 +152,33 @@ func runDownload(ctx context.Context, c *client.Client, sessionID, outputKey, sa
 		target = page.Items[0].Key
 	}
 
-	rc, err := c.SystemArtifacts().Download(ctx, target)
+	// Resolve output-key by basename when an exact key match is not present
+	// (system artifact keys may be absolute paths with mixed separators).
+	downloadKey := target
+	found := false
+	for _, item := range page.Items {
+		if item.Key == target {
+			downloadKey = item.Key
+			found = true
+			break
+		}
+	}
+	if !found {
+		for _, item := range page.Items {
+			if filepath.Base(item.Key) == filepath.Base(target) {
+				downloadKey = item.Key
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		return fmt.Errorf("artifact %q not found in session %s (available: %d files)", target, sessionID, len(page.Items))
+	}
+
+	rc, err := c.SystemArtifacts().Download(ctx, downloadKey)
 	if err != nil {
-		return fmt.Errorf("download %q: %w", target, err)
+		return fmt.Errorf("download %q: %w", downloadKey, err)
 	}
 	defer rc.Close()
 
@@ -159,6 +195,6 @@ func runDownload(ctx context.Context, c *client.Client, sessionID, outputKey, sa
 	if err := os.WriteFile(savePath, data, 0o644); err != nil {
 		return fmt.Errorf("write file %q: %w", savePath, err)
 	}
-	fmt.Printf("[Step 3] Downloaded: %s -> %s (%d bytes)\n", target, savePath, len(data))
+	fmt.Printf("[Step 3] Downloaded: %s -> %s (%d bytes)\n", downloadKey, savePath, len(data))
 	return nil
 }

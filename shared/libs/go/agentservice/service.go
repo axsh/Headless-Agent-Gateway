@@ -130,7 +130,12 @@ func New(opts ...ServerOption) *Server {
 	}
 	// Attach ToolCallAnalyzer when an ArtifactStore is provided.
 	if s.artifactStore != nil && s.taskLog != nil {
-		analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir)
+		analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir, func(sessionID string) string {
+			if rec, err := s.sessions.Get(sessionID); err == nil {
+				return rec.WorkDir
+			}
+			return ""
+		})
 		if s.logger != nil {
 			s.logger.Debug("artifact tracking enabled", "work_dir", s.artifactWorkDir)
 		}
