@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/axsh/arctic-tern/shared/libs/go/artifact/store"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
@@ -149,6 +150,16 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.sessions.Create(record)
+
+	// Register the session in the artifact store for file-operation tracking.
+	if s.artifactStore != nil {
+		_ = s.artifactStore.UpsertSession(r.Context(), store.Session{
+			ID:        sessionID,
+			AgentID:   req.Agent,
+			AgentName: req.Agent,
+			StartedAt: time.Now(),
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -820,6 +831,11 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)
+
+	// Mark session as closed in the artifact store.
+	if s.artifactStore != nil {
+		_ = s.artifactStore.CloseSession(r.Context(), sessionID)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

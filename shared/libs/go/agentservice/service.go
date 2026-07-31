@@ -14,6 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/axsh/arctic-tern/shared/libs/go/artifact/analyzer"
+	artifactapi "github.com/axsh/arctic-tern/shared/libs/go/artifact/api"
+	"github.com/axsh/arctic-tern/shared/libs/go/artifact/store"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
@@ -52,6 +55,9 @@ type Server struct {
 	lastGatewayHealth GatewayHealth
 	gatewayHealthMu   sync.Mutex
 	pollCancel        context.CancelFunc
+	// Artifact support (optional; nil disables artifact tracking and API).
+	artifactStore   store.ArtifactStore
+	artifactWorkDir string
 }
 
 // ServerOption configures a Server.
@@ -87,6 +93,16 @@ func WithSubagentEnabled(enabled bool) ServerOption {
 	return func(s *Server) { s.enableSubagent = enabled }
 }
 
+// WithArtifactStore attaches an ArtifactStore (and the ToolCallAnalyzer) to the server.
+// workDir is the project root used to convert absolute paths to relative keys.
+// If s is nil, artifact tracking and the /api/v1/artifacts/system routes are disabled.
+func WithArtifactStore(s store.ArtifactStore, workDir string) ServerOption {
+	return func(srv *Server) {
+		srv.artifactStore = s
+		srv.artifactWorkDir = workDir
+	}
+}
+
 // New creates a new AgentService Server.
 func New(opts ...ServerOption) *Server {
 	s := &Server{
@@ -101,6 +117,13 @@ func New(opts ...ServerOption) *Server {
 	}
 	if s.logger != nil {
 		s.logger.Debug("creating agent service", "agent_count", len(s.agents))
+	}
+	// Attach ToolCallAnalyzer when an ArtifactStore is provided.
+	if s.artifactStore != nil && s.taskLog != nil {
+		analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir)
+		if s.logger != nil {
+			s.logger.Debug("artifact tracking enabled", "work_dir", s.artifactWorkDir)
+		}
 	}
 	return s
 }
@@ -304,6 +327,12 @@ func (s *Server) HTTPHandler() http.Handler {
 		mux.HandleFunc("/api/v1/models", s.routeModels)
 		mux.HandleFunc("/api/v1/sessions", s.routeSessions)
 		mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
+
+		// Register artifact routes when an ArtifactStore is configured.
+		if s.artifactStore != nil {
+			artifactapi.NewSystemArtifactHandler(s.artifactStore).
+				RegisterRoutes(mux, "/api/v1/artifacts/system")
+		}
 	}
 	return mux
 }
