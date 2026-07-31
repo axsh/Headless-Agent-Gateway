@@ -1,0 +1,8 @@
+Name: Alice
+Role: Software Engineer
+Skills: Go, Docker, Kubernetes
+Experience: 5 years
+Projects:
+  - Distributed task scheduler (Go, Redis)
+  - Container orchestration CLI (Go, Docker API)
+  - Real-time log aggregator (Go, WebSocket)
