@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	artifactstorage "github.com/axsh/arctic-tern/shared/libs/go/artifact/storage"
+	"github.com/axsh/arctic-tern/shared/libs/go/artifact/store"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
@@ -36,15 +38,16 @@ import (
 // Server is the tern core facade that orchestrates all components.
 // Users interact with tern through this type.
 type Server struct {
-	cfg          *config.AppConfig
-	logger       logger.Logger
-	vault        vault.VaultStore
-	gateway      llmgateway.LLMGatewayBackend
-	agentService *agentservice.Server
-	wsServer     *wsserver.Server
-	taskLog      *tasklog.TaskLog
-	gatewayToken string                     // R4: generated or configured auth token
-	tlsMgr       *llmgateway.TLSCertManager // R1: TLS manager
+	cfg           *config.AppConfig
+	logger        logger.Logger
+	vault         vault.VaultStore
+	gateway       llmgateway.LLMGatewayBackend
+	agentService  *agentservice.Server
+	wsServer      *wsserver.Server
+	taskLog       *tasklog.TaskLog
+	gatewayToken  string                     // R4: generated or configured auth token
+	tlsMgr        *llmgateway.TLSCertManager // R1: TLS manager
+	artifactStore store.ArtifactStore        // nil until initialized in New()
 }
 
 // New creates a new tern Server with the given options.
@@ -170,22 +173,47 @@ func New(opts ...Option) (*Server, error) {
 		caCertPath = tlsMgr.CACertFilePath()
 	}
 
-	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg, configDir, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent)
+	// Initialize ArtifactStore and UserArtifactStorage using the config dir.
+	var artifactSt store.ArtifactStore
+	var userArtSt *artifactstorage.UserArtifactStorage
+	artifactWorkDir := ""
+	if configDir != "" {
+		dbDir := filepath.Join(configDir, "artifacts")
+		if err := os.MkdirAll(dbDir, 0o755); err == nil {
+			if st, err := store.NewSQLiteStore(filepath.Join(dbDir, "artifacts.db")); err == nil {
+				artifactSt = st
+				if log != nil {
+					log.Info("artifact store initialized", "path", filepath.Join(dbDir, "artifacts.db"))
+				}
+			} else if log != nil {
+				log.Warn("failed to initialize artifact store", "error", err.Error())
+			}
+		}
+		userFilesDir := filepath.Join(configDir, "user-artifacts")
+		if st, err := artifactstorage.New(userFilesDir); err == nil {
+			userArtSt = st
+		} else if log != nil {
+			log.Warn("failed to initialize user artifact storage", "error", err.Error())
+		}
+	}
+
+	as := resolveAgentService(o, log, tl, gatewayURL, gatewayToken, caCertPath, gw, cfg, configDir, cfg.AgentService.DisableSandbox, cfg.AgentService.EnableSubagent, artifactSt, artifactWorkDir, userArtSt)
 	as.SetEnabledVersions(enableVersions)
 
 	wsPort := cfg.WebSocket.Port
 	ws := wsserver.New(wsPort, tl, log)
 
 	return &Server{
-		cfg:          cfg,
-		logger:       log,
-		vault:        vs,
-		gateway:      gw,
-		agentService: as,
-		wsServer:     ws,
-		taskLog:      tl,
-		gatewayToken: gatewayToken,
-		tlsMgr:       tlsMgr,
+		cfg:           cfg,
+		logger:        log,
+		vault:         vs,
+		gateway:       gw,
+		agentService:  as,
+		wsServer:      ws,
+		taskLog:       tl,
+		gatewayToken:  gatewayToken,
+		tlsMgr:        tlsMgr,
+		artifactStore: artifactSt,
 	}, nil
 }
 
@@ -235,7 +263,21 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("tern: gateway shutdown: %w", err)
 	}
 
+	// Close artifact store (releases the SQLite file lock).
+	if s.artifactStore != nil {
+		_ = s.artifactStore.Close()
+	}
+
 	s.logger.Info("tern server stopped")
+	return nil
+}
+
+// closeArtifactStore closes the artifact store if it is open.
+// This is a thin helper used in tests to release file locks without a full Shutdown.
+func (s *Server) closeArtifactStore() error {
+	if s.artifactStore != nil {
+		return s.artifactStore.Close()
+	}
 	return nil
 }
 
@@ -450,7 +492,7 @@ func resolveGateway(o *options, cfg *config.AppConfig, vs vault.VaultStore, log 
 // resolveAgentService returns the externally provided AgentService or builds one.
 // When building internally, it also auto-registers all coding agents that
 // self-registered via init() in the codingagent global registry.
-func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, cfg *config.AppConfig, configDir string, disableSandbox bool, enableSubagent bool) *agentservice.Server {
+func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gatewayURL string, gatewayToken string, caCertPath string, gw llmgateway.LLMGatewayBackend, cfg *config.AppConfig, configDir string, disableSandbox bool, enableSubagent bool, artifactSt store.ArtifactStore, artifactWorkDir string, userArtSt *artifactstorage.UserArtifactStorage) *agentservice.Server {
 	if o.agentService != nil {
 		return o.agentService
 	}
@@ -462,14 +504,21 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		}
 	}
 
-	as := agentservice.New(
+	asOpts := []agentservice.ServerOption{
 		agentservice.WithLogger(log),
 		agentservice.WithTaskLog(tl),
 		agentservice.WithGatewayURL(gatewayURL),
 		agentservice.WithGatewayToken(gatewayToken),
 		agentservice.WithSandboxDisabled(disableSandbox),
 		agentservice.WithSubagentEnabled(enableSubagent),
-	)
+	}
+	if artifactSt != nil {
+		asOpts = append(asOpts, agentservice.WithArtifactStore(artifactSt, artifactWorkDir))
+	}
+	if userArtSt != nil {
+		asOpts = append(asOpts, agentservice.WithArtifactStorage(userArtSt))
+	}
+	as := agentservice.New(asOpts...)
 
 	if cfg != nil && cfg.LLMGateway.ModelProfilesPath != "" {
 		profilesPath := cfg.LLMGateway.ModelProfilesPath

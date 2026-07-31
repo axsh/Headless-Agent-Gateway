@@ -32,6 +32,26 @@ func TestTaskLog_AddAndClone(t *testing.T) {
 	}
 }
 
+func TestTaskLog_SetOnEntryChainsHandlers(t *testing.T) {
+	log := New()
+	var calls []string
+	log.SetOnEntry(func(Entry) { calls = append(calls, "first") })
+	log.SetOnEntry(func(Entry) { calls = append(calls, "second") })
+
+	log.Add(&AgentLogEntry{
+		BaseEntry: BaseEntry{
+			ID:        "1",
+			Time:      time.Now(),
+			EntryType: AgentLogEntryType,
+		},
+		AgentID: "agent-1",
+	})
+
+	if len(calls) != 2 || calls[0] != "first" || calls[1] != "second" {
+		t.Fatalf("expected chained handler calls [first second], got %v", calls)
+	}
+}
+
 func TestTaskLog_AbnormalTerminationAutoClose(t *testing.T) {
 	log := New()
 

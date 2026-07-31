@@ -15,9 +15,20 @@ func New() *TaskLog {
 }
 
 func (l *TaskLog) SetOnEntry(f func(Entry)) {
+	if f == nil {
+		return
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.onEntry = f
+	prev := l.onEntry
+	if prev == nil {
+		l.onEntry = f
+		return
+	}
+	l.onEntry = func(e Entry) {
+		prev(e)
+		f(e)
+	}
 }
 
 func (l *TaskLog) Add(e Entry) {

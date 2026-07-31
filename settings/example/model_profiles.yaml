@@ -7,21 +7,27 @@ default_profile:
   model: qwen2.5-coder:7b
 
 providers:
-  # OpenAI (cheapest: gpt-4o-mini)
+  # OpenAI
   openai:
     api_keys:
       - name: default
         secret: vault://providers/openai/default
         models:
           - name: gpt-4o-mini
+          - name: gpt-4o
+          - name: gpt-4.1-mini
+          - name: gpt-5.3-codex
+            mode: responses
 
-  # Anthropic (cheapest: claude-haiku-4-5)
+  # Anthropic
   anthropic:
     api_keys:
       - name: default
         secret: vault://providers/anthropic/default
         models:
           - name: claude-haiku-4-5
+          - name: claude-sonnet-4-20250514
+          - name: claude-opus-4-8
 
   # Google (cheapest: gemini-2.5-flash)
   google:
@@ -50,8 +56,8 @@ coding_agents:
     max_prompt_bytes: 1048576 # 1MB
     max_execution_seconds: 3600
     idle_timeout_seconds: 300
-    execution_mode: interactive
+    execution_mode: single_shot
   claudecode:
     max_execution_seconds: 3600
     idle_timeout_seconds: 300
-    execution_mode: interactive
+    execution_mode: single_shot

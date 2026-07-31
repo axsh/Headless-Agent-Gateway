@@ -64,6 +64,7 @@ vault:
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	t.Cleanup(func() { _ = srv.closeArtifactStore() })
 	if srv.cfg.LLMGateway.Port != 16000 {
 		t.Errorf("cfg.LLMGateway.Port = %d, want 16000", srv.cfg.LLMGateway.Port)
 	}
@@ -196,6 +197,7 @@ vault:
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	t.Cleanup(func() { _ = srv.closeArtifactStore() })
 	// WithConfigPath should take priority over WithConfig.
 	if srv.cfg.LLMGateway.Port != 17000 {
 		t.Errorf("cfg.LLMGateway.Port = %d, want 17000 (from WithConfigPath)", srv.cfg.LLMGateway.Port)
@@ -490,7 +492,7 @@ func TestResolveAgentService_NilGateway(t *testing.T) {
 	log := logger.NewDefault(logger.LevelDebug)
 	tl := tasklog.New()
 
-	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", nil, &config.AppConfig{}, "", false, false)
+	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", nil, &config.AppConfig{}, "", false, false, nil, "", nil)
 	if as == nil {
 		t.Fatal("resolveAgentService returned nil")
 	}
@@ -504,7 +506,7 @@ func TestResolveAgentService_WithStubGateway(t *testing.T) {
 	tl := tasklog.New()
 	stub := llmgateway.NewStubGateway()
 
-	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false)
+	as := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false, nil, "", nil)
 	if as == nil {
 		t.Fatal("resolveAgentService returned nil")
 	}
@@ -519,7 +521,7 @@ func TestResolveAgentService_ExternalBypass(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
 
 	// When o.agentService is set, resolveAgentService should return it directly.
-	got := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false)
+	got := resolveAgentService(o, log, tl, "http://localhost:1234", "test-token", "", stub, &config.AppConfig{}, "", false, false, nil, "", nil)
 	if got != externalAS {
 		t.Error("expected externally provided AgentService to be returned directly")
 	}

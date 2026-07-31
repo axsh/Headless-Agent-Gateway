@@ -1,0 +1,8 @@
+Name: Alice
+Title: Principal Engineer
+Technologies: Go, Docker, Kubernetes
+Background: 5 years experience in distributed systems
+Portfolio:
+  A) Distributed task scheduler (Go, Redis)
+  B) Container orchestration CLI (Go, Docker API)
+  C) Real-time log aggregator (Go, WebSocket)

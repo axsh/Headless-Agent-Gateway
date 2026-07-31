@@ -108,3 +108,21 @@ func TestExamples_MultimodalClient_Builds(t *testing.T) {
 		t.Fatalf("multimodal-client build failed: %v\n%s", err, output)
 	}
 }
+
+// TestExamples_ArtifactPipeline_Builds verifies that the artifact-pipeline example
+// compiles without errors.
+func TestExamples_ArtifactPipeline_Builds(t *testing.T) {
+	projectRoot, _ := filepath.Abs("..")
+	exampleDir := filepath.Join(projectRoot, "examples", "artifact-pipeline")
+
+	if _, err := os.Stat(exampleDir); os.IsNotExist(err) {
+		t.Fatalf("example directory does not exist: %s", exampleDir)
+	}
+
+	cmd := exec.Command("go", "build", "-o", nullOutput(), ".")
+	cmd.Dir = exampleDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("artifact-pipeline build failed: %v\n%s", err, output)
+	}
+}
