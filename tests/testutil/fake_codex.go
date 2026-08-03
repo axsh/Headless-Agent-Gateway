@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,6 +30,73 @@ func BuildThreeLineReproLines() []string {
 		line2,
 		`{"type":"item.completed"}`,
 	}
+}
+
+func commandExecutionLine(content string) (string, error) {
+	payload, err := json.Marshal(map[string]any{
+		"type": "item.completed",
+		"item": map[string]any{
+			"type":              "command_execution",
+			"aggregated_output": content,
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
+}
+
+// BuildLargeAggregatedOutputLines returns JSONL with aggregated_output of exact byte size.
+func BuildLargeAggregatedOutputLines(contentBytes int) []string {
+	content := strings.Repeat("x", contentBytes)
+	return BuildAggregatedOutputLinesFromContent(content)
+}
+
+// BuildAggregatedOutputLinesFromContent returns JSONL embedding arbitrary content.
+func BuildAggregatedOutputLinesFromContent(content string) []string {
+	line, err := commandExecutionLine(content)
+	if err != nil {
+		panic(err)
+	}
+	return []string{
+		`{"type":"item.started"}`,
+		line,
+		`{"type":"item.completed"}`,
+	}
+}
+
+// BuildDelayedLargeOutputLines returns JSONL for large output; use FakeCodexOptions.DelayMS for delay.
+func BuildDelayedLargeOutputLines(contentBytes int) []string {
+	return BuildLargeAggregatedOutputLines(contentBytes)
+}
+
+// BuildRipgrepLikeOutput returns multi-line search-style output of at least minBytes.
+func BuildRipgrepLikeOutput(minBytes int) string {
+	var b strings.Builder
+	for i := 0; b.Len() < minBytes; i++ {
+		if i%100 == 0 && i > 0 {
+			b.WriteString("./docs/日本語/ファイル.go:1:マッチ\n")
+		}
+		fmt.Fprintf(&b, "./src/module_%d/foo.go:%d:match keyword\n", i/100, i%500)
+	}
+	return b.String()
+}
+
+// BuildMultiToolOutputLines returns JSONL with N consecutive oversized tool outputs.
+func BuildMultiToolOutputLines(sizes ...int) []string {
+	lines := []string{`{"type":"item.started"}`}
+	runes := []byte("abcdefghijklmnopqrstuvwxyz")
+	for i, size := range sizes {
+		r := rune(runes[i%len(runes)])
+		content := strings.Repeat(string(r), size)
+		line, err := commandExecutionLine(content)
+		if err != nil {
+			panic(err)
+		}
+		lines = append(lines, line)
+	}
+	lines = append(lines, `{"type":"item.completed"}`)
+	return lines
 }
 
 // InstallFakeCodex creates a fake "codex" executable in dir and returns its path.
