@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/axsh/arctic-tern/client/internal/ssechunk"
 )
 
 // EventType identifies the type of streaming event.
@@ -16,6 +18,7 @@ const (
 	EventText         EventType = "text"
 	EventToolUse      EventType = "tool_use"
 	EventToolResult   EventType = "tool_result"
+	EventToolResultPart EventType = "tool_result_part"
 	EventSystem       EventType = "system"
 	EventResult       EventType = "result"
 	EventError        EventType = "error"
@@ -151,7 +154,13 @@ func (s *Stream) events() <-chan Event {
 	go func() {
 		defer close(ch)
 		scanner := bufio.NewScanner(s.body)
+		assembler := ssechunk.NewAssembler()
 		receivedDone := false
+
+		emitError := func(msg string) {
+			ch <- Event{Type: EventError, Error: msg}
+		}
+
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data: ") {
@@ -160,16 +169,50 @@ func (s *Stream) events() <-chan Event {
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
 				receivedDone = true
-				return
+				break
 			}
 			var raw struct {
 				Type     string `json:"type"`
 				Content  string `json:"content"`
 				ToolName string `json:"tool_name,omitempty"`
+				ChunkID  string `json:"chunk_id,omitempty"`
+				Index    int    `json:"index,omitempty"`
+				Total    int    `json:"total,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &raw); err != nil {
 				continue
 			}
+
+			switch EventType(raw.Type) {
+			case EventToolResultPart:
+				if err := assembler.AddPart(ssechunk.Part{
+					ChunkID:    raw.ChunkID,
+					ChunkIndex: raw.Index,
+					ChunkTotal: raw.Total,
+					Content:    raw.Content,
+				}); err != nil {
+					emitError(err.Error())
+					return
+				}
+				continue
+			case EventToolResult:
+				if raw.Content != "" {
+					ch <- Event{Type: EventToolResult, Text: raw.Content, ToolName: raw.ToolName}
+					continue
+				}
+				if raw.ChunkID != "" {
+					content, err := assembler.Complete(raw.ChunkID)
+					if err != nil {
+						emitError(err.Error())
+						return
+					}
+					ch <- Event{Type: EventToolResult, Text: content, ToolName: raw.ToolName}
+					continue
+				}
+				ch <- Event{Type: EventToolResult, Text: raw.Content, ToolName: raw.ToolName}
+				continue
+			}
+
 			ev := Event{
 				Type:     EventType(raw.Type),
 				Text:     raw.Content,
@@ -180,17 +223,17 @@ func (s *Stream) events() <-chan Event {
 			}
 			ch <- ev
 		}
-		// Detect abnormal stream termination.
+
+		if err := assembler.FlushIncomplete(); err != nil {
+			emitError(err.Error())
+			return
+		}
 		if err := scanner.Err(); err != nil {
-			ch <- Event{
-				Type:  EventError,
-				Error: fmt.Sprintf("stream read error: %v", err),
-			}
-		} else if !receivedDone {
-			ch <- Event{
-				Type:  EventError,
-				Error: "stream terminated unexpectedly without completion marker",
-			}
+			emitError(fmt.Sprintf("stream read error: %v", err))
+			return
+		}
+		if !receivedDone {
+			emitError("stream terminated unexpectedly without completion marker")
 		}
 	}()
 	return ch

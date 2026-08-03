@@ -125,3 +125,10 @@ func (r *eventRelay) eventCount() int {
 	defer r.mu.Unlock()
 	return len(r.events)
 }
+
+// EventsSnapshot returns a copy of buffered relay events.
+func (r *eventRelay) EventsSnapshot() []codingagent.StreamEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]codingagent.StreamEvent(nil), r.events...)
+}
