@@ -387,7 +387,7 @@ if agentCfg.MaxToolResultBytes > 0 {
 - [x] **Step 3.2**: `./scripts/process/integration_test.sh --specify "LargeToolOutput"`
 - [x] **Step 3.3**: `./scripts/process/integration_test.sh --specify "Codex"`
 - [x] **Step 3.4**: `./scripts/process/integration_test.sh --specify "AgentService"`
-- [ ] **Step 3.5**: 全 Step 完了後コミット + push (build + integration 全 PASS 後)
+- [x] **Step 3.5**: 全 Step 完了後コミット + push (build + integration 全 PASS 後)
 
 ## Verification Plan
 
