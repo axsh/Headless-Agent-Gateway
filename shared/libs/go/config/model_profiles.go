@@ -37,6 +37,10 @@ type AgentConfig struct {
 	IdleTimeoutSeconds int `yaml:"idle_timeout_seconds"`
 	// ExecutionMode controls stdin behavior: "interactive" or "single_shot".
 	ExecutionMode string `yaml:"execution_mode"`
+	// ScannerMaxTokenBytes is the max JSONL line size for agent stdout scanners.
+	ScannerMaxTokenBytes int `yaml:"scanner_max_token_bytes"`
+	// MaxToolResultBytes is the max EventToolResult content size for SSE relay.
+	MaxToolResultBytes int `yaml:"max_tool_result_bytes"`
 }
 
 // WithDefaults returns a copy with zero values replaced by defaults.
@@ -50,6 +54,12 @@ func (c AgentConfig) WithDefaults() AgentConfig {
 	}
 	if out.IdleTimeoutSeconds == 0 {
 		out.IdleTimeoutSeconds = DefaultIdleTimeoutSeconds
+	}
+	if out.ScannerMaxTokenBytes == 0 {
+		out.ScannerMaxTokenBytes = codingagent.DefaultScannerMaxTokenSize
+	}
+	if out.MaxToolResultBytes == 0 {
+		out.MaxToolResultBytes = codingagent.DefaultMaxToolResultBytes
 	}
 	out.ExecutionMode = codingagent.NormalizeExecutionMode(out.ExecutionMode)
 	return out
