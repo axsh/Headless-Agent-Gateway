@@ -260,12 +260,18 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 	if item == nil {
 		return nil
 	}
+	type fileChangeEntry struct {
+		Path string `json:"path"`
+		Kind string `json:"kind"` // add | update | delete
+	}
+
 	var header struct {
-		Type             string `json:"type"`
-		Command          string `json:"command,omitempty"`
-		AggregatedOutput string `json:"aggregated_output,omitempty"`
-		ExitCode         *int   `json:"exit_code,omitempty"`
-		Text             string `json:"text,omitempty"`
+		Type             string            `json:"type"`
+		Command          string            `json:"command,omitempty"`
+		AggregatedOutput string            `json:"aggregated_output,omitempty"`
+		ExitCode         *int              `json:"exit_code,omitempty"`
+		Text             string            `json:"text,omitempty"`
+		Changes          []fileChangeEntry `json:"changes,omitempty"`
 	}
 	if err := json.Unmarshal(item, &header); err != nil {
 		return nil
@@ -274,7 +280,17 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 	switch header.Type {
 	case "command_execution":
 		if completed {
-			// item.completed with command_execution -> tool result
+			// Emit ToolUse on completed so ToolCallAnalyzer sees the command even when
+			// item.started was not streamed (common in codex exec --json batch output).
+			if header.Command != "" {
+				return &codingagent.StreamEvent{
+					Type:     codingagent.EventToolUse,
+					ToolName: "command_execution",
+					ToolInput: map[string]any{
+						"command": header.Command,
+					},
+				}
+			}
 			return &codingagent.StreamEvent{
 				Type:    codingagent.EventToolResult,
 				Content: header.AggregatedOutput,
@@ -297,6 +313,33 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 			}
 		}
 		return nil
+
+	case "file_change":
+		if !completed || len(header.Changes) == 0 {
+			return nil
+		}
+		if len(header.Changes) == 1 {
+			c := header.Changes[0]
+			return &codingagent.StreamEvent{
+				Type:     codingagent.EventToolUse,
+				ToolName: "file_change",
+				ToolInput: map[string]any{
+					"path": c.Path,
+					"kind": c.Kind,
+				},
+			}
+		}
+		changes := make([]map[string]any, len(header.Changes))
+		for i, c := range header.Changes {
+			changes[i] = map[string]any{"path": c.Path, "kind": c.Kind}
+		}
+		return &codingagent.StreamEvent{
+			Type:     codingagent.EventToolUse,
+			ToolName: "file_change",
+			ToolInput: map[string]any{
+				"changes": changes,
+			},
+		}
 
 	default:
 		return nil

@@ -300,8 +300,11 @@ func StartProcess(
 			line := scanner.Text()
 			touchActivity()
 			log.Trace("CLI stdout line", "line", line)
-			ev := ParseJSONLinesEvent(line, log)
-			if ev != nil {
+			events := ParseJSONLinesEvents(line, log)
+			for _, ev := range events {
+				if ev == nil {
+					continue
+				}
 				if ev.Type == codingagent.EventToolResult {
 					ev.Content = codingagent.TruncateToolResult(ev.Content, cfg.MaxToolResultBytes)
 				}

@@ -159,6 +159,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			AgentName: req.Agent,
 			StartedAt: time.Now(),
 		})
+		s.captureSessionSnapshot(sessionID, record.WorkDir)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -650,9 +651,6 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 		}
 	}
 done:
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
-
 	if record, err := s.sessions.Get(sessionID); err == nil {
 		if hasError {
 			record.Status = codingagent.StatusError
@@ -665,7 +663,10 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
 	}
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
 	return exec.streamOffset, suspended
 }
 
@@ -725,6 +726,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
 	}
 	return suspended
 }
@@ -814,13 +816,6 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 		}
 	}
 done:
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
-
-	if s.logger != nil {
-		s.logger.Debug("SSE stream completed", "session_id", sessionID, "event_count", eventCount)
-	}
-
 	if record, err := s.sessions.Get(sessionID); err == nil {
 		if hasError {
 			record.Status = codingagent.StatusError
@@ -833,6 +828,14 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
+	}
+
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
+
+	if s.logger != nil {
+		s.logger.Debug("SSE stream completed", "session_id", sessionID, "event_count", eventCount)
 	}
 }
 
@@ -891,6 +894,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
 	}
 }
 
@@ -919,8 +923,9 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)
 
-	// Mark session as closed in the artifact store.
+	// Reconcile supplemental artifacts before closing the session record.
 	if s.artifactStore != nil {
+		s.reconcileSessionArtifacts(r.Context(), sessionID)
 		_ = s.artifactStore.CloseSession(r.Context(), sessionID)
 	}
 
