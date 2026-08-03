@@ -57,9 +57,11 @@ type Server struct {
 	gatewayHealthMu   sync.Mutex
 	pollCancel        context.CancelFunc
 	// Artifact support (optional; nil disables artifact tracking and API).
-	artifactStore    store.ArtifactStore
-	artifactStorage  *artifactstorage.UserArtifactStorage
-	artifactWorkDir  string
+	artifactStore      store.ArtifactStore
+	artifactStorage    *artifactstorage.UserArtifactStorage
+	artifactWorkDir    string
+	sessionSnapshots   map[string]analyzer.DirSnapshot
+	sessionSnapshotsMu sync.Mutex
 }
 
 // ServerOption configures a Server.

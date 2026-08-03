@@ -43,6 +43,16 @@ type contentBlock struct {
 // ParseJSONLinesEvent converts a single JSON Lines output line to a StreamEvent.
 // Returns nil for events that should be ignored.
 func ParseJSONLinesEvent(line string, logs ...logger.Logger) *codingagent.StreamEvent {
+	events := ParseJSONLinesEvents(line, logs...)
+	if len(events) == 0 {
+		return nil
+	}
+	return events[0]
+}
+
+// ParseJSONLinesEvents converts a JSON Lines output line to zero or more StreamEvents.
+// Assistant messages with multiple tool_use blocks emit one event per tool_use.
+func ParseJSONLinesEvents(line string, logs ...logger.Logger) []*codingagent.StreamEvent {
 	if line == "" {
 		return nil
 	}
@@ -65,51 +75,51 @@ func ParseJSONLinesEvent(line string, logs ...logger.Logger) *codingagent.Stream
 			}
 			log.Warn("failed to parse JSON Lines event", "error", err.Error(), "line_preview", linePreview)
 		}
-		return &codingagent.StreamEvent{Type: codingagent.EventError, Error: err}
+		return []*codingagent.StreamEvent{{Type: codingagent.EventError, Error: err}}
 	}
 
-	var ev *codingagent.StreamEvent
+	var out []*codingagent.StreamEvent
 	switch raw.Type {
 	case "system":
 		if raw.Subtype == "init" {
-			ev = &codingagent.StreamEvent{
+			out = append(out, &codingagent.StreamEvent{
 				Type:      codingagent.EventSystem,
 				SessionID: raw.SessionID,
-			}
+			})
 		}
 
 	case "stream_event":
 		var payload streamEventPayload
 		if err := json.Unmarshal(raw.Event, &payload); err != nil {
-			ev = &codingagent.StreamEvent{Type: codingagent.EventError, Error: err}
+			out = append(out, &codingagent.StreamEvent{Type: codingagent.EventError, Error: err})
 		} else if payload.Type == "content_block_delta" && payload.Delta.Type == "text_delta" {
-			ev = &codingagent.StreamEvent{
+			out = append(out, &codingagent.StreamEvent{
 				Type:    codingagent.EventText,
 				Content: payload.Delta.Text,
-			}
+			})
 		}
 
 	case "assistant":
 		var msg messagePayload
 		if err := json.Unmarshal(raw.Message, &msg); err == nil {
 			for _, block := range msg.Content {
-				switch block.Type {
-				case "tool_use":
-					ev = &codingagent.StreamEvent{
+				if block.Type == "tool_use" {
+					out = append(out, &codingagent.StreamEvent{
 						Type:      codingagent.EventToolUse,
 						ToolName:  block.Name,
 						ToolInput: block.Input,
-					}
-				case "text":
-					if block.Text != "" {
-						ev = &codingagent.StreamEvent{
+					})
+				}
+			}
+			if len(out) == 0 {
+				for _, block := range msg.Content {
+					if block.Type == "text" && block.Text != "" {
+						out = append(out, &codingagent.StreamEvent{
 							Type:    codingagent.EventText,
 							Content: block.Text,
-						}
+						})
+						break
 					}
-				}
-				if ev != nil {
-					break
 				}
 			}
 		}
@@ -119,21 +129,21 @@ func ParseJSONLinesEvent(line string, logs ...logger.Logger) *codingagent.Stream
 		if err := json.Unmarshal(raw.Message, &msg); err == nil {
 			for _, block := range msg.Content {
 				if block.Type == "tool_result" {
-					ev = &codingagent.StreamEvent{
+					out = append(out, &codingagent.StreamEvent{
 						Type:    codingagent.EventToolResult,
 						Content: block.Content,
-					}
+					})
 					break
 				}
 			}
 		}
 
 	case "result":
-		ev = &codingagent.StreamEvent{Type: codingagent.EventResult}
+		out = append(out, &codingagent.StreamEvent{Type: codingagent.EventResult})
 	}
 
-	if ev != nil && log != nil {
-		log.Debug("parsed event", "type", raw.Type, "subtype", raw.Subtype)
+	if len(out) > 0 && log != nil {
+		log.Debug("parsed event", "type", raw.Type, "subtype", raw.Subtype, "event_count", len(out))
 	}
-	return ev
+	return out
 }

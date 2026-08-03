@@ -63,7 +63,7 @@ Artifact
 | R9 | User Artifact を `key`（論理パス）でアクセスできる |
 | R10 | Coding Agent が MCP ツール経由で User Artifact を `key` で参照できる |
 | R11 | アーティファクトのソース（`system` / `user`）を区別できる |
-| R12 | 対応 Agent：Cursor Agent、Claude Code（拡張可能な設計） |
+| R12 | 対応 Agent：Cursor Agent、Claude Code、Codex（拡張可能な設計） |
 
 ### 任意要件（Nice-to-have）
 

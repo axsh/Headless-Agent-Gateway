@@ -206,3 +206,17 @@ func TestParseJSONLinesEvent_V21_TextAndToolUse(t *testing.T) {
 		t.Errorf("Type = %v, want EventToolUse", ev.Type)
 	}
 }
+
+func TestParseJSONLinesEvents_MultipleToolUse(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"path":"a.go"}},{"type":"tool_use","name":"Write","input":{"path":"b.go"}}]}}`
+	events := claudecode.ParseJSONLinesEvents(input)
+	if len(events) != 2 {
+		t.Fatalf("event count = %d, want 2", len(events))
+	}
+	if events[0].ToolInput["path"] != "a.go" {
+		t.Errorf("first path = %v", events[0].ToolInput["path"])
+	}
+	if events[1].ToolInput["path"] != "b.go" {
+		t.Errorf("second path = %v", events[1].ToolInput["path"])
+	}
+}
