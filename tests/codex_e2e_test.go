@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,9 +21,11 @@ import (
 	"testing"
 	"time"
 
+	v1 "github.com/axsh/arctic-tern/client/v1"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
 	"github.com/axsh/arctic-tern/server"
+	"github.com/stretchr/testify/require"
 )
 
 // startCodexE2EServer starts a tern server with codex agent registered.
@@ -180,6 +183,60 @@ func TestCodexE2E_FileCreation(t *testing.T) {
 	if sessionStatus != "completed" {
 		t.Errorf("session status = %q, want %q", sessionStatus, "completed")
 	}
+}
+
+// TestCodexE2E_SystemArtifact_FileCreation verifies System Artifacts API records
+// file creation after a Codex session (Issue #28).
+func TestCodexE2E_SystemArtifact_FileCreation(t *testing.T) {
+	baseURL, cleanup := startCodexE2EServer(t)
+	defer cleanup()
+
+	workDir := t.TempDir()
+	sessionID := createE2ESessionWithModel(t, baseURL, "codex", "gpt-4o", workDir)
+
+	prompt := "Create a file named hello.txt in the current directory containing exactly the text 'Hello Codex'. Do nothing else."
+	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
+	defer resp.Body.Close()
+
+	events, gotDone := parseE2ESSEEvents(t, resp)
+	if !gotDone {
+		t.Fatal("expected [DONE] sentinel in SSE stream")
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("received error event from codex CLI: %s", ev.Content)
+		}
+	}
+
+	filePath := filepath.Join(workDir, "hello.txt")
+	if _, err := os.ReadFile(filePath); err != nil {
+		t.Fatalf("expected hello.txt on disk: %v", err)
+	}
+
+	c := v1.New(baseURL)
+	ctx := context.Background()
+	page, err := c.SystemArtifacts().List(ctx, v1.SystemArtifactFilter{
+		SessionIDs: []string{sessionID},
+		Operation:  "create",
+	})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, page.TotalCount, 1, "expected system artifact create events")
+
+	var downloadKey string
+	for _, item := range page.Items {
+		if filepath.Base(item.Key) == "hello.txt" {
+			downloadKey = item.Key
+			break
+		}
+	}
+	require.NotEmpty(t, downloadKey, "expected system artifact for hello.txt")
+
+	rc, err := c.SystemArtifacts().Download(ctx, downloadKey)
+	require.NoError(t, err)
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
 }
 
 // --- TC-Codex-002: Codex + Gemini model file creation ---
