@@ -35,9 +35,21 @@ func SplitStreamEventForSSE(ev StreamEvent, maxLineBytes int) ([]StreamEvent, er
 		return []StreamEvent{ev}, nil
 	}
 
+	for chunkSize := DefaultSSEChunkContentBytes; chunkSize >= 4096; chunkSize /= 2 {
+		out, ok, err := buildChunkedToolResult(ev, chunkSize, limit)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot split tool_result under %d bytes wire limit", limit)
+}
+
+func buildChunkedToolResult(ev StreamEvent, chunkSize, limit int) ([]StreamEvent, bool, error) {
 	chunkID := uuid.New().String()
 	content := ev.Content
-	chunkSize := DefaultSSEChunkContentBytes
 	total := (len(content) + chunkSize - 1) / chunkSize
 	if total == 0 {
 		total = 1
@@ -67,7 +79,16 @@ func SplitStreamEventForSSE(ev StreamEvent, maxLineBytes int) ([]StreamEvent, er
 		Content:  "",
 	})
 
-	return out, nil
+	for _, wireEv := range out {
+		data, err := json.Marshal(wireEv)
+		if err != nil {
+			return nil, false, fmt.Errorf("marshal stream event: %w", err)
+		}
+		if len(data) >= limit {
+			return nil, false, nil
+		}
+	}
+	return out, true, nil
 }
 
 // ReassembleToolResultParts joins tool_result_part content in order.

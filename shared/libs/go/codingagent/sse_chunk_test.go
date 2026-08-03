@@ -98,6 +98,93 @@ func TestSplitStreamEventForSSE_ReassemblyRoundTrip(t *testing.T) {
 	}
 }
 
+func assertAllWireEventsUnderLimit(t *testing.T, events []codingagent.StreamEvent, limit int) {
+	t.Helper()
+	for _, e := range events {
+		data, err := json.Marshal(e)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if len(data) >= limit {
+			t.Fatalf("SSE wire line len %d >= max %d (type=%s)", len(data), limit, e.Type)
+		}
+	}
+}
+
+func TestSplitStreamEventForSSE_EscapeHeavyContentUnder64KB(t *testing.T) {
+	unit := "\"\\n\\u0041"
+	content := strings.Repeat(unit, 50000)
+	ev := codingagent.StreamEvent{
+		Type:    codingagent.EventToolResult,
+		Content: content,
+	}
+	events, err := codingagent.SplitStreamEventForSSE(ev, 0)
+	if err != nil {
+		t.Fatalf("SplitStreamEventForSSE: %v", err)
+	}
+	assertAllWireEventsUnderLimit(t, events, codingagent.DefaultMaxSSEDataLineBytes)
+}
+
+func findContentLenJustUnderLimit(t *testing.T, limit int) int {
+	t.Helper()
+	low, high := 0, codingagent.DefaultMaxToolResultBytes
+	best := 0
+	for low <= high {
+		mid := (low + high) / 2
+		content := strings.Repeat("a", mid)
+		ev := codingagent.StreamEvent{Type: codingagent.EventToolResult, Content: content}
+		wire, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if len(wire) < limit {
+			best = mid
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return best
+}
+
+func TestSplitStreamEventForSSE_BoundaryJustUnderLimit(t *testing.T) {
+	contentLen := findContentLenJustUnderLimit(t, codingagent.DefaultMaxSSEDataLineBytes)
+	if contentLen == 0 {
+		t.Fatal("expected non-zero content length just under limit")
+	}
+	content := strings.Repeat("a", contentLen)
+	ev := codingagent.StreamEvent{
+		Type:    codingagent.EventToolResult,
+		Content: content,
+	}
+	events, err := codingagent.SplitStreamEventForSSE(ev, 0)
+	if err != nil {
+		t.Fatalf("SplitStreamEventForSSE: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("len(events) = %d, want 1 (no split)", len(events))
+	}
+	if events[0].Type != codingagent.EventToolResult {
+		t.Fatalf("type = %q, want tool_result", events[0].Type)
+	}
+	assertAllWireEventsUnderLimit(t, events, codingagent.DefaultMaxSSEDataLineBytes)
+}
+
+func TestSplitStreamEventForSSE_AllSizesWireUnderLimit(t *testing.T) {
+	for contentLen := 0; contentLen <= codingagent.DefaultMaxToolResultBytes; contentLen += 1024 {
+		content := strings.Repeat("z", contentLen)
+		ev := codingagent.StreamEvent{
+			Type:    codingagent.EventToolResult,
+			Content: content,
+		}
+		events, err := codingagent.SplitStreamEventForSSE(ev, 0)
+		if err != nil {
+			t.Fatalf("contentLen=%d: SplitStreamEventForSSE: %v", contentLen, err)
+		}
+		assertAllWireEventsUnderLimit(t, events, codingagent.DefaultMaxSSEDataLineBytes)
+	}
+}
+
 func TestSplitStreamEventForSSE_NonToolResultPassthrough(t *testing.T) {
 	cases := []codingagent.StreamEvent{
 		{Type: codingagent.EventText, Content: "hello"},
