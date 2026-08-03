@@ -37,6 +37,10 @@ type SessionConfig struct {
 	IdleTimeoutSeconds int
 	// MaxExecutionSeconds is the max wall-clock execution time.
 	MaxExecutionSeconds int
+	// ScannerMaxTokenBytes is the max JSONL line size for agent stdout scanners.
+	ScannerMaxTokenBytes int
+	// MaxToolResultBytes is the max EventToolResult content size for SSE relay.
+	MaxToolResultBytes int
 }
 
 // WithModel sets the model name.
@@ -97,6 +101,16 @@ func WithIdleTimeout(seconds int) SessionOption {
 // WithMaxExecution sets the max execution time in seconds.
 func WithMaxExecution(seconds int) SessionOption {
 	return func(c *SessionConfig) { c.MaxExecutionSeconds = seconds }
+}
+
+// WithScannerMaxTokenBytes sets the max JSONL line size for stdout scanners.
+func WithScannerMaxTokenBytes(n int) SessionOption {
+	return func(c *SessionConfig) { c.ScannerMaxTokenBytes = n }
+}
+
+// WithMaxToolResultBytes sets the max EventToolResult content size for SSE relay.
+func WithMaxToolResultBytes(n int) SessionOption {
+	return func(c *SessionConfig) { c.MaxToolResultBytes = n }
 }
 
 // NewSessionConfig applies the given SessionOptions and returns a SessionConfig.
@@ -166,5 +180,11 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 		} else {
 			cfg.MaxExecutionSeconds = 3600
 		}
+	}
+	if cfg.ScannerMaxTokenBytes == 0 && ac.ScannerMaxTokenBytes > 0 {
+		cfg.ScannerMaxTokenBytes = ac.ScannerMaxTokenBytes
+	}
+	if cfg.MaxToolResultBytes == 0 && ac.MaxToolResultBytes > 0 {
+		cfg.MaxToolResultBytes = ac.MaxToolResultBytes
 	}
 }

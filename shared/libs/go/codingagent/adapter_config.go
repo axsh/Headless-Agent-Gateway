@@ -61,4 +61,8 @@ type AdapterConfig struct {
 	IdleTimeoutSeconds int
 	// MaxExecutionSeconds is the max wall-clock execution time.
 	MaxExecutionSeconds int
+	// ScannerMaxTokenBytes is the max JSONL line size for agent stdout scanners.
+	ScannerMaxTokenBytes int
+	// MaxToolResultBytes is the max EventToolResult content size for SSE relay.
+	MaxToolResultBytes int
 }

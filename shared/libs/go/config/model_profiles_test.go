@@ -338,6 +338,29 @@ func TestAgentConfig_WithDefaults(t *testing.T) {
 	}
 }
 
+func TestAgentConfig_ScannerAndToolResultDefaults(t *testing.T) {
+	cfg := AgentConfig{}.WithDefaults()
+	if cfg.ScannerMaxTokenBytes != codingagent.DefaultScannerMaxTokenSize {
+		t.Errorf("ScannerMaxTokenBytes = %d, want %d", cfg.ScannerMaxTokenBytes, codingagent.DefaultScannerMaxTokenSize)
+	}
+	if cfg.MaxToolResultBytes != codingagent.DefaultMaxToolResultBytes {
+		t.Errorf("MaxToolResultBytes = %d, want %d", cfg.MaxToolResultBytes, codingagent.DefaultMaxToolResultBytes)
+	}
+}
+
+func TestAgentConfig_ScannerAndToolResultOverride(t *testing.T) {
+	cfg := AgentConfig{
+		ScannerMaxTokenBytes: 8192,
+		MaxToolResultBytes:     4096,
+	}.WithDefaults()
+	if cfg.ScannerMaxTokenBytes != 8192 {
+		t.Errorf("ScannerMaxTokenBytes = %d, want 8192", cfg.ScannerMaxTokenBytes)
+	}
+	if cfg.MaxToolResultBytes != 4096 {
+		t.Errorf("MaxToolResultBytes = %d, want 4096", cfg.MaxToolResultBytes)
+	}
+}
+
 func TestResolveAgentConfig(t *testing.T) {
 	profiles := &ModelProfilesConfig{
 		CodingAgents: map[string]AgentConfig{

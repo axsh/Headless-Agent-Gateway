@@ -8,7 +8,6 @@
 package llm_test
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -114,7 +113,7 @@ func parseE2ESSEEvents(t *testing.T, body *http.Response) ([]codingagent.StreamE
 	var events []codingagent.StreamEvent
 	gotDone := false
 
-	scanner := bufio.NewScanner(body.Body)
+	scanner := codingagent.NewLargeLineScanner(body.Body, 0)
 	lineCount := 0
 	for scanner.Scan() {
 		line := scanner.Text()

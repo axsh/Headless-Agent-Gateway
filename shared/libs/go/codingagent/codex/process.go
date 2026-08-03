@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -248,7 +247,7 @@ func StartProcess(
 
 	go func() {
 		defer close(stderrDone)
-		scanner := bufio.NewScanner(stderrPipe)
+		scanner := codingagent.NewLargeLineScanner(stderrPipe, cfg.ScannerMaxTokenBytes)
 		for scanner.Scan() {
 			line := scanner.Text()
 			touchActivity()
@@ -269,6 +268,9 @@ func StartProcess(
 					return
 				}
 			}
+		}
+		if err := scanner.Err(); err != nil {
+			log.Warn("codex CLI stderr scanner error", "error", err.Error())
 		}
 	}()
 
@@ -329,7 +331,8 @@ func StartProcess(
 	go func() {
 		defer close(ch)
 		defer cancel() // Option A: cancel procCtx when stdout closes so the timeout goroutine exits cleanly
-		scanner := bufio.NewScanner(stdout)
+		scanner := codingagent.NewLargeLineScanner(stdout, cfg.ScannerMaxTokenBytes)
+		resultEmitted := false
 		for scanner.Scan() {
 			line := scanner.Text()
 			touchActivity()
@@ -348,6 +351,12 @@ func StartProcess(
 
 			ev := ParseExecEvent(line)
 			if ev != nil {
+				if ev.Type == codingagent.EventToolResult {
+					ev.Content = codingagent.TruncateToolResult(ev.Content, cfg.MaxToolResultBytes)
+				}
+				if ev.Type == codingagent.EventResult {
+					resultEmitted = true
+				}
 				select {
 				case ch <- *ev:
 				case <-procCtx.Done():
@@ -355,6 +364,17 @@ func StartProcess(
 				}
 			} else {
 				log.Debug("unhandled codex event type (ignored)", "line", line)
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			log.Warn("codex stdout scanner error", "error", err.Error())
+			select {
+			case ch <- codingagent.StreamEvent{
+				Type:    codingagent.EventError,
+				Content: "stdout read error: " + err.Error(),
+			}:
+			case <-procCtx.Done():
 			}
 		}
 
@@ -378,6 +398,13 @@ func StartProcess(
 		} else {
 			exitCode := cmd.ProcessState.ExitCode()
 			log.Debug("codex CLI process exited", "exit_code", exitCode)
+			if !resultEmitted {
+				log.Debug("emitting synthetic EventResult after successful exit")
+				select {
+				case ch <- codingagent.StreamEvent{Type: codingagent.EventResult}:
+				case <-procCtx.Done():
+				}
+			}
 		}
 	}()
 

@@ -333,6 +333,12 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if record.SessionDir != "" {
 		opts = append(opts, codingagent.WithSessionDir(record.SessionDir))
 	}
+	if agentCfg.ScannerMaxTokenBytes > 0 {
+		opts = append(opts, codingagent.WithScannerMaxTokenBytes(agentCfg.ScannerMaxTokenBytes))
+	}
+	if agentCfg.MaxToolResultBytes > 0 {
+		opts = append(opts, codingagent.WithMaxToolResultBytes(agentCfg.MaxToolResultBytes))
+	}
 
 	// Context separation: create an independent execution context
 	// so agent continues running even if the HTTP client disconnects.
