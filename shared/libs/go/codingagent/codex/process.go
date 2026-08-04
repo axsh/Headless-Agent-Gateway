@@ -66,13 +66,18 @@ func resolveTimeouts(cfg *codingagent.SessionConfig) (idleSec, maxSec int) {
 
 // BuildArgs constructs codex CLI arguments for non-interactive execution.
 // Uses "codex exec --json" with config overrides via -c flags.
+// When ignoreUserConfig is true, appends --ignore-user-config (legacy default).
+// When false (config_dir active), omits it so overlayed $CODEX_HOME/config.toml
+// and skills under CODEX_HOME can load; -c overrides still win for Tern keys.
 // When prompt is non-empty, "-" is appended to instruct codex to read from stdin.
-func BuildArgs(prompt string, configOverrides []string) []string {
+func BuildArgs(prompt string, configOverrides []string, ignoreUserConfig bool) []string {
 	args := []string{
 		"exec",
 		"--json",
 		"--dangerously-bypass-approvals-and-sandbox",
-		"--ignore-user-config",
+	}
+	if ignoreUserConfig {
+		args = append(args, "--ignore-user-config")
 	}
 	args = append(args, configOverrides...)
 	if prompt != "" {
@@ -145,8 +150,9 @@ func StartProcess(
 	}
 	log = log.WithComponent("codex")
 
-	args := BuildArgs(cfg.Prompt, configOverrides)
-	log.Debug("building CLI arguments", "args", args)
+	ignoreUserConfig := cfg.ConfigDir == ""
+	args := BuildArgs(cfg.Prompt, configOverrides, ignoreUserConfig)
+	log.Debug("building CLI arguments", "args", args, "ignore_user_config", ignoreUserConfig, "config_dir", cfg.ConfigDir)
 
 	env := BuildEnv(ac, cfg)
 

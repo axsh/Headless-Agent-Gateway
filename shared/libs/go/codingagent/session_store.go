@@ -21,6 +21,7 @@ type SessionRecord struct {
 	WorkDir        string    `json:"work_dir"`
 	AgentSessionID string    `json:"agent_session_id"`
 	SessionDir     string    `json:"session_dir"`
+	ConfigDir      string    `json:"config_dir,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }

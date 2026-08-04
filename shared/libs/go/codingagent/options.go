@@ -25,6 +25,12 @@ type SessionConfig struct {
 	// Falls back to WorkDir if not explicitly set.
 	SessionDir string
 
+	// ConfigDir is an optional source directory for agent config assets
+	// (skills, rules, settings). When set, adapters overlay allowlisted
+	// entries into SessionDir before launch. Empty means disabled
+	// (backward compatible: no overlay).
+	ConfigDir string
+
 	// VFS mounts (container execution)
 	VFSMounts []VFSMount // Host->container file mappings
 
@@ -86,6 +92,11 @@ func WithMaxTurns(n int) SessionOption {
 // WithSessionDir sets the session data storage directory.
 func WithSessionDir(dir string) SessionOption {
 	return func(c *SessionConfig) { c.SessionDir = dir }
+}
+
+// WithConfigDir sets the optional agent config set directory.
+func WithConfigDir(dir string) SessionOption {
+	return func(c *SessionConfig) { c.ConfigDir = dir }
 }
 
 // WithExecutionMode sets the execution mode for stdin handling.
@@ -162,6 +173,12 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 	if cfg.SessionDir != "" {
 		if abs, err := filepath.Abs(cfg.SessionDir); err == nil {
 			cfg.SessionDir = abs
+		}
+	}
+	// ConfigDir: absolute path only when non-empty. No fallback when empty.
+	if cfg.ConfigDir != "" {
+		if abs, err := filepath.Abs(cfg.ConfigDir); err == nil {
+			cfg.ConfigDir = abs
 		}
 	}
 	if cfg.ExecutionMode == "" {

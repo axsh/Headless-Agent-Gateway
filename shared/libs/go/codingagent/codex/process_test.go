@@ -10,7 +10,7 @@ import (
 
 func TestCodexBuildArgs(t *testing.T) {
 	overrides := []string{"-c", `model="gpt-4o"`}
-	args := codex.BuildArgs("create hello.txt", overrides)
+	args := codex.BuildArgs("create hello.txt", overrides, true)
 
 	argsStr := strings.Join(args, " ")
 	if !strings.Contains(argsStr, "exec") {
@@ -31,8 +31,17 @@ func TestCodexBuildArgs(t *testing.T) {
 	}
 }
 
+func TestCodexBuildArgs_WithConfigDirDisablesIgnoreUserConfig(t *testing.T) {
+	args := codex.BuildArgs("hi", nil, false)
+	for _, a := range args {
+		if a == "--ignore-user-config" {
+			t.Fatal("ignore-user-config must be omitted when config_dir is active")
+		}
+	}
+}
+
 func TestCodexBuildArgs_StdinMode(t *testing.T) {
-	args := codex.BuildArgs("some prompt text", nil)
+	args := codex.BuildArgs("some prompt text", nil, true)
 
 	// Last argument should be "-" to instruct codex to read from stdin.
 	if args[len(args)-1] != "-" {
@@ -48,7 +57,7 @@ func TestCodexBuildArgs_StdinMode(t *testing.T) {
 }
 
 func TestCodexBuildArgs_EmptyPrompt(t *testing.T) {
-	args := codex.BuildArgs("", nil)
+	args := codex.BuildArgs("", nil, true)
 
 	// When prompt is empty, "-" should NOT be in args.
 	for _, a := range args {

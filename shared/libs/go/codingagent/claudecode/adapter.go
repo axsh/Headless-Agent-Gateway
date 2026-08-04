@@ -42,7 +42,13 @@ func (a *ClaudeCodeAdapter) CreateSession(
 	cfg := codingagent.NewSessionConfig(opts...)
 	codingagent.ApplyDefaults(cfg, a.config)
 
-	a.logger.Debug("creating claude code session", "model", cfg.Model, "work_dir", cfg.WorkDir, "session_dir", cfg.SessionDir)
+	a.logger.Debug("creating claude code session",
+		"model", cfg.Model, "work_dir", cfg.WorkDir,
+		"session_dir", cfg.SessionDir, "config_dir", cfg.ConfigDir)
+
+	if err := ApplyClaudeConfigDir(cfg.SessionDir, cfg.ConfigDir); err != nil {
+		return nil, fmt.Errorf("claudecode: apply config_dir: %w", err)
+	}
 
 	ch, pm, err := StartProcess(ctx, a.config, cfg)
 	if err != nil {

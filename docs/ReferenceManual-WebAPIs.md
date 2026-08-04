@@ -114,13 +114,22 @@ Initializes a new coding session.
   - `model` (string, Optional): The LLM model to use. If not specified, the default model is applied.
   - `work_dir` (string, Required): The absolute workspace directory path where the agent will operate.
   - `session_dir` (string, Optional): The directory path to store session data. Defaults to `work_dir/.{agent_name}`.
+  - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into `session_dir` before launching the agent. When omitted, behavior is unchanged from previous versions (no overlay).
+  - Paths (`work_dir`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
   ```json
   {
     "agent": "claudecode",
     "model": "claude-3-5-sonnet-20241022",
-    "work_dir": "/path/to/workspace"
+    "work_dir": "/path/to/workspace",
+    "session_dir": "/path/to/tern-sessions/card-1",
+    "config_dir": "/path/to/config-sets/alpha"
   }
   ```
+  - Persistence env mapping remains: Claude Code uses `CLAUDE_CONFIG_DIR=session_dir`; Codex uses `CODEX_HOME=session_dir`.
+  - Precedence:
+    - Claude Code: CLI flags > project `.claude` under `work_dir` > user config under `CLAUDE_CONFIG_DIR` (after overlay). Project `.claude` nesting of `config_dir` is not supported.
+    - Codex: CLI `-c` > (when `config_dir` is set) `$CODEX_HOME` user config/skills > project `.codex`; when `config_dir` is omitted, `--ignore-user-config` + `-c` as today.
+  - Overlay is re-applied on each agent process start; session-only data (`projects/`, `sessions/`, …) is preserved.
 - **Response (201 Created)**:
   ```json
   {
@@ -147,10 +156,12 @@ Retrieves metadata and the active state of a created session.
     "status": "active",
     "work_dir": "/path/to/workspace",
     "session_dir": "/path/to/workspace/.claudecode",
+    "config_dir": "/path/to/config-sets/alpha",
     "agent_session_id": "agent-internal-session-id",
     "error": ""
   }
   ```
+  - `config_dir` is included when set at CreateSession time.
 
 ---
 

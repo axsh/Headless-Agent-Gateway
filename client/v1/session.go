@@ -27,6 +27,7 @@ type SessionRequest struct {
 	Model      string `json:"model,omitempty"`
 	WorkDir    string `json:"work_dir"`
 	SessionDir string `json:"session_dir,omitempty"`
+	ConfigDir  string `json:"config_dir,omitempty"`
 }
 
 // CreateSession creates a new session and returns a Session object.

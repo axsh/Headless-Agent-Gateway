@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
@@ -463,4 +466,123 @@ func TestContextSeparation_ClientDisconnect(t *testing.T) {
 		t.Errorf("expected 3 events from channel after client disconnect, got %d", eventCount)
 	}
 	_ = clientCtx // Used to simulate disconnect.
+}
+
+func TestHandleCreateSession_WithConfigDir(t *testing.T) {
+	_, handler := newTestServer()
+	configDir := t.TempDir()
+	sessionDir := t.TempDir()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": sessionDir,
+		"config_dir":  configDir,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201, body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+
+	req = httptest.NewRequest("GET", "/api/v1/sessions/"+created["session_id"], nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get status = %d", w.Code)
+	}
+	var session map[string]any
+	json.NewDecoder(w.Body).Decode(&session)
+	got, _ := session["config_dir"].(string)
+	if got == "" {
+		t.Fatal("config_dir should be set")
+	}
+	if !filepath.IsAbs(got) {
+		t.Errorf("config_dir should be absolute, got %q", got)
+	}
+}
+
+func TestHandleCreateSession_ConfigDirMissing(t *testing.T) {
+	_, handler := newTestServer()
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+		"config_dir":  filepath.Join(t.TempDir(), "does-not-exist"),
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "config_dir does not exist") {
+		t.Errorf("body = %q, want config_dir does not exist", w.Body.String())
+	}
+}
+
+func TestHandleCreateSession_ConfigDirOmitted(t *testing.T) {
+	_, handler := newTestServer()
+	workDir := t.TempDir()
+	body, _ := json.Marshal(map[string]string{
+		"agent":    "claudecode",
+		"work_dir": workDir,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", w.Code)
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+
+	req = httptest.NewRequest("GET", "/api/v1/sessions/"+created["session_id"], nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	var session map[string]any
+	json.NewDecoder(w.Body).Decode(&session)
+	if v, ok := session["config_dir"]; ok && v != nil && v != "" {
+		t.Errorf("config_dir should be empty/omitted, got %#v", v)
+	}
+}
+
+func TestHandleCreateSession_ConfigDirRelativeResolved(t *testing.T) {
+	_, handler := newTestServer()
+	relName := "rel-config-dir-" + t.Name()
+	absConfig, err := filepath.Abs(relName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(absConfig, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(absConfig) })
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+		"config_dir":  relName,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201, body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+	req = httptest.NewRequest("GET", "/api/v1/sessions/"+created["session_id"], nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	var session map[string]any
+	json.NewDecoder(w.Body).Decode(&session)
+	got, _ := session["config_dir"].(string)
+	if !filepath.IsAbs(got) {
+		t.Errorf("config_dir should be absolute, got %q", got)
+	}
 }

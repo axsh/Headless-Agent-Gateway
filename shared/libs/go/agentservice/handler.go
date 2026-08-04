@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -77,6 +78,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		WorkDir    string `json:"work_dir"`
 		Prompt     string `json:"prompt"`
 		SessionDir string `json:"session_dir"`
+		ConfigDir  string `json:"config_dir"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -116,6 +118,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		Status:     codingagent.StatusActive,
 		WorkDir:    req.WorkDir,
 		SessionDir: req.SessionDir,
+		ConfigDir:  req.ConfigDir,
 	}
 
 	// R2, R4: Resolve WorkDir to absolute path for record consistency.
@@ -141,12 +144,33 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ConfigDir: absolute path + existence check when non-empty.
+	if record.ConfigDir != "" {
+		if abs, err := filepath.Abs(record.ConfigDir); err == nil {
+			record.ConfigDir = abs
+		}
+		fi, err := os.Stat(record.ConfigDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.Error(w, "config_dir does not exist: "+record.ConfigDir, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, "config_dir stat failed: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !fi.IsDir() {
+			http.Error(w, "config_dir is not a directory: "+record.ConfigDir, http.StatusBadRequest)
+			return
+		}
+	}
+
 	// R5: Log resolved paths for debugging.
 	if s.logger != nil {
 		s.logger.Debug("session paths resolved",
 			"session_id", sessionID,
 			"work_dir", record.WorkDir,
-			"session_dir", record.SessionDir)
+			"session_dir", record.SessionDir,
+			"config_dir", record.ConfigDir)
 	}
 
 	s.sessions.Create(record)
@@ -332,6 +356,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if record.SessionDir != "" {
 		opts = append(opts, codingagent.WithSessionDir(record.SessionDir))
+	}
+	if record.ConfigDir != "" {
+		opts = append(opts, codingagent.WithConfigDir(record.ConfigDir))
 	}
 	if agentCfg.ScannerMaxTokenBytes > 0 {
 		opts = append(opts, codingagent.WithScannerMaxTokenBytes(agentCfg.ScannerMaxTokenBytes))

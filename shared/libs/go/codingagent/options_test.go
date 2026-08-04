@@ -87,6 +87,15 @@ func TestSessionOptionFunctions(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "WithConfigDir",
+			opt:  codingagent.WithConfigDir("/mnt/config-sets/alpha"),
+			check: func(t *testing.T, cfg *codingagent.SessionConfig) {
+				if cfg.ConfigDir != "/mnt/config-sets/alpha" {
+					t.Errorf("ConfigDir = %v, want /mnt/config-sets/alpha", cfg.ConfigDir)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -284,6 +293,31 @@ func TestApplyDefaults(t *testing.T) {
 		wantSessionDir := filepath.Join(absWorkDir, ".claudecode")
 		if cfg.SessionDir != wantSessionDir {
 			t.Errorf("SessionDir = %q, want %q", cfg.SessionDir, wantSessionDir)
+		}
+	})
+
+	t.Run("empty ConfigDir stays empty (no fallback)", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(codingagent.WithWorkDir(t.TempDir()))
+		codingagent.ApplyDefaults(cfg, &codingagent.AdapterConfig{AgentName: "claudecode"})
+		if cfg.ConfigDir != "" {
+			t.Errorf("ConfigDir = %q, want empty", cfg.ConfigDir)
+		}
+	})
+
+	t.Run("relative ConfigDir resolved to absolute", func(t *testing.T) {
+		cfg := codingagent.NewSessionConfig(codingagent.WithConfigDir("rel-config"))
+		codingagent.ApplyDefaults(cfg, &codingagent.AdapterConfig{})
+		if !filepath.IsAbs(cfg.ConfigDir) {
+			t.Errorf("ConfigDir should be absolute, got %q", cfg.ConfigDir)
+		}
+	})
+
+	t.Run("absolute ConfigDir unchanged in value after Abs", func(t *testing.T) {
+		abs := filepath.Join(t.TempDir(), "alpha")
+		cfg := codingagent.NewSessionConfig(codingagent.WithConfigDir(abs))
+		codingagent.ApplyDefaults(cfg, &codingagent.AdapterConfig{})
+		if filepath.Clean(cfg.ConfigDir) != filepath.Clean(abs) {
+			t.Errorf("ConfigDir = %q, want %q", cfg.ConfigDir, abs)
 		}
 	})
 

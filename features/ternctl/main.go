@@ -61,6 +61,7 @@ func printUsage() {
 	fmt.Println("  models                                List available models")
 	fmt.Println("  run --agent NAME --prompt MSG          Create session and run")
 	fmt.Println("      [--session-dir DIR]                Session storage directory")
+	fmt.Println("      [--config-dir DIR]                 Agent config set directory (skills/rules)")
 	fmt.Println("  run --resume ID --prompt MSG           Continue existing session")
 	fmt.Println("  session --id ID                        Get session status")
 	fmt.Println("  terminate --id ID                      Terminate session")
@@ -136,6 +137,7 @@ func cmdRun(c *client.Client, args []string) {
 	prompt := fs.String("prompt", "", "Prompt message (required)")
 	workDir := fs.String("work-dir", ".", "Working directory")
 	sessionDir := fs.String("session-dir", "", "Session data storage directory (default: work-dir)")
+	configDir := fs.String("config-dir", "", "Agent config set directory (skills/rules); overlaid into session-dir")
 	resumeSessionID := fs.String("resume", "", "Existing session ID (for continuation)")
 	fs.Parse(args)
 
@@ -165,6 +167,7 @@ func cmdRun(c *client.Client, args []string) {
 			Model:      *model,
 			WorkDir:    *workDir,
 			SessionDir: *sessionDir,
+			ConfigDir:  *configDir,
 		})
 		if err != nil {
 			log.Error("error creating session", "error", err.Error())

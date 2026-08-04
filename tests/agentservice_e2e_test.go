@@ -877,4 +877,158 @@ func TestE2E_WSLDelegation_FailReproduction(t *testing.T) {
 	}
 }
 
+func TestE2E_ConfigDirOmitted_Compatible(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+	workDir := t.TempDir()
+	initGitRepo(t, workDir)
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":    "claudecode",
+		"model":    e2eDefaultModel,
+		"work_dir": workDir,
+	})
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	session := getE2ESession(t, baseURL, result["session_id"])
+	if v, ok := session["config_dir"]; ok && v != nil && v != "" {
+		t.Errorf("config_dir should be empty when omitted, got %#v", v)
+	}
+	sessionDir, _ := session["session_dir"].(string)
+	want := filepath.Join(workDir, ".claudecode")
+	if abs, err := filepath.Abs(want); err == nil {
+		want = abs
+	}
+	if sessionDir != want {
+		t.Errorf("session_dir = %q, want %q", sessionDir, want)
+	}
+}
+
+func TestE2E_ConfigDir_SharedAcrossSessions(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	configDir := t.TempDir()
+	skill := filepath.Join(configDir, "skills", "shared", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("shared"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var sessionDirs []string
+	var configDirs []string
+	for i := 0; i < 2; i++ {
+		workDir := t.TempDir()
+		initGitRepo(t, workDir)
+		sessionDir := t.TempDir()
+		body, _ := json.Marshal(map[string]string{
+			"agent":       "claudecode",
+			"model":       e2eDefaultModel,
+			"work_dir":    workDir,
+			"session_dir": sessionDir,
+			"config_dir":  configDir,
+		})
+		resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+		var result map[string]string
+		json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d", resp.StatusCode)
+		}
+
+		session := getE2ESession(t, baseURL, result["session_id"])
+		sd, _ := session["session_dir"].(string)
+		cd, _ := session["config_dir"].(string)
+		sessionDirs = append(sessionDirs, sd)
+		configDirs = append(configDirs, cd)
+
+		// Overlay is applied when the agent process starts; verify the same
+		// allowlist helper the adapter uses so filesystem contract is covered
+		// without requiring a full LLM turn in this API-level E2E.
+		if err := claudecode.ApplyClaudeConfigDir(sd, cd); err != nil {
+			t.Fatalf("ApplyClaudeConfigDir: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(sd, "skills", "shared", "SKILL.md")); err != nil {
+			t.Fatalf("overlaid skill missing: %v", err)
+		}
+	}
+	if sessionDirs[0] == sessionDirs[1] {
+		t.Fatal("session_dir should differ across sessions")
+	}
+	if configDirs[0] != configDirs[1] {
+		t.Fatalf("config_dir should match, got %q vs %q", configDirs[0], configDirs[1])
+	}
+}
+
+func TestE2E_ConfigDir_LaneIsolation(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	mk := func(name string) string {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "skills", name, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(name), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	alpha := mk("alpha")
+	beta := mk("beta")
+
+	runLane := func(configDir, skillName string) string {
+		workDir := t.TempDir()
+		initGitRepo(t, workDir)
+		sessionDir := t.TempDir()
+		body, _ := json.Marshal(map[string]string{
+			"agent":       "claudecode",
+			"model":       e2eDefaultModel,
+			"work_dir":    workDir,
+			"session_dir": sessionDir,
+			"config_dir":  configDir,
+		})
+		resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result map[string]string
+		json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+		session := getE2ESession(t, baseURL, result["session_id"])
+		sd, _ := session["session_dir"].(string)
+		cd, _ := session["config_dir"].(string)
+		if err := claudecode.ApplyClaudeConfigDir(sd, cd); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(sd, "skills", skillName, "SKILL.md")); err != nil {
+			t.Fatalf("%s skill missing: %v", skillName, err)
+		}
+		return sd
+	}
+
+	alphaSD := runLane(alpha, "alpha")
+	betaSD := runLane(beta, "beta")
+	if _, err := os.Stat(filepath.Join(alphaSD, "skills", "beta")); !os.IsNotExist(err) {
+		t.Fatal("alpha session must not contain beta skills")
+	}
+	if _, err := os.Stat(filepath.Join(betaSD, "skills", "alpha")); !os.IsNotExist(err) {
+		t.Fatal("beta session must not contain alpha skills")
+	}
+}
 
