@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axsh/arctic-tern/server"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/claudecode"
-	"github.com/axsh/arctic-tern/server"
 )
 
 // e2eDefaultModel is the model used for E2E tests.
@@ -620,8 +620,6 @@ func TestE2E_CodingAgentDefaultModel(t *testing.T) {
 	t.Logf("File created: %s (%d bytes)", filePath, len(content))
 }
 
-
-
 // --- TC: Session continuation E2E ---
 
 // TestE2E_SessionContinuation verifies that a second message to the same
@@ -808,7 +806,7 @@ func TestE2E_WSLDelegation_FailReproduction(t *testing.T) {
 	// This test reproduces the chdir failure on Windows when WorkDir is a WSL2 path.
 	// Before the fix, the Windows Go process tries to directly run 'claude' cli in the WSL path,
 	// which causes chdir (CWD transition) error or fallback during message sending.
-	
+
 	if runtime.GOOS != "windows" {
 		// WSL delegation is Windows specific, so we return immediately to succeed on other OS.
 		return
@@ -826,7 +824,7 @@ func TestE2E_WSLDelegation_FailReproduction(t *testing.T) {
 		"work_dir":    workDir,
 		"session_dir": sessionDir,
 	})
-	
+
 	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to post session: %v", err)
@@ -955,16 +953,8 @@ func TestE2E_ConfigDir_SharedAcrossSessions(t *testing.T) {
 		cd, _ := session["config_dir"].(string)
 		sessionDirs = append(sessionDirs, sd)
 		configDirs = append(configDirs, cd)
-
-		// Overlay is applied when the agent process starts; verify the same
-		// allowlist helper the adapter uses so filesystem contract is covered
-		// without requiring a full LLM turn in this API-level E2E.
-		if err := claudecode.ApplyClaudeConfigDir(sd, cd); err != nil {
-			t.Fatalf("ApplyClaudeConfigDir: %v", err)
-		}
-		if _, err := os.Stat(filepath.Join(sd, "skills", "shared", "SKILL.md")); err != nil {
-			t.Fatalf("overlaid skill missing: %v", err)
-		}
+		// Filesystem overlay is covered by integration tests after SendMessage;
+		// this E2E asserts API persistence of shared config_dir only.
 	}
 	if sessionDirs[0] == sessionDirs[1] {
 		t.Fatal("session_dir should differ across sessions")
@@ -992,10 +982,10 @@ func TestE2E_ConfigDir_LaneIsolation(t *testing.T) {
 	alpha := mk("alpha")
 	beta := mk("beta")
 
-	runLane := func(configDir, skillName string) string {
+	runLane := func(configDir, skillName string) (sessionDir, persistedConfig string) {
 		workDir := t.TempDir()
 		initGitRepo(t, workDir)
-		sessionDir := t.TempDir()
+		sessionDir = t.TempDir()
 		body, _ := json.Marshal(map[string]string{
 			"agent":       "claudecode",
 			"model":       e2eDefaultModel,
@@ -1013,22 +1003,326 @@ func TestE2E_ConfigDir_LaneIsolation(t *testing.T) {
 		session := getE2ESession(t, baseURL, result["session_id"])
 		sd, _ := session["session_dir"].(string)
 		cd, _ := session["config_dir"].(string)
-		if err := claudecode.ApplyClaudeConfigDir(sd, cd); err != nil {
-			t.Fatal(err)
+		wantAbs, _ := filepath.Abs(configDir)
+		if filepath.Clean(cd) != filepath.Clean(wantAbs) {
+			t.Fatalf("%s: config_dir = %q, want %q", skillName, cd, wantAbs)
 		}
-		if _, err := os.Stat(filepath.Join(sd, "skills", skillName, "SKILL.md")); err != nil {
-			t.Fatalf("%s skill missing: %v", skillName, err)
-		}
-		return sd
+		return sd, cd
 	}
 
-	alphaSD := runLane(alpha, "alpha")
-	betaSD := runLane(beta, "beta")
-	if _, err := os.Stat(filepath.Join(alphaSD, "skills", "beta")); !os.IsNotExist(err) {
-		t.Fatal("alpha session must not contain beta skills")
+	alphaSD, alphaCD := runLane(alpha, "alpha")
+	betaSD, betaCD := runLane(beta, "beta")
+	if alphaSD == betaSD {
+		t.Fatal("session_dir should differ per lane")
 	}
-	if _, err := os.Stat(filepath.Join(betaSD, "skills", "alpha")); !os.IsNotExist(err) {
-		t.Fatal("beta session must not contain alpha skills")
+	if alphaCD == betaCD {
+		t.Fatal("config_dir should differ per lane")
 	}
 }
 
+// --- ConfigDir LIVE: same-session switch with real CLI + API keys (billing) ---
+
+func requireConfigDirLive(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_CONFIG_DIR_LIVE") != "1" {
+		t.Skip("set RUN_CONFIG_DIR_LIVE=1 for paid live acceptance of config_dir switch")
+	}
+}
+
+// configDirLiveClaudeModel prefers a currently-available Anthropic model for paid LIVE.
+// Override with CONFIG_DIR_LIVE_CLAUDE_MODEL when needed.
+func configDirLiveClaudeModel() string {
+	if m := os.Getenv("CONFIG_DIR_LIVE_CLAUDE_MODEL"); m != "" {
+		return m
+	}
+	return "claude-haiku-4-5"
+}
+
+// ensureSessionReadyForNextMessage clears a stuck/busy execution so the next
+// SendMessage is accepted. Always terminates: [DONE] can race ahead of
+// execRegistry.Unregister, and suspended turns leave the session busy.
+func ensureSessionReadyForNextMessage(t *testing.T, baseURL, sessionID string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/v1/sessions/"+sessionID+"/terminate", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		t.Logf("terminate before next message returned status=%d", resp.StatusCode)
+	}
+}
+
+func writeConfigDirMarker(t *testing.T, configDir, filename, marker string) {
+	t.Helper()
+	path := filepath.Join(configDir, filename)
+	if err := os.WriteFile(path, []byte("Marker token for Tern config_dir test: "+marker+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func patchE2ESessionConfigDir(t *testing.T, baseURL, sessionID, configDir string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"config_dir": configDir})
+	req, err := http.NewRequest(http.MethodPatch, baseURL+"/api/v1/sessions/"+sessionID, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH config_dir status=%d body=%s", resp.StatusCode, buf)
+	}
+}
+
+func collectE2EText(events []codingagent.StreamEvent) string {
+	var b strings.Builder
+	for _, ev := range events {
+		if ev.Type == codingagent.EventText || ev.Type == codingagent.EventResult {
+			b.WriteString(ev.Content)
+		}
+	}
+	return b.String()
+}
+
+func TestE2E_ConfigDir_Live_Claude_SwitchSameSession(t *testing.T) {
+	requireConfigDirLive(t)
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	alphaMarker := fmt.Sprintf("TERN_CFG_ALPHA_%d", time.Now().UnixNano())
+	betaMarker := fmt.Sprintf("TERN_CFG_BETA_%d", time.Now().UnixNano())
+	alpha := t.TempDir()
+	beta := t.TempDir()
+	writeConfigDirMarker(t, alpha, "CLAUDE.md", alphaMarker)
+	writeConfigDirMarker(t, beta, "CLAUDE.md", betaMarker)
+
+	workDir := t.TempDir()
+	initGitRepo(t, workDir)
+	sessionDir := t.TempDir()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"model":       configDirLiveClaudeModel(),
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
+		"config_dir":  alpha,
+	})
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]string
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status=%d", resp.StatusCode)
+	}
+	sessionID := created["session_id"]
+
+	promptAlpha := fmt.Sprintf(
+		"Read CLAUDE.md in your config. Reply with ONLY the exact marker token that starts with TERN_CFG_ALPHA_. Token should be: %s",
+		alphaMarker,
+	)
+	msgResp := sendE2EMessage(t, baseURL, sessionID, promptAlpha, 180*time.Second)
+	events, gotDone := parseE2ESSEEvents(t, msgResp)
+	msgResp.Body.Close()
+	if !gotDone {
+		t.Fatal("expected [DONE] after alpha message")
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("alpha message error (acceptance incomplete): %s", ev.Content)
+		}
+	}
+	text1 := collectE2EText(events)
+	if !strings.Contains(text1, alphaMarker) {
+		t.Logf("alpha response text (marker may still be OK via FS): %q", text1)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "CLAUDE.md")); err != nil {
+		t.Fatalf("alpha CLAUDE.md not overlaid: %v", err)
+	}
+
+	session1 := getE2ESession(t, baseURL, sessionID)
+	agentSID1, _ := session1["agent_session_id"].(string)
+	sd1, _ := session1["session_dir"].(string)
+
+	ensureSessionReadyForNextMessage(t, baseURL, sessionID)
+	patchE2ESessionConfigDir(t, baseURL, sessionID, beta)
+	session2 := getE2ESession(t, baseURL, sessionID)
+	cd2, _ := session2["config_dir"].(string)
+	wantBeta, _ := filepath.Abs(beta)
+	if filepath.Clean(cd2) != filepath.Clean(wantBeta) {
+		t.Fatalf("config_dir after patch = %q, want %q", cd2, wantBeta)
+	}
+	sd2, _ := session2["session_dir"].(string)
+	if sd2 != sd1 {
+		t.Fatalf("session_dir changed: %q -> %q", sd1, sd2)
+	}
+
+	promptBeta := fmt.Sprintf(
+		"Read CLAUDE.md in your config again. Reply with ONLY the exact marker token that starts with TERN_CFG_BETA_. Token should be: %s",
+		betaMarker,
+	)
+	msgResp2 := sendE2EMessage(t, baseURL, sessionID, promptBeta, 180*time.Second)
+	events2, gotDone2 := parseE2ESSEEvents(t, msgResp2)
+	msgResp2.Body.Close()
+	if !gotDone2 {
+		t.Fatal("expected [DONE] after beta message")
+	}
+	for _, ev := range events2 {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("beta message error (acceptance incomplete): %s", ev.Content)
+		}
+	}
+	text2 := collectE2EText(events2)
+	if !strings.Contains(text2, betaMarker) {
+		t.Logf("beta response text: %q", text2)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "CLAUDE.md")); err != nil {
+		t.Fatalf("beta CLAUDE.md not overlaid: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(sessionDir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), betaMarker) {
+		t.Fatalf("overlaid CLAUDE.md missing beta marker, got %q", data)
+	}
+
+	session3 := getE2ESession(t, baseURL, sessionID)
+	agentSID3, _ := session3["agent_session_id"].(string)
+	if agentSID1 != "" && agentSID3 != agentSID1 {
+		t.Fatalf("agent_session_id changed: %q -> %q", agentSID1, agentSID3)
+	}
+	if session3["id"] != sessionID {
+		t.Fatalf("session id changed")
+	}
+}
+
+func TestE2E_ConfigDir_Live_Codex_SwitchSameSession(t *testing.T) {
+	requireConfigDirLive(t)
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Fatalf("acceptance incomplete: codex CLI required when RUN_CONFIG_DIR_LIVE=1: %v", err)
+	}
+	baseURL, cleanup := startCodexE2EServer(t)
+	defer cleanup()
+
+	alphaMarker := fmt.Sprintf("TERN_CFG_ALPHA_%d", time.Now().UnixNano())
+	betaMarker := fmt.Sprintf("TERN_CFG_BETA_%d", time.Now().UnixNano())
+	alpha := t.TempDir()
+	beta := t.TempDir()
+	writeConfigDirMarker(t, alpha, "AGENTS.md", alphaMarker)
+	writeConfigDirMarker(t, beta, "AGENTS.md", betaMarker)
+	if err := os.MkdirAll(filepath.Join(alpha, "skills", "alpha"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(alpha, "skills", "alpha", "SKILL.md"), []byte("alpha"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(beta, "skills", "beta"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(beta, "skills", "beta", "SKILL.md"), []byte("beta"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	workDir := t.TempDir()
+	initGitRepo(t, workDir)
+	sessionDir := t.TempDir()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "codex",
+		"model":       "gpt-4o",
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
+		"config_dir":  alpha,
+	})
+	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]string
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status=%d", resp.StatusCode)
+	}
+	sessionID := created["session_id"]
+
+	promptAlpha := fmt.Sprintf(
+		"Read AGENTS.md. Reply with ONLY the exact marker token: %s",
+		alphaMarker,
+	)
+	msgResp := sendE2EMessage(t, baseURL, sessionID, promptAlpha, 180*time.Second)
+	events, gotDone := parseE2ESSEEvents(t, msgResp)
+	msgResp.Body.Close()
+	if !gotDone {
+		t.Fatal("expected [DONE] after alpha message")
+	}
+	for _, ev := range events {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("alpha message error (acceptance incomplete): %s", ev.Content)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "AGENTS.md")); err != nil {
+		t.Fatalf("alpha AGENTS.md not overlaid: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); err != nil {
+		t.Fatalf("alpha skill not overlaid: %v", err)
+	}
+
+	session1 := getE2ESession(t, baseURL, sessionID)
+	agentSID1, _ := session1["agent_session_id"].(string)
+	sd1, _ := session1["session_dir"].(string)
+
+	ensureSessionReadyForNextMessage(t, baseURL, sessionID)
+	patchE2ESessionConfigDir(t, baseURL, sessionID, beta)
+
+	promptBeta := fmt.Sprintf(
+		"Read AGENTS.md again. Reply with ONLY the exact marker token: %s",
+		betaMarker,
+	)
+	msgResp2 := sendE2EMessage(t, baseURL, sessionID, promptBeta, 180*time.Second)
+	events2, gotDone2 := parseE2ESSEEvents(t, msgResp2)
+	msgResp2.Body.Close()
+	if !gotDone2 {
+		t.Fatal("expected [DONE] after beta message")
+	}
+	for _, ev := range events2 {
+		if ev.Type == codingagent.EventError {
+			t.Fatalf("beta message error (acceptance incomplete): %s", ev.Content)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "beta", "SKILL.md")); err != nil {
+		t.Fatalf("beta skill not overlaid: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(sessionDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), betaMarker) {
+		t.Fatalf("overlaid AGENTS.md missing beta marker, got %q", data)
+	}
+
+	session3 := getE2ESession(t, baseURL, sessionID)
+	agentSID3, _ := session3["agent_session_id"].(string)
+	sd3, _ := session3["session_dir"].(string)
+	if sd3 != sd1 {
+		t.Fatalf("session_dir changed: %q -> %q", sd1, sd3)
+	}
+	if agentSID1 != "" && agentSID3 != agentSID1 {
+		t.Fatalf("agent_session_id changed: %q -> %q", agentSID1, agentSID3)
+	}
+	_ = collectE2EText(events2)
+}

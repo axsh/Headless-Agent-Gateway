@@ -20,10 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/axsh/arctic-tern/server"
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
-	"github.com/axsh/arctic-tern/server"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
@@ -48,7 +48,7 @@ func (a *integrationMockAgent) CreateSession(
 // integrationMockSession returns multiple event types including EventSystem.
 type integrationMockSession struct{}
 
-func (s *integrationMockSession) ID() string  { return "sdk-integration-001" }
+func (s *integrationMockSession) ID() string   { return "sdk-integration-001" }
 func (s *integrationMockSession) Close() error { return nil }
 func (s *integrationMockSession) Send(
 	_ context.Context, _ string,
@@ -567,7 +567,7 @@ func (a *errorMockAgent) CreateSession(
 // errorMockSession sends a single error event.
 type errorMockSession struct{}
 
-func (s *errorMockSession) ID() string  { return "sdk-error-001" }
+func (s *errorMockSession) ID() string   { return "sdk-error-001" }
 func (s *errorMockSession) Close() error { return nil }
 func (s *errorMockSession) Send(
 	_ context.Context, _ string,
@@ -1070,7 +1070,9 @@ func TestAgentService_ConfigDir_LaneIsolation(t *testing.T) {
 	}
 }
 
-func TestAgentService_ConfigDir_ReappliedOnResume(t *testing.T) {
+func TestAgentService_ConfigDir_SameConfigDir_ReappliedOnSecondMessage(t *testing.T) {
+	// Same config_dir across two messages (NOT a config switch). Overlay is
+	// re-applied on each agent process start.
 	ts := setupConfigDirOverlayTestServer(t)
 	configDir := t.TempDir()
 	skill := filepath.Join(configDir, "skills", "demo", "SKILL.md")
@@ -1103,6 +1105,202 @@ func TestAgentService_ConfigDir_ReappliedOnResume(t *testing.T) {
 	postSessionMessage(t, ts.URL, created["session_id"], "second")
 	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "demo", "SKILL.md")); err != nil {
 		t.Fatalf("overlay should be re-applied: %v", err)
+	}
+}
+
+func TestAgentService_ConfigDir_SwitchSameSession_Claude(t *testing.T) {
+	ts := setupConfigDirOverlayTestServer(t)
+	mkLane := func(name string) string {
+		dir := t.TempDir()
+		skill := filepath.Join(dir, "skills", name, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(skill), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(skill, []byte(name), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	alpha := mkLane("alpha")
+	beta := mkLane("beta")
+	sessionDir := t.TempDir()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": sessionDir,
+		"config_dir":  alpha,
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]string
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	sessionID := created["session_id"]
+
+	postSessionMessage(t, ts.URL, sessionID, "with-alpha")
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); err != nil {
+		t.Fatalf("alpha skill missing after first message: %v", err)
+	}
+
+	patchBody, _ := json.Marshal(map[string]string{"config_dir": beta})
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/sessions/"+sessionID, bytes.NewReader(patchBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patchResp.StatusCode != http.StatusOK {
+		buf, _ := io.ReadAll(patchResp.Body)
+		patchResp.Body.Close()
+		t.Fatalf("PATCH status=%d body=%s", patchResp.StatusCode, buf)
+	}
+	patchResp.Body.Close()
+
+	getResp, _ := http.Get(ts.URL + "/api/v1/sessions/" + sessionID)
+	var after codingagent.SessionRecord
+	json.NewDecoder(getResp.Body).Decode(&after)
+	getResp.Body.Close()
+	wantBeta, _ := filepath.Abs(beta)
+	if filepath.Clean(after.ConfigDir) != filepath.Clean(wantBeta) {
+		t.Fatalf("config_dir = %q, want %q", after.ConfigDir, wantBeta)
+	}
+	wantSession, _ := filepath.Abs(sessionDir)
+	if filepath.Clean(after.SessionDir) != filepath.Clean(wantSession) {
+		t.Fatalf("session_dir changed: %q", after.SessionDir)
+	}
+	if after.ID != sessionID {
+		t.Fatalf("session id changed: %q", after.ID)
+	}
+	agentSID1 := after.AgentSessionID
+
+	postSessionMessage(t, ts.URL, sessionID, "with-beta")
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "beta", "SKILL.md")); err != nil {
+		t.Fatalf("beta skill missing after switch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("alpha skill should be replaced after switch to beta")
+	}
+
+	getResp2, _ := http.Get(ts.URL + "/api/v1/sessions/" + sessionID)
+	var after2 codingagent.SessionRecord
+	json.NewDecoder(getResp2.Body).Decode(&after2)
+	getResp2.Body.Close()
+	if agentSID1 != "" && after2.AgentSessionID != agentSID1 {
+		t.Fatalf("agent_session_id changed: %q -> %q", agentSID1, after2.AgentSessionID)
+	}
+}
+
+// configDirOverlayMockCodex applies Codex allowlist overlay on CreateSession.
+type configDirOverlayMockCodex struct {
+	name string
+}
+
+func (a *configDirOverlayMockCodex) Name() string { return a.name }
+func (a *configDirOverlayMockCodex) Close() error { return nil }
+func (a *configDirOverlayMockCodex) CreateSession(
+	_ context.Context, opts ...codingagent.SessionOption,
+) (codingagent.Session, error) {
+	cfg := codingagent.NewSessionConfig(opts...)
+	codingagent.ApplyDefaults(cfg, &codingagent.AdapterConfig{AgentName: a.name})
+	if cfg.ConfigDir != "" {
+		if err := codingagent.OverlayConfigDir(cfg.SessionDir, cfg.ConfigDir, []string{
+			"skills", "rules", "config.toml", "AGENTS.md",
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return &integrationMockSession{}, nil
+}
+
+func TestAgentService_ConfigDir_SwitchSameSession_Codex(t *testing.T) {
+	srv := agentservice.New()
+	srv.RegisterAgent(&configDirOverlayMockCodex{name: "codex"})
+	ts := httptest.NewServer(srv.HTTPHandler())
+	t.Cleanup(ts.Close)
+
+	mkLane := func(name string) string {
+		dir := t.TempDir()
+		skill := filepath.Join(dir, "skills", name, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(skill), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(skill, []byte(name), 0644); err != nil {
+			t.Fatal(err)
+		}
+		agents := filepath.Join(dir, "AGENTS.md")
+		if err := os.WriteFile(agents, []byte("marker-"+name), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	alpha := mkLane("alpha")
+	beta := mkLane("beta")
+	sessionDir := t.TempDir()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "codex",
+		"work_dir":    t.TempDir(),
+		"session_dir": sessionDir,
+		"config_dir":  alpha,
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]string
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	sessionID := created["session_id"]
+
+	postSessionMessage(t, ts.URL, sessionID, "with-alpha")
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); err != nil {
+		t.Fatalf("alpha skill missing: %v", err)
+	}
+
+	patchBody, _ := json.Marshal(map[string]string{"config_dir": beta})
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/sessions/"+sessionID, bytes.NewReader(patchBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	patchResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patchResp.StatusCode != http.StatusOK {
+		buf, _ := io.ReadAll(patchResp.Body)
+		patchResp.Body.Close()
+		t.Fatalf("PATCH status=%d body=%s", patchResp.StatusCode, buf)
+	}
+	patchResp.Body.Close()
+
+	postSessionMessage(t, ts.URL, sessionID, "with-beta")
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "beta", "SKILL.md")); err != nil {
+		t.Fatalf("beta skill missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "AGENTS.md")); err != nil {
+		t.Fatalf("beta AGENTS.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("alpha skill should be replaced after switch")
+	}
+
+	getResp, _ := http.Get(ts.URL + "/api/v1/sessions/" + sessionID)
+	var after codingagent.SessionRecord
+	json.NewDecoder(getResp.Body).Decode(&after)
+	getResp.Body.Close()
+	wantSession, _ := filepath.Abs(sessionDir)
+	if filepath.Clean(after.SessionDir) != filepath.Clean(wantSession) {
+		t.Fatalf("session_dir changed: %q", after.SessionDir)
+	}
+	if after.ID != sessionID {
+		t.Fatalf("id changed")
 	}
 }
 
