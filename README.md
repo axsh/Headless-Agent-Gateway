@@ -82,6 +82,19 @@ defer srv.Shutdown(ctx)
 
 Tern client libraries ([examples/minimal-client](examples/minimal-client/main.go), [examples/multimodal-client](examples/multimodal-client/main.go)) simplify session interaction.
 
+You can switch `config_dir` on an existing session without changing `session_id` or terminating. Conversation continues on the next `SendText` / `SendMessage`; the overlay applies then. Do not call `Terminate` merely to switch config. Full walkthrough: [examples/config-dir-switch/README.md](examples/config-dir-switch/README.md) and [examples/config-dir-switch/main.go](examples/config-dir-switch/main.go). HTTP details: [docs/ReferenceManual-WebAPIs.md](docs/ReferenceManual-WebAPIs.md) (PATCH `/api/v1/sessions/:id`).
+
+```go
+session, _ := c.CreateSession(ctx, client.SessionRequest{
+    Agent: "claudecode", WorkDir: workDir, SessionDir: sessionDir, ConfigDir: alphaDir,
+})
+stream1, _ := session.SendText(ctx, prompt1)
+// ... drain stream1 ...
+info, _ := session.UpdateConfigDir(ctx, betaDir) // PATCH; do not Terminate
+_ = info
+stream2, _ := session.SendText(ctx, prompt2)
+```
+
 For long-running SSE streams, disable the HTTP client timeout:
 
 ```go
