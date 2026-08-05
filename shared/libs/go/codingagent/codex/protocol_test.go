@@ -50,8 +50,14 @@ func TestParseExecEvent_TurnCompleted(t *testing.T) {
 func TestParseExecEvent_ThreadStarted(t *testing.T) {
 	line := `{"type":"thread.started","thread_id":"abc-123"}`
 	ev := codex.ParseExecEvent(line)
-	if ev != nil {
-		t.Errorf("expected nil for thread.started, got %+v", ev)
+	if ev == nil {
+		t.Fatal("expected EventSystem for thread.started")
+	}
+	if ev.Type != codingagent.EventSystem {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventSystem)
+	}
+	if ev.SessionID != "abc-123" {
+		t.Errorf("SessionID = %q, want abc-123", ev.SessionID)
 	}
 }
 

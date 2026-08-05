@@ -187,7 +187,13 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 		return &codingagent.StreamEvent{Type: codingagent.EventResult}
 
 	case "thread.started", "turn.started":
-		// Lifecycle events - no mapping needed
+		// Persist Codex conversation id on Tern SessionRecord via EventSystem.
+		if ev.Type == "thread.started" && ev.ThreadID != "" {
+			return &codingagent.StreamEvent{
+				Type:      codingagent.EventSystem,
+				SessionID: ev.ThreadID,
+			}
+		}
 		return nil
 
 	default:

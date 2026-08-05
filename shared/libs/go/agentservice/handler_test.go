@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -181,6 +183,46 @@ func TestHandleDeleteSession(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Errorf("after delete: status = %d, want 404", w.Code)
 	}
+}
+
+func TestHandleSendMessage_SecondMessageWithoutTerminate(t *testing.T) {
+	_, handler := newTestServer()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+	sessionID := created["session_id"]
+
+	send := func(label string) {
+		t.Helper()
+		msg, _ := json.Marshal(map[string]any{
+			"content": []map[string]string{{"type": "text", "text": label}},
+		})
+		req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(msg))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d body=%s", label, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "[DONE]") {
+			t.Fatalf("%s: missing [DONE] in SSE body", label)
+		}
+	}
+
+	send("first")
+	send("second") // must not return 409 session busy without terminate
 }
 
 func TestHandleTerminateAgent(t *testing.T) {
@@ -706,4 +748,235 @@ func TestContextSeparation_ClientDisconnect(t *testing.T) {
 		t.Errorf("expected 3 events from channel after client disconnect, got %d", eventCount)
 	}
 	_ = clientCtx // Used to simulate disconnect.
+}
+
+func TestHandleCreateSession_WithConfigDir(t *testing.T) {
+	_, handler := newTestServer()
+	configDir := t.TempDir()
+	sessionDir := t.TempDir()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": sessionDir,
+		"config_dir":  configDir,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201, body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+
+	req = httptest.NewRequest("GET", "/api/v1/sessions/"+created["session_id"], nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get status = %d", w.Code)
+	}
+	var session map[string]any
+	json.NewDecoder(w.Body).Decode(&session)
+	got, _ := session["config_dir"].(string)
+	if got == "" {
+		t.Fatal("config_dir should be set")
+	}
+	if !filepath.IsAbs(got) {
+		t.Errorf("config_dir should be absolute, got %q", got)
+	}
+}
+
+func TestHandleCreateSession_ConfigDirMissing(t *testing.T) {
+	_, handler := newTestServer()
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+		"config_dir":  filepath.Join(t.TempDir(), "does-not-exist"),
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "config_dir does not exist") {
+		t.Errorf("body = %q, want config_dir does not exist", w.Body.String())
+	}
+}
+
+func TestHandleCreateSession_ConfigDirOmitted(t *testing.T) {
+	_, handler := newTestServer()
+	workDir := t.TempDir()
+	body, _ := json.Marshal(map[string]string{
+		"agent":    "claudecode",
+		"work_dir": workDir,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", w.Code)
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+
+	req = httptest.NewRequest("GET", "/api/v1/sessions/"+created["session_id"], nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	var session map[string]any
+	json.NewDecoder(w.Body).Decode(&session)
+	if v, ok := session["config_dir"]; ok && v != nil && v != "" {
+		t.Errorf("config_dir should be empty/omitted, got %#v", v)
+	}
+}
+
+func TestHandleCreateSession_ConfigDirRelativeResolved(t *testing.T) {
+	_, handler := newTestServer()
+	relName := "rel-config-dir-" + t.Name()
+	absConfig, err := filepath.Abs(relName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(absConfig, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(absConfig) })
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+		"config_dir":  relName,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201, body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+	req = httptest.NewRequest("GET", "/api/v1/sessions/"+created["session_id"], nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	var session map[string]any
+	json.NewDecoder(w.Body).Decode(&session)
+	got, _ := session["config_dir"].(string)
+	if !filepath.IsAbs(got) {
+		t.Errorf("config_dir should be absolute, got %q", got)
+	}
+}
+
+func TestHandlePatchSession_ConfigDir(t *testing.T) {
+	_, handler := newTestServer()
+	alpha := t.TempDir()
+	beta := t.TempDir()
+	sessionDir := t.TempDir()
+	workDir := t.TempDir()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    workDir,
+		"session_dir": sessionDir,
+		"config_dir":  alpha,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+
+	patchBody, _ := json.Marshal(map[string]string{"config_dir": beta})
+	req = httptest.NewRequest("PATCH", "/api/v1/sessions/"+created["session_id"], bytes.NewReader(patchBody))
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch status = %d body=%s", w.Code, w.Body.String())
+	}
+	var patched map[string]any
+	json.NewDecoder(w.Body).Decode(&patched)
+	gotConfig, _ := patched["config_dir"].(string)
+	wantBeta, _ := filepath.Abs(beta)
+	if filepath.Clean(gotConfig) != filepath.Clean(wantBeta) {
+		t.Errorf("config_dir = %q, want %q", gotConfig, wantBeta)
+	}
+	gotSession, _ := patched["session_dir"].(string)
+	wantSession, _ := filepath.Abs(sessionDir)
+	if filepath.Clean(gotSession) != filepath.Clean(wantSession) {
+		t.Errorf("session_dir changed: %q", gotSession)
+	}
+	if patched["id"] != created["session_id"] {
+		t.Errorf("id changed")
+	}
+}
+
+func TestHandlePatchSession_ConfigDirMissing(t *testing.T) {
+	_, handler := newTestServer()
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+		"config_dir":  t.TempDir(),
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+
+	missing := filepath.Join(t.TempDir(), "missing")
+	patchBody, _ := json.Marshal(map[string]string{"config_dir": missing})
+	req = httptest.NewRequest("PATCH", "/api/v1/sessions/"+created["session_id"], bytes.NewReader(patchBody))
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "config_dir does not exist") {
+		t.Errorf("body = %q", w.Body.String())
+	}
+}
+
+func TestHandlePatchSession_ConfigDirClear(t *testing.T) {
+	_, handler := newTestServer()
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+		"config_dir":  t.TempDir(),
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+
+	patchBody, _ := json.Marshal(map[string]string{"config_dir": ""})
+	req = httptest.NewRequest("PATCH", "/api/v1/sessions/"+created["session_id"], bytes.NewReader(patchBody))
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var patched map[string]any
+	json.NewDecoder(w.Body).Decode(&patched)
+	if v, ok := patched["config_dir"]; ok && v != nil && v != "" {
+		t.Errorf("config_dir should be cleared, got %#v", v)
+	}
+}
+
+func TestHandlePatchSession_NotFound(t *testing.T) {
+	_, handler := newTestServer()
+	patchBody, _ := json.Marshal(map[string]string{"config_dir": t.TempDir()})
+	req := httptest.NewRequest("PATCH", "/api/v1/sessions/nonexistent", bytes.NewReader(patchBody))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
 }

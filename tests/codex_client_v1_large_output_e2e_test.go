@@ -156,7 +156,7 @@ func TestCodexE2E_ClientV1_LargeToolOutputTerminalEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	if status != "completed" {
 		t.Fatalf("session status = %q, want completed", status)
 	}
@@ -209,7 +209,7 @@ func TestCodexE2E_ClientV1_MaxTruncatedToolOutputTerminalEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	if status != "completed" {
 		t.Fatalf("session status = %q, want completed", status)
 	}
@@ -287,7 +287,7 @@ func TestCodexE2E_ClientV1_NoDataSilenceDuringLargeToolTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	if status != "completed" {
 		t.Fatalf("session status = %q, want completed", status)
 	}
@@ -337,7 +337,7 @@ func TestCodexE2E_ClientV1_RipgrepLikeMultiLineOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	if status != "completed" {
 		t.Fatalf("session status = %q, want completed", status)
 	}
@@ -390,7 +390,7 @@ func TestCodexE2E_ClientV1_MultipleLargeToolResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	if status != "completed" {
 		t.Fatalf("session status = %q, want completed", status)
 	}

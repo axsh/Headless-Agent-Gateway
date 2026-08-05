@@ -142,3 +142,81 @@ func TestListModels(t *testing.T) {
 		t.Errorf("default model = %v, want claude-sonnet", models.DefaultModel)
 	}
 }
+
+func TestGetSession_Typed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/sessions/s1" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":               "s1",
+			"agent_name":       "claudecode",
+			"status":           "active",
+			"work_dir":         "/tmp/work",
+			"session_dir":      "/tmp/session",
+			"config_dir":       "/tmp/alpha",
+			"agent_session_id": "agent-1",
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	info, err := c.GetSession(context.Background(), "s1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if info.ConfigDir != "/tmp/alpha" {
+		t.Errorf("ConfigDir = %q, want /tmp/alpha", info.ConfigDir)
+	}
+	if info.ID != "s1" {
+		t.Errorf("ID = %q, want s1", info.ID)
+	}
+}
+
+func TestUpdateSessionConfigDir_Typed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/sessions/s1" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":         "s1",
+			"config_dir": "/tmp/beta",
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	info, err := c.UpdateSessionConfigDir(context.Background(), "s1", "/tmp/beta")
+	if err != nil {
+		t.Fatalf("UpdateSessionConfigDir: %v", err)
+	}
+	if info.ConfigDir != "/tmp/beta" {
+		t.Errorf("ConfigDir = %q, want /tmp/beta", info.ConfigDir)
+	}
+}
+
+func TestSession_UpdateConfigDir_Delegates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/sessions/s1" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":         "s1",
+			"config_dir": "/tmp/beta",
+		})
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL)
+	session := ResumeSession(c, "s1")
+	info, err := session.UpdateConfigDir(context.Background(), "/tmp/beta")
+	if err != nil {
+		t.Fatalf("UpdateConfigDir: %v", err)
+	}
+	if info.ConfigDir != "/tmp/beta" {
+		t.Errorf("ConfigDir = %q, want /tmp/beta", info.ConfigDir)
+	}
+}

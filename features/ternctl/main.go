@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	client "github.com/axsh/arctic-tern/client/v1"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
@@ -43,6 +44,8 @@ func main() {
 		cmdRun(c, args[1:])
 	case "session":
 		cmdSession(c, args[1:])
+	case "session-config":
+		cmdSessionConfig(c, args[1:])
 	case "terminate":
 		cmdTerminate(c, args[1:])
 	default:
@@ -61,8 +64,12 @@ func printUsage() {
 	fmt.Println("  models                                List available models")
 	fmt.Println("  run --agent NAME --prompt MSG          Create session and run")
 	fmt.Println("      [--session-dir DIR]                Session storage directory")
+	fmt.Println("      [--config-dir DIR]                 Agent config set directory (skills/rules)")
 	fmt.Println("  run --resume ID --prompt MSG           Continue existing session")
 	fmt.Println("  session --id ID                        Get session status")
+	fmt.Println("  session-config --id ID --config-dir D  Update session config_dir")
+	fmt.Println("                                         (applies on next message; empty clears)")
+	fmt.Println("                                         (do not terminate just to switch config)")
 	fmt.Println("  terminate --id ID                      Terminate session")
 }
 
@@ -136,6 +143,7 @@ func cmdRun(c *client.Client, args []string) {
 	prompt := fs.String("prompt", "", "Prompt message (required)")
 	workDir := fs.String("work-dir", ".", "Working directory")
 	sessionDir := fs.String("session-dir", "", "Session data storage directory (default: work-dir)")
+	configDir := fs.String("config-dir", "", "Agent config set directory (skills/rules); overlaid into session-dir")
 	resumeSessionID := fs.String("resume", "", "Existing session ID (for continuation)")
 	fs.Parse(args)
 
@@ -165,6 +173,7 @@ func cmdRun(c *client.Client, args []string) {
 			Model:      *model,
 			WorkDir:    *workDir,
 			SessionDir: *sessionDir,
+			ConfigDir:  *configDir,
 		})
 		if err != nil {
 			log.Error("error creating session", "error", err.Error())
@@ -192,10 +201,10 @@ func cmdRun(c *client.Client, args []string) {
 		fmt.Println(string(out))
 
 		// Warn if session did not complete successfully.
-		if status, ok := details["status"].(string); ok && status != "completed" {
-			fmt.Fprintf(os.Stderr, "\nWarning: session ended with status %q (expected \"completed\")\n", status)
-			if errMsg, ok := details["error"].(string); ok && errMsg != "" {
-				fmt.Fprintf(os.Stderr, "Error details: %s\n", errMsg)
+		if details.Status != "completed" {
+			fmt.Fprintf(os.Stderr, "\nWarning: session ended with status %q (expected \"completed\")\n", details.Status)
+			if details.Error != "" {
+				fmt.Fprintf(os.Stderr, "Error details: %s\n", details.Error)
 			}
 		}
 	}
@@ -225,14 +234,47 @@ func cmdSession(c *client.Client, args []string) {
 	out, _ := json.MarshalIndent(details, "", "  ")
 	fmt.Println(string(out))
 
-	if status, ok := details["status"].(string); ok && status == "error" {
+	if details.Status == "error" {
 		errMsg := "unknown error"
-		if msg, ok := details["error"].(string); ok && msg != "" {
-			errMsg = msg
+		if details.Error != "" {
+			errMsg = details.Error
 		}
 		fmt.Fprintf(os.Stderr, "Session failed with error: %s\n", errMsg)
 		os.Exit(1)
 	}
+}
+
+func cmdSessionConfig(c *client.Client, args []string) {
+	fs := flag.NewFlagSet("session-config", flag.ExitOnError)
+	id := fs.String("id", "", "Session ID (required)")
+	configDir := fs.String("config-dir", "", "Config directory (required; empty string clears overlay)")
+	// Detect whether --config-dir was provided (including empty).
+	configDirSet := false
+	for _, a := range args {
+		if a == "--config-dir" || strings.HasPrefix(a, "--config-dir=") {
+			configDirSet = true
+			break
+		}
+	}
+	fs.Parse(args)
+	if *id == "" {
+		fmt.Fprintf(os.Stderr, "Error: --id is required\n")
+		os.Exit(1)
+	}
+	if !configDirSet {
+		fmt.Fprintf(os.Stderr, "Error: --config-dir is required (use empty value to clear)\n")
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	details, err := c.UpdateSessionConfigDir(ctx, *id, *configDir)
+	if err != nil {
+		log.Error("failed to update session config_dir", "session_id", *id, "error", err.Error())
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	out, _ := json.MarshalIndent(details, "", "  ")
+	fmt.Println(string(out))
 }
 
 func cmdTerminate(c *client.Client, args []string) {

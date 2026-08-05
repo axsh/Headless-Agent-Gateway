@@ -57,7 +57,7 @@ func TestCodexE2E_SessionStatusOnTerminalEvent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetSession: %v", err)
 		}
-		status, _ := session["status"].(string)
+		status := session.Status
 		if status == "completed" {
 			return
 		}
@@ -68,7 +68,7 @@ func TestCodexE2E_SessionStatusOnTerminalEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	t.Fatalf("status after EventResult = %q, want completed within 500ms", status)
 }
 
@@ -121,7 +121,7 @@ func TestCodexE2E_ClientV1_DisconnectAfterTerminalEventUpdatesStatus(t *testing.
 		if err != nil {
 			t.Fatalf("GetSession: %v", err)
 		}
-		status, _ := session["status"].(string)
+		status := session.Status
 		if status == "completed" {
 			return
 		}
@@ -132,6 +132,6 @@ func TestCodexE2E_ClientV1_DisconnectAfterTerminalEventUpdatesStatus(t *testing.
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	t.Fatalf("status after disconnect = %q, want completed within 500ms", status)
 }

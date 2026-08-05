@@ -107,7 +107,7 @@ func TestCodexE2E_LegacyClient_MaxTruncatedToolOutputTerminalEvent(t *testing.T)
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	status, _ := session["status"].(string)
+	status := session.Status
 	if status != "completed" {
 		t.Fatalf("session status = %q, want completed", status)
 	}

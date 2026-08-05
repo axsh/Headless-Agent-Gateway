@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	gracefulShutdownTimeout  = 5 * time.Second
-	defaultIdleTimeoutSec    = 300
-	defaultMaxExecutionSec   = 3600
+	gracefulShutdownTimeout = 5 * time.Second
+	defaultIdleTimeoutSec   = 300
+	defaultMaxExecutionSec  = 3600
 )
 
 // ProcessManager manages a Codex CLI subprocess.
@@ -66,15 +66,28 @@ func resolveTimeouts(cfg *codingagent.SessionConfig) (idleSec, maxSec int) {
 
 // BuildArgs constructs codex CLI arguments for non-interactive execution.
 // Uses "codex exec --json" with config overrides via -c flags.
+// When ignoreUserConfig is true, appends --ignore-user-config (legacy default).
+// When false (config_dir active), omits it so overlayed $CODEX_HOME/config.toml
+// and skills under CODEX_HOME can load; -c overrides still win for Tern keys.
+// When resumeSessionID != "", uses "codex exec resume <id>" to continue a thread.
 // When prompt is non-empty, "-" is appended to instruct codex to read from stdin.
-func BuildArgs(prompt string, configOverrides []string) []string {
-	args := []string{
-		"exec",
+func BuildArgs(prompt string, configOverrides []string, ignoreUserConfig bool, resumeSessionID string) []string {
+	common := []string{
 		"--json",
 		"--dangerously-bypass-approvals-and-sandbox",
-		"--ignore-user-config",
 	}
-	args = append(args, configOverrides...)
+	if ignoreUserConfig {
+		common = append(common, "--ignore-user-config")
+	}
+	common = append(common, configOverrides...)
+
+	var args []string
+	if resumeSessionID != "" {
+		args = append([]string{"exec", "resume"}, common...)
+		args = append(args, resumeSessionID)
+	} else {
+		args = append([]string{"exec"}, common...)
+	}
 	if prompt != "" {
 		args = append(args, "-")
 	}
@@ -145,8 +158,9 @@ func StartProcess(
 	}
 	log = log.WithComponent("codex")
 
-	args := BuildArgs(cfg.Prompt, configOverrides)
-	log.Debug("building CLI arguments", "args", args)
+	ignoreUserConfig := cfg.ConfigDir == ""
+	args := BuildArgs(cfg.Prompt, configOverrides, ignoreUserConfig, cfg.AgentSessionID)
+	log.Debug("building CLI arguments", "args", args, "ignore_user_config", ignoreUserConfig, "config_dir", cfg.ConfigDir, "resume_session_id", cfg.AgentSessionID)
 
 	env := BuildEnv(ac, cfg)
 

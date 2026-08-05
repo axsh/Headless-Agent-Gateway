@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -77,6 +78,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		WorkDir    string `json:"work_dir"`
 		Prompt     string `json:"prompt"`
 		SessionDir string `json:"session_dir"`
+		ConfigDir  string `json:"config_dir"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -116,6 +118,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		Status:     codingagent.StatusActive,
 		WorkDir:    req.WorkDir,
 		SessionDir: req.SessionDir,
+		ConfigDir:  req.ConfigDir,
 	}
 
 	// R2, R4: Resolve WorkDir to absolute path for record consistency.
@@ -141,12 +144,23 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ConfigDir: absolute path + existence check when non-empty.
+	if record.ConfigDir != "" {
+		resolved, status, errMsg := validateAndResolveConfigDir(record.ConfigDir)
+		if status != 0 {
+			http.Error(w, errMsg, status)
+			return
+		}
+		record.ConfigDir = resolved
+	}
+
 	// R5: Log resolved paths for debugging.
 	if s.logger != nil {
 		s.logger.Debug("session paths resolved",
 			"session_id", sessionID,
 			"work_dir", record.WorkDir,
-			"session_dir", record.SessionDir)
+			"session_dir", record.SessionDir,
+			"config_dir", record.ConfigDir)
 	}
 
 	s.sessions.Create(record)
@@ -181,6 +195,83 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(record)
+}
+
+// validateAndResolveConfigDir returns an absolute config_dir path.
+// Empty input clears config (returns "", 0, "").
+// Invalid non-empty paths return status 400 and an error message.
+func validateAndResolveConfigDir(configDir string) (resolved string, status int, errMsg string) {
+	if configDir == "" {
+		return "", 0, ""
+	}
+	resolved = configDir
+	if abs, err := filepath.Abs(configDir); err == nil {
+		resolved = abs
+	}
+	fi, err := os.Stat(resolved)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", http.StatusBadRequest, "config_dir does not exist: " + resolved
+		}
+		return "", http.StatusBadRequest, "config_dir stat failed: " + err.Error()
+	}
+	if !fi.IsDir() {
+		return "", http.StatusBadRequest, "config_dir is not a directory: " + resolved
+	}
+	return resolved, 0, ""
+}
+
+// handlePatchSession handles PATCH /api/v1/sessions/:id.
+// Body must include config_dir (string). Empty string clears config_dir
+// (no overlay on subsequent launches; Codex restores --ignore-user-config).
+// Does not modify work_dir, session_dir, or agent_session_id.
+// Overlay of the new config runs on the next SendMessage.
+func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
+	id := extractPathParam(r.URL.Path, "/api/v1/sessions/")
+	if s.logger != nil {
+		s.logger.Debug("patching session", "session_id", id)
+	}
+	record, err := s.sessions.Get(id)
+	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		ConfigDir *string `json:"config_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ConfigDir == nil {
+		http.Error(w, "config_dir is required", http.StatusBadRequest)
+		return
+	}
+
+	oldConfigDir := record.ConfigDir
+	resolved, status, errMsg := validateAndResolveConfigDir(*req.ConfigDir)
+	if status != 0 {
+		http.Error(w, errMsg, status)
+		return
+	}
+	record.ConfigDir = resolved
+	record.UpdatedAt = time.Now()
+	if err := s.sessions.Update(record); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if s.logger != nil {
+		s.logger.Debug("session config_dir updated",
+			"session_id", id,
+			"old_config_dir", oldConfigDir,
+			"config_dir", record.ConfigDir,
+			"session_dir", record.SessionDir)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(record)
 }
@@ -334,6 +425,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if record.SessionDir != "" {
 		opts = append(opts, codingagent.WithSessionDir(record.SessionDir))
 	}
+	if record.ConfigDir != "" {
+		opts = append(opts, codingagent.WithConfigDir(record.ConfigDir))
+	}
 	if agentCfg.ScannerMaxTokenBytes > 0 {
 		opts = append(opts, codingagent.WithScannerMaxTokenBytes(agentCfg.ScannerMaxTokenBytes))
 	}
@@ -360,16 +454,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		if !finishExecution {
 			return
 		}
-		agentSess.Close()
-		s.UnregisterActiveSession(sessionID)
-		s.UnregisterExecCancel(sessionID)
-		s.execRegistry.Unregister(sessionID)
-		if len(savedFiles) > 0 {
-			CleanupMultimodalFiles(savedFiles)
-			if s.logger != nil {
-				s.logger.Debug("cleaned up multimodal temp files", "session_id", sessionID, "count", len(savedFiles))
-			}
-		}
+		s.finishActiveExecution(sessionID, agentSess, savedFiles)
 	}()
 
 	ch, err := agentSess.Send(execCtx, promptText)
@@ -403,15 +488,44 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		_, suspended := s.streamSSERelay(r.Context(), w, active, true)
 		if suspended {
+			// User-input suspend: keep exec registered; [DONE] already sent.
 			return
 		}
-	} else {
-		suspended := s.respondJSONRelay(r.Context(), w, active, true)
-		if suspended {
-			return
+		// Unregister before [DONE] so clients that start the next message
+		// immediately after [DONE] do not hit session busy.
+		s.finishActiveExecution(sessionID, agentSess, savedFiles)
+		finishExecution = false
+		if s.logger != nil {
+			s.logger.Debug("unregistered before done", "session_id", sessionID, "suspended", false)
 		}
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		return
+	}
+
+	suspended := s.respondJSONRelay(r.Context(), w, active, true)
+	if suspended {
+		return
 	}
 	finishExecution = true
+}
+
+// finishActiveExecution closes the agent session and clears busy-state registries.
+func (s *Server) finishActiveExecution(sessionID string, agentSess codingagent.Session, savedFiles []string) {
+	if agentSess != nil {
+		_ = agentSess.Close()
+	}
+	s.UnregisterActiveSession(sessionID)
+	s.UnregisterExecCancel(sessionID)
+	s.execRegistry.Unregister(sessionID)
+	if len(savedFiles) > 0 {
+		CleanupMultimodalFiles(savedFiles)
+		if s.logger != nil {
+			s.logger.Debug("cleaned up multimodal temp files", "session_id", sessionID, "count", len(savedFiles))
+		}
+	}
 }
 
 // toAgentLogEntry converts a StreamEvent to an AgentLogEntry for TaskLog.
@@ -562,6 +676,11 @@ func (s *Server) handleRespond(w http.ResponseWriter, r *http.Request) {
 	s.UnregisterActiveSession(sessionID)
 	s.UnregisterExecCancel(sessionID)
 	s.execRegistry.Unregister(sessionID)
+
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // streamSSERelay streams events from a relay. Returns next offset and whether execution suspended.
@@ -651,6 +770,8 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 		}
 	}
 done:
+	// Status update only; caller emits [DONE] after unregistering so clients
+	// that reconnect immediately after [DONE] do not see session busy.
 	if record, err := s.sessions.Get(sessionID); err == nil {
 		if hasError {
 			record.Status = codingagent.StatusError
@@ -665,8 +786,6 @@ done:
 		s.sessions.Update(record)
 		s.reconcileSessionArtifacts(context.Background(), sessionID)
 	}
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
 	return exec.streamOffset, suspended
 }
 
@@ -919,6 +1038,17 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 
 	// Cancel the agent execution context.
 	s.CancelExecution(sessionID)
+
+	// Clear busy state so a subsequent SendMessage can start a new turn
+	// (e.g. after config_dir switch on the same session_id).
+	if exec, ok := s.execRegistry.Get(sessionID); ok {
+		if exec.agentSess != nil {
+			_ = exec.agentSess.Close()
+		}
+		s.execRegistry.Unregister(sessionID)
+	}
+	s.UnregisterActiveSession(sessionID)
+	s.UnregisterExecCancel(sessionID)
 
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)

@@ -32,25 +32,25 @@ type AgentService interface {
 
 // Server is the Coding Agent API service layer.
 type Server struct {
-	agents          map[string]codingagent.CodingAgent
-	sessions        codingagent.SessionStore
-	logger          logger.Logger
-	taskLog         *tasklog.TaskLog
-	gatewayURL      string
-	gatewayToken    string
-	cliVersions     map[string]string           // cached at init
-	gatewayModels   []llmgateway.ModelInfo      // cached model list from LLMGP
-	gatewayDefault  *llmgateway.ModelInfo       // cached default model from LLMGP
-	profiles        *config.ModelProfilesConfig // for logical name resolution
-	httpServer      *http.Server
-	ln              net.Listener
-	port            int // actual listen port (set after Launch)
-	activeMu        sync.Mutex
-	activeSessions  map[string]codingagent.Session
-	execCancelMu    sync.Mutex
-	execCancels     map[string]context.CancelFunc // sessionID -> execution cancel
-	execRegistry    *execRegistry
-	enabledVersions   map[int]bool                  // API versions to register
+	agents            map[string]codingagent.CodingAgent
+	sessions          codingagent.SessionStore
+	logger            logger.Logger
+	taskLog           *tasklog.TaskLog
+	gatewayURL        string
+	gatewayToken      string
+	cliVersions       map[string]string           // cached at init
+	gatewayModels     []llmgateway.ModelInfo      // cached model list from LLMGP
+	gatewayDefault    *llmgateway.ModelInfo       // cached default model from LLMGP
+	profiles          *config.ModelProfilesConfig // for logical name resolution
+	httpServer        *http.Server
+	ln                net.Listener
+	port              int // actual listen port (set after Launch)
+	activeMu          sync.Mutex
+	activeSessions    map[string]codingagent.Session
+	execCancelMu      sync.Mutex
+	execCancels       map[string]context.CancelFunc // sessionID -> execution cancel
+	execRegistry      *execRegistry
+	enabledVersions   map[int]bool // API versions to register
 	disableSandbox    bool
 	enableSubagent    bool
 	lastGatewayHealth GatewayHealth
@@ -400,6 +400,8 @@ func (s *Server) routeSessionByID(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleGetSession(w, r)
+		case http.MethodPatch:
+			s.handlePatchSession(w, r)
 		case http.MethodDelete:
 			s.handleDeleteSession(w, r)
 		default:

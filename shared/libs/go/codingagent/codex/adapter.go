@@ -42,7 +42,9 @@ func (a *CodexAdapter) CreateSession(
 	cfg := codingagent.NewSessionConfig(opts...)
 	codingagent.ApplyDefaults(cfg, a.config)
 
-	a.logger.Info("creating codex session", "model", cfg.Model, "work_dir", cfg.WorkDir)
+	a.logger.Info("creating codex session",
+		"model", cfg.Model, "work_dir", cfg.WorkDir,
+		"session_dir", cfg.SessionDir, "config_dir", cfg.ConfigDir)
 
 	// R2: Determine wire_api from AdapterConfig.ModelMode.
 	wireAPI := a.config.ModelMode
@@ -52,6 +54,10 @@ func (a *CodexAdapter) CreateSession(
 
 	// Build -c key=value config overrides for Codex CLI.
 	configOverrides := BuildConfigOverrides(cfg.Model, a.config.GatewayURL, wireAPI)
+
+	if err := ApplyCodexConfigDir(cfg.SessionDir, cfg.ConfigDir); err != nil {
+		return nil, fmt.Errorf("codex: apply config_dir: %w", err)
+	}
 
 	// Create CODEX_HOME for session/auth data storage.
 	codexHome, err := WriteConfigTOML(cfg.Model, a.config.GatewayURL, wireAPI)
