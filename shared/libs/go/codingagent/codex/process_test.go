@@ -10,7 +10,7 @@ import (
 
 func TestCodexBuildArgs(t *testing.T) {
 	overrides := []string{"-c", `model="gpt-4o"`}
-	args := codex.BuildArgs("create hello.txt", overrides, true)
+	args := codex.BuildArgs("create hello.txt", overrides, true, "")
 
 	argsStr := strings.Join(args, " ")
 	if !strings.Contains(argsStr, "exec") {
@@ -34,13 +34,13 @@ func TestCodexBuildArgs(t *testing.T) {
 func TestCodexBuildArgs_WithConfigDirDisablesIgnoreUserConfig(t *testing.T) {
 	// When ConfigDir is set, StartProcess passes ignoreUserConfig=false.
 	// When ConfigDir == "", StartProcess passes ignoreUserConfig=true (restores --ignore-user-config).
-	args := codex.BuildArgs("hi", nil, false)
+	args := codex.BuildArgs("hi", nil, false, "")
 	for _, a := range args {
 		if a == "--ignore-user-config" {
 			t.Fatal("ignore-user-config must be omitted when config_dir is active")
 		}
 	}
-	cleared := codex.BuildArgs("hi", nil, true)
+	cleared := codex.BuildArgs("hi", nil, true, "")
 	found := false
 	for _, a := range cleared {
 		if a == "--ignore-user-config" {
@@ -54,7 +54,7 @@ func TestCodexBuildArgs_WithConfigDirDisablesIgnoreUserConfig(t *testing.T) {
 }
 
 func TestCodexBuildArgs_StdinMode(t *testing.T) {
-	args := codex.BuildArgs("some prompt text", nil, true)
+	args := codex.BuildArgs("some prompt text", nil, true, "")
 
 	// Last argument should be "-" to instruct codex to read from stdin.
 	if args[len(args)-1] != "-" {
@@ -70,7 +70,7 @@ func TestCodexBuildArgs_StdinMode(t *testing.T) {
 }
 
 func TestCodexBuildArgs_EmptyPrompt(t *testing.T) {
-	args := codex.BuildArgs("", nil, true)
+	args := codex.BuildArgs("", nil, true, "")
 
 	// When prompt is empty, "-" should NOT be in args.
 	for _, a := range args {
@@ -229,5 +229,43 @@ func TestBuildEnv_CodexGatewayToken(t *testing.T) {
 	}
 	if gToken != "codex-secret-token" {
 		t.Errorf("TERN_GATEWAY_TOKEN = %q, want %q", gToken, "codex-secret-token")
+	}
+}
+
+func TestCodexBuildArgs_ResumeUsesExecResume(t *testing.T) {
+	args := codex.BuildArgs("hi", nil, false, "abc-123")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "exec") || !strings.Contains(joined, "resume") {
+		t.Fatalf("expected exec resume, got %v", args)
+	}
+	foundResume, foundID, foundJSON := false, false, false
+	for _, a := range args {
+		if a == "resume" {
+			foundResume = true
+		}
+		if a == "abc-123" {
+			foundID = true
+		}
+		if a == "--json" {
+			foundJSON = true
+		}
+	}
+	if !foundResume || !foundID {
+		t.Fatalf("resume session id missing: %v", args)
+	}
+	if !foundJSON {
+		t.Fatal("expected --json in resume args")
+	}
+}
+
+func TestCodexBuildArgs_NoResumeKeepsExec(t *testing.T) {
+	args := codex.BuildArgs("hi", nil, true, "")
+	if len(args) < 2 || args[0] != "exec" {
+		t.Fatalf("expected exec ..., got %v", args)
+	}
+	for _, a := range args {
+		if a == "resume" {
+			t.Fatal("resume must be omitted when resumeSessionID is empty")
+		}
 	}
 }
