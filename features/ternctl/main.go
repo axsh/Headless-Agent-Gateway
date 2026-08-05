@@ -201,10 +201,10 @@ func cmdRun(c *client.Client, args []string) {
 		fmt.Println(string(out))
 
 		// Warn if session did not complete successfully.
-		if status, ok := details["status"].(string); ok && status != "completed" {
-			fmt.Fprintf(os.Stderr, "\nWarning: session ended with status %q (expected \"completed\")\n", status)
-			if errMsg, ok := details["error"].(string); ok && errMsg != "" {
-				fmt.Fprintf(os.Stderr, "Error details: %s\n", errMsg)
+		if details.Status != "completed" {
+			fmt.Fprintf(os.Stderr, "\nWarning: session ended with status %q (expected \"completed\")\n", details.Status)
+			if details.Error != "" {
+				fmt.Fprintf(os.Stderr, "Error details: %s\n", details.Error)
 			}
 		}
 	}
@@ -234,10 +234,10 @@ func cmdSession(c *client.Client, args []string) {
 	out, _ := json.MarshalIndent(details, "", "  ")
 	fmt.Println(string(out))
 
-	if status, ok := details["status"].(string); ok && status == "error" {
+	if details.Status == "error" {
 		errMsg := "unknown error"
-		if msg, ok := details["error"].(string); ok && msg != "" {
-			errMsg = msg
+		if details.Error != "" {
+			errMsg = details.Error
 		}
 		fmt.Fprintf(os.Stderr, "Session failed with error: %s\n", errMsg)
 		os.Exit(1)

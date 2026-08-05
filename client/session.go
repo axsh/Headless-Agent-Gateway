@@ -8,7 +8,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+// SessionInfo is the typed session record returned by GetSession and
+// UpdateSessionConfigDir. Field names match the CAWA JSON (snake_case tags).
+type SessionInfo struct {
+	ID             string    `json:"id"`
+	AgentName      string    `json:"agent_name"`
+	Model          string    `json:"model"`
+	Status         string    `json:"status"`
+	Error          string    `json:"error,omitempty"`
+	WorkDir        string    `json:"work_dir"`
+	AgentSessionID string    `json:"agent_session_id"`
+	SessionDir     string    `json:"session_dir"`
+	ConfigDir      string    `json:"config_dir,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
 
 // Session represents an active coding agent session.
 type Session struct {
@@ -126,8 +143,9 @@ func (s *Session) Terminate(ctx context.Context) error {
 	return nil
 }
 
-// GetSession retrieves session details by ID.
-func (c *Client) GetSession(ctx context.Context, sessionID string) (map[string]any, error) {
+// GetSession fetches session details by ID.
+// Does not change work_dir, session_dir, or agent_session_id.
+func (c *Client) GetSession(ctx context.Context, sessionID string) (*SessionInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		c.baseURL+"/api/v1/sessions/"+sessionID, nil)
 	if err != nil {
@@ -144,17 +162,27 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (map[string]a
 	if err != nil {
 		return nil, fmt.Errorf("read session response: %w", err)
 	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get session failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
 
-	var result map[string]any
+	var result SessionInfo
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("decode session response: %w", err)
 	}
-	return result, nil
+	return &result, nil
 }
 
 // UpdateSessionConfigDir sets config_dir on an existing session via PATCH.
-// Pass an empty configDir to clear (disable overlay on subsequent launches).
-func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDir string) (map[string]any, error) {
+// Pass an empty configDir to clear (disable overlay on subsequent launches;
+// for Codex this restores --ignore-user-config on later launches).
+//
+// Semantics:
+//   - Does not change work_dir, session_dir, or agent_session_id.
+//   - Overlay applies on the next SendMessage / SendText / Send, not immediately.
+//   - Do not Terminate between turns merely to switch config_dir; terminate is
+//     only for forced teardown / cleanup after the demo.
+func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDir string) (*SessionInfo, error) {
 	body, err := json.Marshal(map[string]string{"config_dir": configDir})
 	if err != nil {
 		return nil, fmt.Errorf("marshal patch request: %w", err)
@@ -179,14 +207,14 @@ func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDi
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("patch session failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
-	var result map[string]any
+	var result SessionInfo
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("decode patch response: %w", err)
 	}
-	return result, nil
+	return &result, nil
 }
 
-// UpdateConfigDir updates config_dir for this session.
-func (s *Session) UpdateConfigDir(ctx context.Context, configDir string) (map[string]any, error) {
+// UpdateConfigDir updates config_dir for this session (see UpdateSessionConfigDir).
+func (s *Session) UpdateConfigDir(ctx context.Context, configDir string) (*SessionInfo, error) {
 	return s.client.UpdateSessionConfigDir(ctx, s.ID, configDir)
 }
