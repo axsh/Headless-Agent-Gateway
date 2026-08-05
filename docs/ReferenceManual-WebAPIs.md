@@ -17,6 +17,7 @@ By default, all API endpoints are exposed at `http://localhost:3100` (customizab
 | `GET` | `/api/v1/models` | Retrieve available LLM models and the default model. |
 | `POST` | `/api/v1/sessions` | Initialize a new coding session. |
 | `GET` | `/api/v1/sessions/:id` | Retrieve metadata and state of a specific session. |
+| `PATCH` | `/api/v1/sessions/:id` | Update session fields (currently `config_dir`). |
 | `DELETE` | `/api/v1/sessions/:id` | Delete session data. |
 | `POST` | `/api/v1/sessions/:id/messages` | Send a message (text/image) to a session. |
 | `POST` | `/api/v1/sessions/:id/terminate` | Force terminate an active session process. |
@@ -161,11 +162,32 @@ Retrieves metadata and the active state of a created session.
     "error": ""
   }
   ```
-  - `config_dir` is included when set at CreateSession time.
+  - `config_dir` is included when set at CreateSession time (or later via PATCH).
 
 ---
 
-### 6. Delete Session
+### 6. Update Session (`config_dir`)
+
+Updates `config_dir` on an existing session without changing `work_dir`, `session_dir`, or `agent_session_id`. Overlay of the new config runs on the **next** message send (when the agent process starts). Named `profile` resolution is out of scope; pass an absolute or process-visible directory path.
+
+- **Method**: `PATCH`
+- **Path**: `/api/v1/sessions/:id`
+- **Request Body (JSON)**:
+  - `config_dir` (string, required): Path to the config set directory. An empty string clears `config_dir` (disables overlay; Codex restores `--ignore-user-config` on subsequent launches).
+- **Example**:
+  ```json
+  {
+    "config_dir": "/path/to/config-sets/beta"
+  }
+  ```
+- **Response (200 OK)**: Full session record (same shape as Get Session).
+- **Errors**:
+  - `404` session not found
+  - `400` missing `config_dir`, path does not exist, or path is not a directory
+
+---
+
+### 7. Delete Session
 
 Deletes the session record from the server.
 
@@ -175,7 +197,7 @@ Deletes the session record from the server.
 
 ---
 
-### 7. Send Message
+### 8. Send Message
 
 Sends prompt text and image data to an active session, initiating agent execution.
 
@@ -248,7 +270,7 @@ Sends prompt text and image data to an active session, initiating agent executio
 
 ---
 
-### 8. Terminate Session
+### 9. Terminate Session
 
 Forcefully stops and terminates the running session process (the agent process executing in the background).
 
@@ -263,7 +285,7 @@ Forcefully stops and terminates the running session process (the agent process e
 
 ---
 
-### 9. Stream Task Logs
+### 10. Stream Task Logs
 
 Streams detailed system logs and progress states generated during session execution via SSE.
 

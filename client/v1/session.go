@@ -163,7 +163,6 @@ func (s *Session) SendTextWithHandlers(ctx context.Context, message string, h St
 	return stream.RunWithHandlers(ctx, s, h)
 }
 
-
 // Terminate terminates the session.
 func (s *Session) Terminate(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -211,4 +210,43 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (map[string]a
 		return nil, fmt.Errorf("decode session response: %w", err)
 	}
 	return result, nil
+}
+
+// UpdateSessionConfigDir sets config_dir on an existing session via PATCH.
+// Pass an empty configDir to clear (disable overlay on subsequent launches).
+func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDir string) (map[string]any, error) {
+	body, err := json.Marshal(map[string]string{"config_dir": configDir})
+	if err != nil {
+		return nil, fmt.Errorf("marshal patch request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch,
+		c.baseURL+"/api/v1/sessions/"+sessionID, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create patch session request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("patch session: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read patch response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("patch session failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var result map[string]any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode patch response: %w", err)
+	}
+	return result, nil
+}
+
+// UpdateConfigDir updates config_dir for this session.
+func (s *Session) UpdateConfigDir(ctx context.Context, configDir string) (map[string]any, error) {
+	return s.client.UpdateSessionConfigDir(ctx, s.ID, configDir)
 }
