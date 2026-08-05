@@ -453,16 +453,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		if !finishExecution {
 			return
 		}
-		agentSess.Close()
-		s.UnregisterActiveSession(sessionID)
-		s.UnregisterExecCancel(sessionID)
-		s.execRegistry.Unregister(sessionID)
-		if len(savedFiles) > 0 {
-			CleanupMultimodalFiles(savedFiles)
-			if s.logger != nil {
-				s.logger.Debug("cleaned up multimodal temp files", "session_id", sessionID, "count", len(savedFiles))
-			}
-		}
+		s.finishActiveExecution(sessionID, agentSess, savedFiles)
 	}()
 
 	ch, err := agentSess.Send(execCtx, promptText)
@@ -496,15 +487,44 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
 		_, suspended := s.streamSSERelay(r.Context(), w, active, true)
 		if suspended {
+			// User-input suspend: keep exec registered; [DONE] already sent.
 			return
 		}
-	} else {
-		suspended := s.respondJSONRelay(r.Context(), w, active, true)
-		if suspended {
-			return
+		// Unregister before [DONE] so clients that start the next message
+		// immediately after [DONE] do not hit session busy.
+		s.finishActiveExecution(sessionID, agentSess, savedFiles)
+		finishExecution = false
+		if s.logger != nil {
+			s.logger.Debug("unregistered before done", "session_id", sessionID, "suspended", false)
 		}
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		return
+	}
+
+	suspended := s.respondJSONRelay(r.Context(), w, active, true)
+	if suspended {
+		return
 	}
 	finishExecution = true
+}
+
+// finishActiveExecution closes the agent session and clears busy-state registries.
+func (s *Server) finishActiveExecution(sessionID string, agentSess codingagent.Session, savedFiles []string) {
+	if agentSess != nil {
+		_ = agentSess.Close()
+	}
+	s.UnregisterActiveSession(sessionID)
+	s.UnregisterExecCancel(sessionID)
+	s.execRegistry.Unregister(sessionID)
+	if len(savedFiles) > 0 {
+		CleanupMultimodalFiles(savedFiles)
+		if s.logger != nil {
+			s.logger.Debug("cleaned up multimodal temp files", "session_id", sessionID, "count", len(savedFiles))
+		}
+	}
 }
 
 // toAgentLogEntry converts a StreamEvent to an AgentLogEntry for TaskLog.
@@ -586,6 +606,11 @@ func (s *Server) handleRespond(w http.ResponseWriter, r *http.Request) {
 	s.UnregisterActiveSession(sessionID)
 	s.UnregisterExecCancel(sessionID)
 	s.execRegistry.Unregister(sessionID)
+
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // streamSSERelay streams events from a relay. Returns next offset and whether execution suspended.
@@ -669,9 +694,8 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 		}
 	}
 done:
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
-
+	// Status update only; caller emits [DONE] after unregistering so clients
+	// that reconnect immediately after [DONE] do not see session busy.
 	if record, err := s.sessions.Get(sessionID); err == nil {
 		if hasError {
 			record.Status = codingagent.StatusError

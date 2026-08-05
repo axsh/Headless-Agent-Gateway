@@ -182,6 +182,46 @@ func TestHandleDeleteSession(t *testing.T) {
 	}
 }
 
+func TestHandleSendMessage_SecondMessageWithoutTerminate(t *testing.T) {
+	_, handler := newTestServer()
+
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+	})
+	req := httptest.NewRequest("POST", "/api/v1/sessions", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(w.Body).Decode(&created)
+	sessionID := created["session_id"]
+
+	send := func(label string) {
+		t.Helper()
+		msg, _ := json.Marshal(map[string]any{
+			"content": []map[string]string{{"type": "text", "text": label}},
+		})
+		req := httptest.NewRequest("POST", "/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(msg))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d body=%s", label, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "[DONE]") {
+			t.Fatalf("%s: missing [DONE] in SSE body", label)
+		}
+	}
+
+	send("first")
+	send("second") // must not return 409 session busy without terminate
+}
+
 func TestHandleTerminateAgent(t *testing.T) {
 	_, handler := newTestServer()
 

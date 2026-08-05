@@ -1072,7 +1072,8 @@ func TestAgentService_ConfigDir_LaneIsolation(t *testing.T) {
 
 func TestAgentService_ConfigDir_SameConfigDir_ReappliedOnSecondMessage(t *testing.T) {
 	// Same config_dir across two messages (NOT a config switch). Overlay is
-	// re-applied on each agent process start.
+	// re-applied on each agent process start. Overlay/API only — conversation
+	// continuity acceptance is LIVE (002), not this mock test.
 	ts := setupConfigDirOverlayTestServer(t)
 	configDir := t.TempDir()
 	skill := filepath.Join(configDir, "skills", "demo", "SKILL.md")
@@ -1108,7 +1109,36 @@ func TestAgentService_ConfigDir_SameConfigDir_ReappliedOnSecondMessage(t *testin
 	}
 }
 
+func TestAgentService_ConfigDir_SecondMessageWithoutTerminate(t *testing.T) {
+	ts := setupConfigDirOverlayTestServer(t)
+	configDir := t.TempDir()
+	skill := filepath.Join(configDir, "skills", "demo", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("demo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "claudecode",
+		"work_dir":    t.TempDir(),
+		"session_dir": t.TempDir(),
+		"config_dir":  configDir,
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]string
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+
+	postSessionMessage(t, ts.URL, created["session_id"], "first")
+	postSessionMessage(t, ts.URL, created["session_id"], "second")
+}
+
 func TestAgentService_ConfigDir_SwitchSameSession_Claude(t *testing.T) {
+	// Overlay/API switch only — conversation continuity proof is LIVE (002).
 	ts := setupConfigDirOverlayTestServer(t)
 	mkLane := func(name string) string {
 		dir := t.TempDir()
@@ -1219,6 +1249,7 @@ func (a *configDirOverlayMockCodex) CreateSession(
 }
 
 func TestAgentService_ConfigDir_SwitchSameSession_Codex(t *testing.T) {
+	// Overlay/API switch only — conversation continuity proof is LIVE (002).
 	srv := agentservice.New()
 	srv.RegisterAgent(&configDirOverlayMockCodex{name: "codex"})
 	ts := httptest.NewServer(srv.HTTPHandler())
