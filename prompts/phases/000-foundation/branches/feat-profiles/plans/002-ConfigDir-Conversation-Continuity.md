@@ -219,7 +219,7 @@ None. (仕様の User Review は承認済み: Codex 継続必須 / user-input �
 8. [x] **Rewrite LIVE E2E**: terminate 除去、記憶トークン + beta マーカー、`agent_session_id` 空 FAIL。
 9. [x] **Docs / ternctl** 文言更新。
 10. [x] **Verify**: build + specify (下記) + `RUN_CONFIG_DIR_LIVE=1` Claude/Codex LIVE。
-11. [/] **Commit / push** after green (execute phase rules)。
+11. [x] **Commit / push** after green (execute phase rules)。
 
 ## Verification Plan
 
