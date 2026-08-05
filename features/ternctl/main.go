@@ -69,6 +69,7 @@ func printUsage() {
 	fmt.Println("  session --id ID                        Get session status")
 	fmt.Println("  session-config --id ID --config-dir D  Update session config_dir")
 	fmt.Println("                                         (applies on next message; empty clears)")
+	fmt.Println("                                         (do not terminate just to switch config)")
 	fmt.Println("  terminate --id ID                      Terminate session")
 }
 

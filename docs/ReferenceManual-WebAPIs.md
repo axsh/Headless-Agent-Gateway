@@ -168,7 +168,7 @@ Retrieves metadata and the active state of a created session.
 
 ### 6. Update Session (`config_dir`)
 
-Updates `config_dir` on an existing session without changing `work_dir`, `session_dir`, or `agent_session_id`. Overlay of the new config runs on the **next** message send (when the agent process starts). Named `profile` resolution is out of scope; pass an absolute or process-visible directory path.
+Updates `config_dir` on an existing session without changing `work_dir`, `session_dir`, or `agent_session_id`. Overlay of the new config runs on the **next** message send (when the agent process starts). Updating `config_dir` does **not** require `terminate`; the same Tern `session_id` continues and the next SendMessage resumes the agent conversation (`agent_session_id` — Claude `--resume`, Codex `exec resume`) while applying the new overlay. `terminate` ends active execution and closes session status; it is not part of the normal config-switch flow. Named `profile` resolution is out of scope; pass an absolute or process-visible directory path.
 
 - **Method**: `PATCH`
 - **Path**: `/api/v1/sessions/:id`

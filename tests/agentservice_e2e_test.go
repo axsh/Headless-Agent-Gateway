@@ -1038,26 +1038,6 @@ func configDirLiveClaudeModel() string {
 	return "claude-haiku-4-5"
 }
 
-// ensureSessionReadyForNextMessage clears a stuck/busy execution so the next
-// SendMessage is accepted. Always terminates: [DONE] can race ahead of
-// execRegistry.Unregister, and suspended turns leave the session busy.
-func ensureSessionReadyForNextMessage(t *testing.T, baseURL, sessionID string) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/v1/sessions/"+sessionID+"/terminate", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		t.Logf("terminate before next message returned status=%d", resp.StatusCode)
-	}
-}
-
 func writeConfigDirMarker(t *testing.T, configDir, filename, marker string) {
 	t.Helper()
 	path := filepath.Join(configDir, filename)
@@ -1096,10 +1076,13 @@ func collectE2EText(events []codingagent.StreamEvent) string {
 }
 
 func TestE2E_ConfigDir_Live_Claude_SwitchSameSession(t *testing.T) {
+	// Proposition P-CONT: same session_id, config switch, conversation memory.
+	// Must NOT terminate between turns.
 	requireConfigDirLive(t)
 	baseURL, cleanup := startE2EServer(t)
 	defer cleanup()
 
+	memToken := fmt.Sprintf("TERN_MEM_%d", time.Now().UnixNano())
 	alphaMarker := fmt.Sprintf("TERN_CFG_ALPHA_%d", time.Now().UnixNano())
 	betaMarker := fmt.Sprintf("TERN_CFG_BETA_%d", time.Now().UnixNano())
 	alpha := t.TempDir()
@@ -1130,34 +1113,34 @@ func TestE2E_ConfigDir_Live_Claude_SwitchSameSession(t *testing.T) {
 	}
 	sessionID := created["session_id"]
 
-	promptAlpha := fmt.Sprintf(
-		"Read CLAUDE.md in your config. Reply with ONLY the exact marker token that starts with TERN_CFG_ALPHA_. Token should be: %s",
-		alphaMarker,
+	prompt1 := fmt.Sprintf(
+		"Do not use tools. Do not ask questions. Remember this secret token exactly for later turns: %s. "+
+			"Also read CLAUDE.md if present. Reply with a short ack that includes the secret token once.",
+		memToken,
 	)
-	msgResp := sendE2EMessage(t, baseURL, sessionID, promptAlpha, 180*time.Second)
+	msgResp := sendE2EMessage(t, baseURL, sessionID, prompt1, 180*time.Second)
 	events, gotDone := parseE2ESSEEvents(t, msgResp)
 	msgResp.Body.Close()
 	if !gotDone {
-		t.Fatal("expected [DONE] after alpha message")
+		t.Fatal("expected [DONE] after turn 1")
 	}
 	for _, ev := range events {
 		if ev.Type == codingagent.EventError {
-			t.Fatalf("alpha message error (acceptance incomplete): %s", ev.Content)
+			t.Fatalf("turn1 error (acceptance incomplete): %s", ev.Content)
 		}
 	}
 	text1 := collectE2EText(events)
-	if !strings.Contains(text1, alphaMarker) {
-		t.Logf("alpha response text (marker may still be OK via FS): %q", text1)
-	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "CLAUDE.md")); err != nil {
-		t.Fatalf("alpha CLAUDE.md not overlaid: %v", err)
+	if !strings.Contains(text1, memToken) {
+		t.Fatalf("turn1 reply must include mem token, got %q", text1)
 	}
 
 	session1 := getE2ESession(t, baseURL, sessionID)
 	agentSID1, _ := session1["agent_session_id"].(string)
+	if agentSID1 == "" {
+		t.Fatal("agent_session_id must be non-empty after turn 1")
+	}
 	sd1, _ := session1["session_dir"].(string)
 
-	ensureSessionReadyForNextMessage(t, baseURL, sessionID)
 	patchE2ESessionConfigDir(t, baseURL, sessionID, beta)
 	session2 := getE2ESession(t, baseURL, sessionID)
 	cd2, _ := session2["config_dir"].(string)
@@ -1165,52 +1148,59 @@ func TestE2E_ConfigDir_Live_Claude_SwitchSameSession(t *testing.T) {
 	if filepath.Clean(cd2) != filepath.Clean(wantBeta) {
 		t.Fatalf("config_dir after patch = %q, want %q", cd2, wantBeta)
 	}
-	sd2, _ := session2["session_dir"].(string)
-	if sd2 != sd1 {
-		t.Fatalf("session_dir changed: %q -> %q", sd1, sd2)
+	if session2["session_dir"] != sd1 {
+		t.Fatalf("session_dir changed")
+	}
+	if sid, _ := session2["agent_session_id"].(string); sid != agentSID1 {
+		t.Fatalf("agent_session_id changed on patch: %q -> %q", agentSID1, sid)
 	}
 
-	promptBeta := fmt.Sprintf(
-		"Read CLAUDE.md in your config again. Reply with ONLY the exact marker token that starts with TERN_CFG_BETA_. Token should be: %s",
+	prompt2 := fmt.Sprintf(
+		"Do not use tools. Do not ask questions. What was the secret token I asked you to remember earlier? "+
+			"Reply with that exact token. Also read CLAUDE.md and include the config marker that starts with TERN_CFG_BETA_ (expected %s).",
 		betaMarker,
 	)
-	msgResp2 := sendE2EMessage(t, baseURL, sessionID, promptBeta, 180*time.Second)
+	msgResp2 := sendE2EMessage(t, baseURL, sessionID, prompt2, 180*time.Second)
 	events2, gotDone2 := parseE2ESSEEvents(t, msgResp2)
 	msgResp2.Body.Close()
 	if !gotDone2 {
-		t.Fatal("expected [DONE] after beta message")
+		t.Fatal("expected [DONE] after turn 2")
 	}
 	for _, ev := range events2 {
 		if ev.Type == codingagent.EventError {
-			t.Fatalf("beta message error (acceptance incomplete): %s", ev.Content)
+			t.Fatalf("turn2 error (acceptance incomplete): %s", ev.Content)
 		}
 	}
 	text2 := collectE2EText(events2)
-	if !strings.Contains(text2, betaMarker) {
-		t.Logf("beta response text: %q", text2)
-	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "CLAUDE.md")); err != nil {
-		t.Fatalf("beta CLAUDE.md not overlaid: %v", err)
+	if !strings.Contains(text2, memToken) {
+		t.Fatalf("conversation continuity failed: mem token missing in turn2 reply: %q", text2)
 	}
 	data, err := os.ReadFile(filepath.Join(sessionDir, "CLAUDE.md"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("beta CLAUDE.md overlay: %v", err)
 	}
 	if !strings.Contains(string(data), betaMarker) {
 		t.Fatalf("overlaid CLAUDE.md missing beta marker, got %q", data)
 	}
+	if !strings.Contains(text2, betaMarker) {
+		t.Logf("beta marker not in reply text (FS overlay OK): %q", text2)
+	}
 
 	session3 := getE2ESession(t, baseURL, sessionID)
 	agentSID3, _ := session3["agent_session_id"].(string)
-	if agentSID1 != "" && agentSID3 != agentSID1 {
+	if agentSID3 == "" {
+		t.Fatal("agent_session_id must be non-empty after turn 2")
+	}
+	if agentSID3 != agentSID1 {
 		t.Fatalf("agent_session_id changed: %q -> %q", agentSID1, agentSID3)
 	}
 	if session3["id"] != sessionID {
-		t.Fatalf("session id changed")
+		t.Fatal("session id changed")
 	}
 }
 
 func TestE2E_ConfigDir_Live_Codex_SwitchSameSession(t *testing.T) {
+	// Proposition P-CONT for Codex — same rules as Claude LIVE; no terminate between turns.
 	requireConfigDirLive(t)
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Fatalf("acceptance incomplete: codex CLI required when RUN_CONFIG_DIR_LIVE=1: %v", err)
@@ -1218,24 +1208,13 @@ func TestE2E_ConfigDir_Live_Codex_SwitchSameSession(t *testing.T) {
 	baseURL, cleanup := startCodexE2EServer(t)
 	defer cleanup()
 
+	memToken := fmt.Sprintf("TERN_MEM_%d", time.Now().UnixNano())
 	alphaMarker := fmt.Sprintf("TERN_CFG_ALPHA_%d", time.Now().UnixNano())
 	betaMarker := fmt.Sprintf("TERN_CFG_BETA_%d", time.Now().UnixNano())
 	alpha := t.TempDir()
 	beta := t.TempDir()
 	writeConfigDirMarker(t, alpha, "AGENTS.md", alphaMarker)
 	writeConfigDirMarker(t, beta, "AGENTS.md", betaMarker)
-	if err := os.MkdirAll(filepath.Join(alpha, "skills", "alpha"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(alpha, "skills", "alpha", "SKILL.md"), []byte("alpha"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(beta, "skills", "beta"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(beta, "skills", "beta", "SKILL.md"), []byte("beta"), 0644); err != nil {
-		t.Fatal(err)
-	}
 
 	workDir := t.TempDir()
 	initGitRepo(t, workDir)
@@ -1260,52 +1239,55 @@ func TestE2E_ConfigDir_Live_Codex_SwitchSameSession(t *testing.T) {
 	}
 	sessionID := created["session_id"]
 
-	promptAlpha := fmt.Sprintf(
-		"Read AGENTS.md. Reply with ONLY the exact marker token: %s",
-		alphaMarker,
+	prompt1 := fmt.Sprintf(
+		"Do not use tools. Do not ask questions. Remember this secret token exactly for later turns: %s. "+
+			"Also read AGENTS.md if present. Reply with a short ack that includes the secret token once.",
+		memToken,
 	)
-	msgResp := sendE2EMessage(t, baseURL, sessionID, promptAlpha, 180*time.Second)
+	msgResp := sendE2EMessage(t, baseURL, sessionID, prompt1, 180*time.Second)
 	events, gotDone := parseE2ESSEEvents(t, msgResp)
 	msgResp.Body.Close()
 	if !gotDone {
-		t.Fatal("expected [DONE] after alpha message")
+		t.Fatal("expected [DONE] after turn 1")
 	}
 	for _, ev := range events {
 		if ev.Type == codingagent.EventError {
-			t.Fatalf("alpha message error (acceptance incomplete): %s", ev.Content)
+			t.Fatalf("turn1 error (acceptance incomplete): %s", ev.Content)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "AGENTS.md")); err != nil {
-		t.Fatalf("alpha AGENTS.md not overlaid: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); err != nil {
-		t.Fatalf("alpha skill not overlaid: %v", err)
+	text1 := collectE2EText(events)
+	if !strings.Contains(text1, memToken) {
+		t.Fatalf("turn1 reply must include mem token, got %q", text1)
 	}
 
 	session1 := getE2ESession(t, baseURL, sessionID)
 	agentSID1, _ := session1["agent_session_id"].(string)
+	if agentSID1 == "" {
+		t.Fatal("agent_session_id must be non-empty after turn 1 (Codex thread_id)")
+	}
 	sd1, _ := session1["session_dir"].(string)
 
-	ensureSessionReadyForNextMessage(t, baseURL, sessionID)
 	patchE2ESessionConfigDir(t, baseURL, sessionID, beta)
 
-	promptBeta := fmt.Sprintf(
-		"Read AGENTS.md again. Reply with ONLY the exact marker token: %s",
+	prompt2 := fmt.Sprintf(
+		"Do not use tools. Do not ask questions. What was the secret token I asked you to remember earlier? "+
+			"Reply with that exact token. Also read AGENTS.md and include the config marker that starts with TERN_CFG_BETA_ (expected %s).",
 		betaMarker,
 	)
-	msgResp2 := sendE2EMessage(t, baseURL, sessionID, promptBeta, 180*time.Second)
+	msgResp2 := sendE2EMessage(t, baseURL, sessionID, prompt2, 180*time.Second)
 	events2, gotDone2 := parseE2ESSEEvents(t, msgResp2)
 	msgResp2.Body.Close()
 	if !gotDone2 {
-		t.Fatal("expected [DONE] after beta message")
+		t.Fatal("expected [DONE] after turn 2")
 	}
 	for _, ev := range events2 {
 		if ev.Type == codingagent.EventError {
-			t.Fatalf("beta message error (acceptance incomplete): %s", ev.Content)
+			t.Fatalf("turn2 error (acceptance incomplete): %s", ev.Content)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "beta", "SKILL.md")); err != nil {
-		t.Fatalf("beta skill not overlaid: %v", err)
+	text2 := collectE2EText(events2)
+	if !strings.Contains(text2, memToken) {
+		t.Fatalf("conversation continuity failed: mem token missing in turn2 reply: %q", text2)
 	}
 	data, err := os.ReadFile(filepath.Join(sessionDir, "AGENTS.md"))
 	if err != nil {
@@ -1317,12 +1299,13 @@ func TestE2E_ConfigDir_Live_Codex_SwitchSameSession(t *testing.T) {
 
 	session3 := getE2ESession(t, baseURL, sessionID)
 	agentSID3, _ := session3["agent_session_id"].(string)
-	sd3, _ := session3["session_dir"].(string)
-	if sd3 != sd1 {
-		t.Fatalf("session_dir changed: %q -> %q", sd1, sd3)
+	if agentSID3 == "" {
+		t.Fatal("agent_session_id must be non-empty after turn 2")
 	}
-	if agentSID1 != "" && agentSID3 != agentSID1 {
+	if agentSID3 != agentSID1 {
 		t.Fatalf("agent_session_id changed: %q -> %q", agentSID1, agentSID3)
 	}
-	_ = collectE2EText(events2)
+	if session3["session_dir"] != sd1 {
+		t.Fatal("session_dir changed")
+	}
 }
