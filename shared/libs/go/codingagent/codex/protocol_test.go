@@ -247,11 +247,84 @@ func TestParseExecEvent_ItemCompleted_CommandExecution(t *testing.T) {
 	if ev == nil {
 		t.Fatal("expected non-nil event")
 	}
-	if ev.Type != codingagent.EventToolResult {
-		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolResult)
+	if ev.Type != codingagent.EventToolUse {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolUse)
 	}
-	if !strings.Contains(ev.Content, "hello") {
-		t.Errorf("content = %q, want to contain 'hello'", ev.Content)
+	if ev.ToolName != "command_execution" {
+		t.Errorf("tool_name = %q, want command_execution", ev.ToolName)
+	}
+	cmd, _ := ev.ToolInput["command"].(string)
+	if cmd != "echo hello" {
+		t.Errorf("command = %q, want echo hello", cmd)
+	}
+}
+
+func TestParseExecEvent_ItemCompleted_FileChange_Single(t *testing.T) {
+	line := `{"type":"item.completed","item":{"id":"item_4","type":"file_change","changes":[{"path":"docs/a.md","kind":"add"}],"status":"completed"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Type != codingagent.EventToolUse {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolUse)
+	}
+	if ev.ToolName != "file_change" {
+		t.Errorf("tool_name = %q, want %q", ev.ToolName, "file_change")
+	}
+	if ev.ToolInput["path"] != "docs/a.md" {
+		t.Errorf("path = %v, want docs/a.md", ev.ToolInput["path"])
+	}
+	if ev.ToolInput["kind"] != "add" {
+		t.Errorf("kind = %v, want add", ev.ToolInput["kind"])
+	}
+}
+
+func TestParseExecEvent_ItemCompleted_FileChange_Multiple(t *testing.T) {
+	line := `{"type":"item.completed","item":{"id":"item_4","type":"file_change","changes":[{"path":"docs/a.md","kind":"add"},{"path":"docs/b.md","kind":"update"}],"status":"completed"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	changes, ok := ev.ToolInput["changes"].([]map[string]any)
+	if !ok {
+		// JSON round-trip may produce []interface{}; accept any slice with len 2.
+		if raw, ok2 := ev.ToolInput["changes"].([]interface{}); ok2 {
+			if len(raw) != 2 {
+				t.Fatalf("changes len = %d, want 2", len(raw))
+			}
+			return
+		}
+		t.Fatalf("changes type = %T, want slice", ev.ToolInput["changes"])
+	}
+	if len(changes) != 2 {
+		t.Fatalf("changes len = %d, want 2", len(changes))
+	}
+}
+
+func TestParseExecEvent_ItemStarted_FileChange_Ignored(t *testing.T) {
+	line := `{"type":"item.started","item":{"id":"item_4","type":"file_change","changes":[{"path":"docs/a.md","kind":"add"}]}}`
+	ev := codex.ParseExecEvent(line)
+	if ev != nil {
+		t.Errorf("expected nil for item.started file_change, got %+v", ev)
+	}
+}
+
+func TestParseExecEvent_ItemCompleted_FileChange_UpdateDelete(t *testing.T) {
+	tests := []struct {
+		kind string
+	}{
+		{"update"},
+		{"delete"},
+	}
+	for _, tc := range tests {
+		line := `{"type":"item.completed","item":{"type":"file_change","changes":[{"path":"x.txt","kind":"` + tc.kind + `"}]}}`
+		ev := codex.ParseExecEvent(line)
+		if ev == nil {
+			t.Fatalf("kind=%s: expected non-nil event", tc.kind)
+		}
+		if ev.ToolInput["kind"] != tc.kind {
+			t.Errorf("kind=%s: got %v", tc.kind, ev.ToolInput["kind"])
+		}
 	}
 }
 

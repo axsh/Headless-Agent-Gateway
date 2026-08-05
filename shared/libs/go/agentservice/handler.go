@@ -173,6 +173,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			AgentName: req.Agent,
 			StartedAt: time.Now(),
 		})
+		s.captureSessionSnapshot(sessionID, record.WorkDir)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -541,6 +542,75 @@ func generateLogID() string {
 	return hex.EncodeToString(b)
 }
 
+func (s *Server) writeSSEWireEvents(w http.ResponseWriter, flusher http.Flusher, ev codingagent.StreamEvent) error {
+	wireEvents, err := codingagent.SplitStreamEventForSSE(ev, codingagent.DefaultMaxSSEDataLineBytes)
+	if err != nil {
+		return err
+	}
+	for _, wireEv := range wireEvents {
+		data, _ := json.Marshal(wireEv)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+	return nil
+}
+
+func (s *Server) updateSessionStatusOnTerminal(sessionID string, ev codingagent.StreamEvent, hasError bool, errorMsg string) {
+	if ev.Type != codingagent.EventResult && ev.Type != codingagent.EventError {
+		return
+	}
+	record, err := s.sessions.Get(sessionID)
+	if err != nil {
+		return
+	}
+	if hasError || ev.Type == codingagent.EventError {
+		record.Status = codingagent.StatusError
+		if errorMsg != "" {
+			record.Error = errorMsg
+		} else if ev.Content != "" {
+			record.Error = ev.Content
+		} else {
+			record.Error = "unknown error occurred during execution"
+		}
+	} else {
+		record.Status = codingagent.StatusCompleted
+		record.Error = ""
+	}
+	s.sessions.Update(record)
+}
+
+func (s *Server) finalizeSessionStatusOnDisconnect(sessionID string, exec *activeExecution) {
+	if exec == nil || exec.relay == nil {
+		return
+	}
+	record, err := s.sessions.Get(sessionID)
+	if err != nil {
+		return
+	}
+	if record.Status == codingagent.StatusCompleted || record.Status == codingagent.StatusError {
+		return
+	}
+
+	var hasError bool
+	var errorMsg string
+	for _, ev := range exec.relay.EventsSnapshot() {
+		switch ev.Type {
+		case codingagent.EventResult:
+			s.updateSessionStatusOnTerminal(sessionID, ev, hasError, errorMsg)
+			return
+		case codingagent.EventError:
+			hasError = true
+			errorMsg = ev.Content
+			s.updateSessionStatusOnTerminal(sessionID, ev, true, errorMsg)
+			return
+		}
+	}
+
+	record.Status = codingagent.StatusError
+	record.Error = "client disconnected before completion"
+	s.sessions.Update(record)
+}
+
 // handleRespond handles POST /api/v1/sessions/:id/respond.
 func (s *Server) handleRespond(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -647,6 +717,7 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 					"session_id", sessionID,
 					"events_sent", eventCount)
 			}
+			s.finalizeSessionStatusOnDisconnect(sessionID, exec)
 			return exec.streamOffset, suspended
 		case <-ticker.C:
 			fmt.Fprintf(w, ": keepalive\n\n")
@@ -671,9 +742,12 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 				exec.status = codingagent.StatusSuspended
 			}
 
-			data, _ := json.Marshal(ev)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
+			if err := s.writeSSEWireEvents(w, flusher, ev); err != nil {
+				if s.logger != nil {
+					s.logger.Warn("failed to write SSE wire events", "session_id", sessionID, "error", err.Error())
+				}
+				return exec.streamOffset, suspended
+			}
 
 			if s.taskLog != nil {
 				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
@@ -685,6 +759,8 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 					s.sessions.Update(record)
 				}
 			}
+
+			s.updateSessionStatusOnTerminal(sessionID, ev, hasError, errorMsg)
 
 			if suspended && stopOnUserInput {
 				fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -708,6 +784,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
 	}
 	return exec.streamOffset, suspended
 }
@@ -748,6 +825,7 @@ func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, ex
 					return true
 				}
 			}
+			s.updateSessionStatusOnTerminal(sessionID, ev, hasError, errorMsg)
 			if s.taskLog != nil {
 				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
 			}
@@ -767,6 +845,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
 	}
 	return suspended
 }
@@ -829,9 +908,12 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 				s.logger.Trace("SSE stream event", "type", ev.Type, "content_preview", contentPreview)
 			}
 
-			data, _ := json.Marshal(ev)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
+			if err := s.writeSSEWireEvents(w, flusher, ev); err != nil {
+				if s.logger != nil {
+					s.logger.Warn("failed to write SSE wire events", "session_id", sessionID, "error", err.Error())
+				}
+				return
+			}
 
 			// Record event to TaskLog (C1-1)
 			if s.taskLog != nil {
@@ -848,16 +930,11 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 					s.sessions.Update(record)
 				}
 			}
+
+			s.updateSessionStatusOnTerminal(sessionID, ev, hasError, errorMsg)
 		}
 	}
 done:
-	fmt.Fprintf(w, "data: [DONE]\n\n")
-	flusher.Flush()
-
-	if s.logger != nil {
-		s.logger.Debug("SSE stream completed", "session_id", sessionID, "event_count", eventCount)
-	}
-
 	if record, err := s.sessions.Get(sessionID); err == nil {
 		if hasError {
 			record.Status = codingagent.StatusError
@@ -870,6 +947,14 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
+	}
+
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
+
+	if s.logger != nil {
+		s.logger.Debug("SSE stream completed", "session_id", sessionID, "event_count", eventCount)
 	}
 }
 
@@ -928,6 +1013,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
+		s.reconcileSessionArtifacts(context.Background(), sessionID)
 	}
 }
 
@@ -967,8 +1053,9 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)
 
-	// Mark session as closed in the artifact store.
+	// Reconcile supplemental artifacts before closing the session record.
 	if s.artifactStore != nil {
+		s.reconcileSessionArtifacts(r.Context(), sessionID)
 		_ = s.artifactStore.CloseSession(r.Context(), sessionID)
 	}
 

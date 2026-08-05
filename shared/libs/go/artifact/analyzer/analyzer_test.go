@@ -180,3 +180,144 @@ func TestAnalyzer_PathOutsideProjectRoot(t *testing.T) {
 	// Key should be the path as-is or a relative escape.
 	assert.NotEmpty(t, ms.events[0].Key)
 }
+
+func TestAnalyzer_Codex_FileChange_Create(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(sessionID string) string { return workDir })
+
+	injectToolUseEvent(t, tl, "sess-1", "file_change", map[string]any{
+		"path": "docs/a.md",
+		"kind": "add",
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "docs/a.md", ms.events[0].Key)
+	assert.Equal(t, store.OperationCreate, ms.events[0].Operation)
+	assert.Equal(t, "file_change", ms.events[0].ToolName)
+}
+
+func TestAnalyzer_Codex_FileChange_Multiple(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, nil)
+
+	injectToolUseEvent(t, tl, "sess-1", "file_change", map[string]any{
+		"changes": []any{
+			map[string]any{"path": "a.md", "kind": "add"},
+			map[string]any{"path": "b.md", "kind": "update"},
+		},
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 2)
+}
+
+func TestAnalyzer_Codex_FileChange_Delete(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	analyzer.New(tl, ms, t.TempDir(), nil)
+
+	injectToolUseEvent(t, tl, "sess-1", "file_change", map[string]any{
+		"path": "gone.txt",
+		"kind": "delete",
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, store.OperationDelete, ms.events[0].Operation)
+}
+
+func TestAnalyzer_Codex_CommandExecution_Create(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir })
+
+	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
+		"command": "echo hi > out.txt",
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "out.txt", ms.events[0].Key)
+	assert.Equal(t, store.OperationCreate, ms.events[0].Operation)
+}
+
+func TestAnalyzer_ClaudeCode_Bash_Create(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir })
+
+	injectToolUseEvent(t, tl, "sess-1", "Bash", map[string]any{
+		"command": "echo hi > out.txt",
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "out.txt", ms.events[0].Key)
+	assert.Equal(t, "Bash", ms.events[0].ToolName)
+}
+
+func TestAnalyzer_ClaudeCode_NotebookEdit(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, nil)
+
+	injectToolUseEvent(t, tl, "sess-1", "NotebookEdit", map[string]any{
+		"notebook_path": "nb.ipynb",
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "nb.ipynb", ms.events[0].Key)
+	assert.Equal(t, store.OperationUpdate, ms.events[0].Operation)
+}
+
+func TestAnalyzer_CommandExecution_NoFileOp(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	analyzer.New(tl, ms, t.TempDir(), nil)
+
+	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
+		"command": "ls -la",
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	assert.Empty(t, ms.events)
+}
+
+func TestAnalyzer_WorkDirRelativePath(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, "/other-root", func(string) string { return workDir })
+
+	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{
+		"path": "subdir/file.go",
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "subdir/file.go", ms.events[0].Key)
+}
+
+func TestAnalyzer_LegacyShell_Create(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir })
+
+	injectToolUseEvent(t, tl, "sess-1", "shell", map[string]any{
+		"arguments": `{"command":"echo hi > legacy.txt"}`,
+	})
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "legacy.txt", ms.events[0].Key)
+}

@@ -23,12 +23,13 @@ type toolMapping struct {
 // For "Write", both "path" (Cursor) and "file_path" (Claude Code) are tried.
 var defaultToolMappings = map[string][]toolMapping{
 	// Cursor Agent
-	"Write":     {{store.OperationCreate, "path"}, {store.OperationCreate, "file_path"}},
+	"Write":      {{store.OperationCreate, "path"}, {store.OperationCreate, "file_path"}},
 	"StrReplace": {{store.OperationUpdate, "path"}},
-	"Delete":    {{store.OperationDelete, "path"}},
+	"Delete":     {{store.OperationDelete, "path"}},
 	// Claude Code
-	"Edit":      {{store.OperationUpdate, "file_path"}, {store.OperationUpdate, "path"}},
-	"MultiEdit": {{store.OperationUpdate, "file_path"}, {store.OperationUpdate, "path"}},
+	"Edit":         {{store.OperationUpdate, "file_path"}, {store.OperationUpdate, "path"}},
+	"MultiEdit":    {{store.OperationUpdate, "file_path"}, {store.OperationUpdate, "path"}},
+	"NotebookEdit": {{store.OperationUpdate, "notebook_path"}, {store.OperationUpdate, "file_path"}},
 }
 
 // WorkDirResolver returns the agent working directory for a session ID.
@@ -66,21 +67,34 @@ func (a *ToolCallAnalyzer) onEntry(e tasklog.Entry) {
 		return
 	}
 
-	event := a.analyzeEvent(ev, agentLog.AgentID)
-	if event == nil {
-		return
+	events := a.analyzeEvents(ev, agentLog.AgentID)
+	for _, event := range events {
+		if event != nil {
+			_ = a.st.SaveSystemArtifactEvent(context.Background(), *event)
+		}
 	}
-
-	// Fire-and-forget; errors are silently discarded to avoid disrupting the agent stream.
-	_ = a.st.SaveSystemArtifactEvent(context.Background(), *event)
 }
 
-// analyzeEvent returns a SystemArtifactEvent if ev is a recognized file-write tool_use, else nil.
-func (a *ToolCallAnalyzer) analyzeEvent(ev codingagent.StreamEvent, sessionID string) *store.SystemArtifactEvent {
+// analyzeEvents returns SystemArtifactEvents for recognized file-write tool_use events.
+func (a *ToolCallAnalyzer) analyzeEvents(ev codingagent.StreamEvent, sessionID string) []*store.SystemArtifactEvent {
 	if ev.Type != codingagent.EventToolUse {
 		return nil
 	}
 
+	switch ev.ToolName {
+	case "file_change":
+		return a.analyzeFileChange(ev, sessionID)
+	case "command_execution", "Bash", "shell", "shell_command":
+		return a.analyzeShellTool(ev, sessionID)
+	}
+
+	if event := a.analyzeMappedTool(ev, sessionID); event != nil {
+		return []*store.SystemArtifactEvent{event}
+	}
+	return nil
+}
+
+func (a *ToolCallAnalyzer) analyzeMappedTool(ev codingagent.StreamEvent, sessionID string) *store.SystemArtifactEvent {
 	mappings, ok := defaultToolMappings[ev.ToolName]
 	if !ok {
 		return nil
@@ -97,17 +111,96 @@ func (a *ToolCallAnalyzer) analyzeEvent(ev codingagent.StreamEvent, sessionID st
 	if filePath == "" {
 		return nil
 	}
+	return a.buildEvent(sessionID, ev.ToolName, filePath, operation)
+}
 
+func kindToOperation(kind string) string {
+	switch kind {
+	case "add":
+		return store.OperationCreate
+	case "update":
+		return store.OperationUpdate
+	case "delete":
+		return store.OperationDelete
+	default:
+		return ""
+	}
+}
+
+func (a *ToolCallAnalyzer) analyzeFileChange(ev codingagent.StreamEvent, sessionID string) []*store.SystemArtifactEvent {
+	var entries []struct {
+		path string
+		kind string
+	}
+
+	if path, ok := ev.ToolInput["path"].(string); ok && path != "" {
+		kind, _ := ev.ToolInput["kind"].(string)
+		entries = append(entries, struct {
+			path string
+			kind string
+		}{path, kind})
+	} else if raw, ok := ev.ToolInput["changes"].([]any); ok {
+		for _, item := range raw {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			path, _ := m["path"].(string)
+			kind, _ := m["kind"].(string)
+			if path != "" {
+				entries = append(entries, struct {
+					path string
+					kind string
+				}{path, kind})
+			}
+		}
+	}
+
+	var out []*store.SystemArtifactEvent
+	for _, e := range entries {
+		op := kindToOperation(e.kind)
+		if op == "" {
+			continue
+		}
+		if event := a.buildEvent(sessionID, ev.ToolName, e.path, op); event != nil {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func (a *ToolCallAnalyzer) analyzeShellTool(ev codingagent.StreamEvent, sessionID string) []*store.SystemArtifactEvent {
+	cmd := ExtractShellCommand(ev.ToolName, ev.ToolInput)
+	if cmd == "" {
+		return nil
+	}
+	ops := ParseShellCommand(cmd)
+	if len(ops) == 0 {
+		return nil
+	}
+	var out []*store.SystemArtifactEvent
+	for _, op := range ops {
+		if event := a.buildEvent(sessionID, ev.ToolName, op.Path, op.Operation); event != nil {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func (a *ToolCallAnalyzer) buildEvent(sessionID, toolName, filePath, operation string) *store.SystemArtifactEvent {
+	if filePath == "" || operation == "" {
+		return nil
+	}
 	resolved := a.resolvePath(filePath, sessionID)
 	key := a.toRelativePath(resolved, sessionID)
 	return &store.SystemArtifactEvent{
 		SessionID:  sessionID,
-		AgentID:    sessionID, // agentID == sessionID in current agentservice design
+		AgentID:    sessionID,
 		Key:        key,
 		ActualPath: resolved,
 		Operation:  operation,
 		OccurredAt: time.Now(),
-		ToolName:   ev.ToolName,
+		ToolName:   toolName,
 	}
 }
 
@@ -151,4 +244,15 @@ func (a *ToolCallAnalyzer) toRelativePath(absPath, sessionID string) string {
 		return base
 	}
 	return clean
+}
+
+// PathHelpers exposes path normalization for reconciliation (Tier 3).
+func (a *ToolCallAnalyzer) PathHelpers() (WorkDirResolver, string) {
+	return a.workDirResolver, a.projectRoot
+}
+
+// ResolvePathForSession resolves a path using the analyzer's work dir / project root rules.
+func (a *ToolCallAnalyzer) ResolvePathForSession(filePath, sessionID string) (key, absPath string) {
+	abs := a.resolvePath(filePath, sessionID)
+	return a.toRelativePath(abs, sessionID), abs
 }

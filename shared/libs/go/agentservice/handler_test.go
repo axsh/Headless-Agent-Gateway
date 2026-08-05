@@ -1,15 +1,18 @@
 package agentservice_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
@@ -477,6 +480,245 @@ func TestTerminate_CancelsExecution(t *testing.T) {
 	// Unregistered session should return false.
 	if srv.CancelExecution("nonexistent") {
 		t.Error("expected CancelExecution to return false for unregistered session")
+	}
+}
+
+type mockTerminalEventAgent struct {
+	name string
+}
+
+func (m *mockTerminalEventAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
+	return &mockTerminalEventSession{}, nil
+}
+func (m *mockTerminalEventAgent) Name() string { return m.name }
+func (m *mockTerminalEventAgent) Close() error { return nil }
+
+type mockTerminalEventSession struct{}
+
+func (s *mockTerminalEventSession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
+	ch := make(chan codingagent.StreamEvent, 2)
+	ch <- codingagent.StreamEvent{Type: codingagent.EventText, Content: "ok"}
+	ch <- codingagent.StreamEvent{Type: codingagent.EventResult}
+	close(ch)
+	return ch, nil
+}
+func (s *mockTerminalEventSession) ID() string     { return "mock-terminal-session" }
+func (s *mockTerminalEventSession) Close() error   { return nil }
+
+type mockSlowLargeToolAgent struct {
+	name string
+}
+
+func (m *mockSlowLargeToolAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
+	return &mockSlowLargeToolSession{}, nil
+}
+func (m *mockSlowLargeToolAgent) Name() string { return m.name }
+func (m *mockSlowLargeToolAgent) Close() error { return nil }
+
+type mockSlowLargeToolSession struct{}
+
+func (s *mockSlowLargeToolSession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
+	ch := make(chan codingagent.StreamEvent, 8)
+	ch <- codingagent.StreamEvent{
+		Type:    codingagent.EventToolResult,
+		Content: strings.Repeat("z", codingagent.DefaultMaxToolResultBytes),
+	}
+	ch <- codingagent.StreamEvent{Type: codingagent.EventResult}
+	close(ch)
+	return ch, nil
+}
+func (s *mockSlowLargeToolSession) ID() string   { return "mock-slow-large-session" }
+func (s *mockSlowLargeToolSession) Close() error { return nil }
+
+func getSessionFromServer(t *testing.T, handler http.Handler, sessionID string) map[string]interface{} {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions/"+sessionID, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET session status = %d", rec.Code)
+	}
+	var out map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+	return out
+}
+
+func createCodexSessionHTTP(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{
+		"agent":       "codex",
+		"session_dir": t.TempDir(),
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create session status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var created map[string]string
+	json.NewDecoder(rec.Body).Decode(&created)
+	return created["session_id"]
+}
+
+func postMessageHTTP(t *testing.T, baseURL, sessionID, accept string, ctx context.Context) (*http.Response, error) {
+	t.Helper()
+	msgBody, _ := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": "run"}},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		baseURL+"/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(msgBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", accept)
+	return (&http.Client{Timeout: 0}).Do(req)
+}
+
+func TestStreamSSERelay_EarlyStatusUpdate(t *testing.T) {
+	srv := agentservice.New()
+	srv.RegisterAgent(&mockSlowLargeToolAgent{name: "codex"})
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	sessionID := createCodexSessionHTTP(t, srv.HTTPHandler())
+	ctx := context.Background()
+	resp, err := postMessageHTTP(t, ts.URL, sessionID, "text/event-stream", ctx)
+	if err != nil {
+		t.Fatalf("POST message: %v", err)
+	}
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	sawResult := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+		if strings.Contains(data, `"type":"result"`) {
+			sawResult = true
+			sess := getSessionFromServer(t, srv.HTTPHandler(), sessionID)
+			status, _ := sess["status"].(string)
+			if status != codingagent.StatusCompleted {
+				t.Fatalf("status after EventResult = %q, want completed (before [DONE])", status)
+			}
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scanner: %v", err)
+	}
+	if !sawResult {
+		t.Fatal("expected result event in SSE stream")
+	}
+}
+
+func TestStreamSSERelay_DisconnectUpdatesStatus(t *testing.T) {
+	srv := agentservice.New()
+	srv.RegisterAgent(&mockSlowLargeToolAgent{name: "codex"})
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	sessionID := createCodexSessionHTTP(t, srv.HTTPHandler())
+	reqCtx, cancel := context.WithCancel(context.Background())
+	resp, err := postMessageHTTP(t, ts.URL, sessionID, "text/event-stream", reqCtx)
+	if err != nil {
+		t.Fatalf("POST message: %v", err)
+	}
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	partCount := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+		if strings.Contains(data, "tool_result_part") {
+			partCount++
+		}
+		if strings.Contains(data, `"type":"result"`) {
+			break
+		}
+		if partCount >= 1 {
+			cancel()
+			io.Copy(io.Discard, resp.Body)
+			break
+		}
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	sess := getSessionFromServer(t, srv.HTTPHandler(), sessionID)
+	status, _ := sess["status"].(string)
+	if status != codingagent.StatusCompleted {
+		t.Fatalf("status after disconnect = %q, want completed", status)
+	}
+}
+
+func TestRespondJSONRelay_EarlyStatusOnTerminalEvent(t *testing.T) {
+	srv := agentservice.New()
+	srv.RegisterAgent(&mockTerminalEventAgent{name: "codex"})
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	sessionID := createCodexSessionHTTP(t, srv.HTTPHandler())
+
+	statusCh := make(chan string, 1)
+	go func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			sess := getSessionFromServer(t, srv.HTTPHandler(), sessionID)
+			if s, _ := sess["status"].(string); s == codingagent.StatusCompleted {
+				statusCh <- s
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+
+	resp, err := postMessageHTTP(t, ts.URL, sessionID, "application/json", context.Background())
+	if err != nil {
+		t.Fatalf("POST message: %v", err)
+	}
+	defer resp.Body.Close()
+
+	select {
+	case status := <-statusCh:
+		if status != codingagent.StatusCompleted {
+			t.Fatalf("status = %q, want completed", status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("status not completed before JSON response finished")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status code = %d", resp.StatusCode)
+	}
+	var events []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		t.Fatalf("decode JSON events: %v", err)
+	}
+	foundResult := false
+	for _, ev := range events {
+		if typ, _ := ev["type"].(string); typ == string(codingagent.EventResult) {
+			foundResult = true
+			break
+		}
+	}
+	if !foundResult {
+		t.Fatal("expected EventResult in JSON response")
 	}
 }
 
