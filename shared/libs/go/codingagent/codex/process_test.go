@@ -32,11 +32,24 @@ func TestCodexBuildArgs(t *testing.T) {
 }
 
 func TestCodexBuildArgs_WithConfigDirDisablesIgnoreUserConfig(t *testing.T) {
+	// When ConfigDir is set, StartProcess passes ignoreUserConfig=false.
+	// When ConfigDir == "", StartProcess passes ignoreUserConfig=true (restores --ignore-user-config).
 	args := codex.BuildArgs("hi", nil, false)
 	for _, a := range args {
 		if a == "--ignore-user-config" {
 			t.Fatal("ignore-user-config must be omitted when config_dir is active")
 		}
+	}
+	cleared := codex.BuildArgs("hi", nil, true)
+	found := false
+	for _, a := range cleared {
+		if a == "--ignore-user-config" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("ignore-user-config must be present when config_dir is cleared")
 	}
 }
 

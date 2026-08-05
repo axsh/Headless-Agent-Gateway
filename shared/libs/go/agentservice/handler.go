@@ -146,22 +146,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	// ConfigDir: absolute path + existence check when non-empty.
 	if record.ConfigDir != "" {
-		if abs, err := filepath.Abs(record.ConfigDir); err == nil {
-			record.ConfigDir = abs
-		}
-		fi, err := os.Stat(record.ConfigDir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				http.Error(w, "config_dir does not exist: "+record.ConfigDir, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, "config_dir stat failed: "+err.Error(), http.StatusBadRequest)
+		resolved, status, errMsg := validateAndResolveConfigDir(record.ConfigDir)
+		if status != 0 {
+			http.Error(w, errMsg, status)
 			return
 		}
-		if !fi.IsDir() {
-			http.Error(w, "config_dir is not a directory: "+record.ConfigDir, http.StatusBadRequest)
-			return
-		}
+		record.ConfigDir = resolved
 	}
 
 	// R5: Log resolved paths for debugging.
@@ -204,6 +194,83 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(record)
+}
+
+// validateAndResolveConfigDir returns an absolute config_dir path.
+// Empty input clears config (returns "", 0, "").
+// Invalid non-empty paths return status 400 and an error message.
+func validateAndResolveConfigDir(configDir string) (resolved string, status int, errMsg string) {
+	if configDir == "" {
+		return "", 0, ""
+	}
+	resolved = configDir
+	if abs, err := filepath.Abs(configDir); err == nil {
+		resolved = abs
+	}
+	fi, err := os.Stat(resolved)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", http.StatusBadRequest, "config_dir does not exist: " + resolved
+		}
+		return "", http.StatusBadRequest, "config_dir stat failed: " + err.Error()
+	}
+	if !fi.IsDir() {
+		return "", http.StatusBadRequest, "config_dir is not a directory: " + resolved
+	}
+	return resolved, 0, ""
+}
+
+// handlePatchSession handles PATCH /api/v1/sessions/:id.
+// Body must include config_dir (string). Empty string clears config_dir
+// (no overlay on subsequent launches; Codex restores --ignore-user-config).
+// Does not modify work_dir, session_dir, or agent_session_id.
+// Overlay of the new config runs on the next SendMessage.
+func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
+	id := extractPathParam(r.URL.Path, "/api/v1/sessions/")
+	if s.logger != nil {
+		s.logger.Debug("patching session", "session_id", id)
+	}
+	record, err := s.sessions.Get(id)
+	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		ConfigDir *string `json:"config_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ConfigDir == nil {
+		http.Error(w, "config_dir is required", http.StatusBadRequest)
+		return
+	}
+
+	oldConfigDir := record.ConfigDir
+	resolved, status, errMsg := validateAndResolveConfigDir(*req.ConfigDir)
+	if status != 0 {
+		http.Error(w, errMsg, status)
+		return
+	}
+	record.ConfigDir = resolved
+	record.UpdatedAt = time.Now()
+	if err := s.sessions.Update(record); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if s.logger != nil {
+		s.logger.Debug("session config_dir updated",
+			"session_id", id,
+			"old_config_dir", oldConfigDir,
+			"config_dir", record.ConfigDir,
+			"session_dir", record.SessionDir)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(record)
 }
@@ -861,6 +928,17 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 
 	// Cancel the agent execution context.
 	s.CancelExecution(sessionID)
+
+	// Clear busy state so a subsequent SendMessage can start a new turn
+	// (e.g. after config_dir switch on the same session_id).
+	if exec, ok := s.execRegistry.Get(sessionID); ok {
+		if exec.agentSess != nil {
+			_ = exec.agentSess.Close()
+		}
+		s.execRegistry.Unregister(sessionID)
+	}
+	s.UnregisterActiveSession(sessionID)
+	s.UnregisterExecCancel(sessionID)
 
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)
