@@ -74,7 +74,8 @@ Kanban 駆動のオーケストレーション (sysnavi Agent Runner → Tern CA
 
 - `SessionRecord` に `ConfigDir` を追加し、CreateSession 時の値を保存する。
 - `GET /api/v1/sessions/:id` レスポンスに `config_dir` を含める。
-- メッセージ送信・再開時はレコード上の `config_dir` を再利用する (呼び出しごとに上書きしない。上書きが必要なら別 Issue)。
+- メッセージ送信時は **その時点のレコード上の `config_dir`** を `WithConfigDir` に渡す (R8 で更新されていれば新値が使われる)。
+- `session_dir` / `work_dir` / `agent_session_id` は Create 時の値を維持し、config 切替だけでは変更しない (会話継続の土台)。
 
 #### R3: codingagent 層への伝播
 
@@ -105,13 +106,31 @@ Kanban 駆動のオーケストレーション (sysnavi Agent Runner → Tern CA
 #### R6: クライアントライブラリとドキュメント
 
 - `client` および `client/v1` の `SessionRequest` に `ConfigDir` (`json:"config_dir,omitempty"`) を追加する。
-- `docs/ReferenceManual-WebAPIs.md` にフィールド意味・省略時互換・エージェント別優先順位を追記する。
-- `ternctl` に `--config-dir` を追加する (手動検証と E2E の利便性)。
+- R8 更新 API 用のクライアントメソッド (例: `UpdateSessionConfigDir`) を追加する。
+- `docs/ReferenceManual-WebAPIs.md` に Create 時フィールド・R8 更新 API・省略時互換・エージェント別優先順位を追記する。
+- `ternctl` に `--config-dir` (Create) および既存セッションへの config 更新手段を追加する。
 
 #### R7: 直交性の保証
 
 - 同一 `config_dir` + 異なる `session_dir` で2セッションを作成できる。
-- 同一 `session_dir` 方針を維持したまま `config_dir` のみ差し替えるケースは、オーバーレイ更新の定義をドキュメント化する (初期実装では「起動のたびにオーバーレイを再適用。セッション固有データは保持」)。
+- **同一 `session_id` + 同一 `session_dir` のまま `config_dir` だけを差し替え**、続くメッセージで新しい skills / rules が効き、会話コンテキスト (`agent_session_id` / transcript under `session_dir`) は継続できること (R8)。
+- 起動のたびに現行 `config_dir` を overlay 再適用する。セッション固有データ (`projects/` 等) は保持する。旧 config 由来の allowlisted エントリは新 overlay で差し替わる (シンボリックリンク差し替えまたはコピー上書き)。
+
+#### R8: 同一セッションでの config_dir 更新 Web API (必須)
+
+命題: 呼び出し側が **同じ Tern `session_id` を使い回したまま** レーン / プロファイル相当の config を切り替え、違うスキル等が適用されつつ会話を継続できること。
+
+- エンドポイント案 (実装計画で確定可):
+  - `PATCH /api/v1/sessions/:id` with body `{"config_dir": "/path/to/beta"}`  
+  - または `PUT /api/v1/sessions/:id/config_dir` with body `{"config_dir": "..."}`
+- セマンティクス:
+  1. 対象セッションが存在すること。無ければ 404
+  2. `config_dir` の絶対パス化・存在・ディレクトリ検証は CreateSession と同じ (不正なら 400)
+  3. `SessionRecord.ConfigDir` を更新して永続化する。`session_dir` / `work_dir` / `agent_session_id` は変更しない
+  4. 更新時点では CLI を起動しなくてよい。**次の SendMessage** (エージェントプロセス起動時) に新しい `config_dir` で overlay する
+  5. GET ですぐ新 `config_dir` が読めること
+- `client` / `client/v1` / `ternctl` / Reference Manual に当該 API を追加する
+- 空文字で「config 無効に戻す」を許すかは実装計画で決める (推奨: 明示的なクリアを許可し、以降は overlay なし + Codex は ignore-user-config 復帰)
 
 ### 任意要件
 
@@ -132,7 +151,7 @@ Kanban 駆動のオーケストレーション (sysnavi Agent Runner → Tern CA
 ### 非要件 (Out of Scope)
 
 - 設定セット自体のオーサリング・配布 (Git / EBS / manifest) — 呼び出し側の責任
-- CreateSession 以外のサイド Web API による agent home 書き換え
+- CreateSession / R8 更新 API **以外**のサイド Web API による agent home の勝手な書き換え
 - Claude / Codex 本体へのパッチ (公式にセッションと設定ルートが分離されるまでの暫定は Tern 側オーバーレイ)
 - work_dir 内プロジェクト設定 (`.claude` / `.codex`) の自動生成
 
@@ -155,10 +174,11 @@ flowchart TD
 ```
 
 1. **API フィールド名は `config_dir`** とする (明示ディレクトリが主契約。`profile` は O1)。
-2. **永続化ルートは変えず、設定ソースを追加する**。CLI 制約を吸収する責任は Tern アダプタ層に置く。
-3. **オーバーレイはアダプタ固有モジュール** (`claudecode/config_overlay.go`, `codex/config_overlay.go` など) に閉じ、共通インターフェース (例: `ApplyConfigDir(sessionDir, configDir string) error`) を codingagent に置いてもよい。
-4. **破壊的変更を避ける**: `config_dir` 省略時はバイナリ互換・挙動互換を維持 (`--ignore-user-config` 含む)。
-5. **絶対パス化**は `SessionDir` / `WorkDir` と同じく handler + `ApplyDefaults` で一貫させる。
+2. **永続化ルートは変えず、設定ソースを追加・切替可能にする**。CLI 制約は Tern アダプタの overlay で吸収する。
+3. **同一 `session_id` での config 切替は R8 更新 API + 次回起動時 overlay** で実現する (新 CreateSession を必須にしない)。
+4. **オーバーレイはアダプタ固有モジュール** に閉じ、共通 `OverlayConfigDir` を用いる。
+5. **破壊的変更を避ける**: `config_dir` 省略時の Create はバイナリ互換・挙動互換を維持。
+6. **絶対パス化**は `SessionDir` / `WorkDir` / `ConfigDir` で一貫させる。
 
 ### 変更対象 (概略)
 
@@ -214,11 +234,19 @@ Issue #30 の Acceptance ideas を転記・具体化する。
 2. それぞれ別 `session_dir` で CreateSession する。
 3. エージェントが参照する設定内容がレーンごとに異なることを確認する (skill 名やマーカーファイルで検証)。
 
-### シナリオ4: 再開継続
+### シナリオ4: 再開継続 (同一 config)
 
 1. `config_dir` 付きでセッションを作成し、メッセージを送って agent_session_id を得る。
 2. 同一 session レコードで再開 (追加メッセージ) する。
 3. 同じ `config_dir` が再適用され、会話が継続できることを確認する。
+
+### シナリオ5: 同一 session_id で config_dir 切替 (R8・命題)
+
+1. Claude (および対称で Codex) で `config_dir=alpha` のセッションを Create する。
+2. メッセージ1: alpha の skill / マーカーが効くことを確認する。
+3. R8 API で `config_dir=beta` に更新する。GET で beta であること、`session_id` / `session_dir` / `agent_session_id` が維持されることを確認する。
+4. メッセージ2: beta の skill / マーカーが効き、会話が同一セッションとして継続できること (`agent_session_id` 維持、または transcript が同一 `session_dir` に追記されること) を確認する。
+5. alpha 固有マーカーが overlay 差し替えにより効かなくなっていること (または beta マーカーのみが現れること) を確認する。
 
 ## テスト項目 (Testing)
 
