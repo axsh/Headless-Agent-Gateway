@@ -1,6 +1,6 @@
 module github.com/axsh/arctic-tern/examples/minimal-client
 
-go 1.26.4
+go 1.26.5
 
 require github.com/axsh/arctic-tern v0.0.0
 

@@ -129,7 +129,7 @@ func (a *BifrostAccount) GetKeysForProvider(ctx context.Context, providerKey bif
 		key := bifrostSchemas.Key{
 			ID:     fmt.Sprintf("%s-%d", keyCfg.Name, i),
 			Name:   keyCfg.Name,
-			Value:  bifrostSchemas.EnvVar{Val: keyValue},
+			Value:  bifrostSchemas.SecretVar{Val: keyValue},
 			Models: modelNames,
 			Weight: weight,
 		}
@@ -141,7 +141,7 @@ func (a *BifrostAccount) GetKeysForProvider(ctx context.Context, providerKey bif
 				baseURL = p.BaseURL()
 			}
 			key.OllamaKeyConfig = &bifrostSchemas.OllamaKeyConfig{
-				URL: bifrostSchemas.EnvVar{Val: baseURL},
+				URL: bifrostSchemas.SecretVar{Val: baseURL},
 			}
 		}
 

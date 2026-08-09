@@ -84,7 +84,7 @@ func roundTripAdditionalTools(t *testing.T, body []byte) []byte {
 		t.Fatal("ToBifrostResponsesRequest returned nil")
 	}
 
-	outReq := bifrostOpenAI.ToOpenAIResponsesRequest(bifrostReq)
+	outReq := bifrostOpenAI.ToOpenAIResponsesRequest(bifrostCtx, bifrostReq)
 	if outReq == nil {
 		t.Fatal("ToOpenAIResponsesRequest returned nil")
 	}
