@@ -91,7 +91,7 @@ func TestLLMGateway_Responses_AdditionalTools_RoundTrip(t *testing.T) {
 	}
 	bifrostCtx := bifrostSchemas.NewBifrostContext(context.Background(), bifrostSchemas.NoDeadline)
 	bifrostReq := oaiReq.ToBifrostResponsesRequest(bifrostCtx)
-	outReq := bifrostOpenAI.ToOpenAIResponsesRequest(bifrostReq)
+	outReq := bifrostOpenAI.ToOpenAIResponsesRequest(bifrostCtx, bifrostReq)
 	outBytes, err := outReq.MarshalJSON()
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)
