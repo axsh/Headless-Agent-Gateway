@@ -28,6 +28,8 @@ const (
 	EventProgress EventType = "progress"
 	// EventUserInputRequired indicates the agent is waiting for user input.
 	EventUserInputRequired EventType = "user_input_required"
+	// EventFunctionCall indicates the agent needs the client to run a local function.
+	EventFunctionCall EventType = "function_call"
 )
 
 // StreamEvent is a streaming event from a coding agent.
@@ -35,9 +37,12 @@ type StreamEvent struct {
 	Type       EventType              `json:"type"`
 	Content    string                 `json:"content,omitempty"`
 	PromptID   string                 `json:"prompt_id,omitempty"`
+	CallID     string                 `json:"call_id,omitempty"`
 	Choices    []string               `json:"choices,omitempty"`
 	ToolName   string                 `json:"tool_name,omitempty"`
+	Name       string                 `json:"name,omitempty"`
 	ToolInput  map[string]interface{} `json:"tool_input,omitempty"`
+	Arguments  map[string]interface{} `json:"arguments,omitempty"`
 	SessionID  string                 `json:"session_id,omitempty"`
 	ChunkID    string                 `json:"chunk_id,omitempty"`
 	ChunkIndex int                    `json:"index,omitempty"`

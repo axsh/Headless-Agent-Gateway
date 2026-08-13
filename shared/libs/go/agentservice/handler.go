@@ -37,6 +37,18 @@ type RespondRequest struct {
 	Content string `json:"content"`
 }
 
+// ToolResultsRequest is the request body for POST /api/v1/sessions/:id/tool_results.
+type ToolResultsRequest struct {
+	CallID  string `json:"call_id"`
+	Content string `json:"content"`
+	IsError bool   `json:"is_error,omitempty"`
+}
+
+// toolResultSubmitter is implemented by Wayfinder sessions that wait for client functions.
+type toolResultSubmitter interface {
+	SubmitToolResult(callID, content string, isError bool) error
+}
+
 func (s *Server) resolveAgentConfig(agentName string) config.AgentConfig {
 	return config.ResolveAgentConfig(s.profiles, agentName)
 }
@@ -289,14 +301,22 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		record.MCPServers = *req.MCPServers
+		if len(*req.MCPServers) == 0 {
+			record.MCPServers = nil
+		} else {
+			record.MCPServers = *req.MCPServers
+		}
 	}
 	if req.Functions != nil {
 		if err := toolconfig.ValidateFunctions(*req.Functions); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		record.Functions = *req.Functions
+		if len(*req.Functions) == 0 {
+			record.Functions = nil
+		} else {
+			record.Functions = *req.Functions
+		}
 	}
 
 	record.UpdatedAt = time.Now()
@@ -729,6 +749,60 @@ func (s *Server) handleRespond(w http.ResponseWriter, r *http.Request) {
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+// handleToolResults handles POST /api/v1/sessions/:id/tool_results.
+// Used when a client-defined function was requested via Function calling.
+func (s *Server) handleToolResults(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/"), "/")
+	if len(parts) < 2 || parts[1] != "tool_results" {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	sessionID := parts[0]
+
+	if _, err := s.sessions.Get(sessionID); err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	var req ToolResultsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.CallID) == "" {
+		http.Error(w, "call_id is required", http.StatusBadRequest)
+		return
+	}
+
+	exec, ok := s.execRegistry.Get(sessionID)
+	if !ok || exec == nil || exec.agentSess == nil {
+		http.Error(w, "no active execution waiting for tool results", http.StatusConflict)
+		return
+	}
+	submitter, ok := exec.agentSess.(toolResultSubmitter)
+	if !ok {
+		http.Error(w, "agent does not support tool_results", http.StatusConflict)
+		return
+	}
+	if s.logger != nil {
+		s.logger.Debug("submitting tool result",
+			"session_id", sessionID,
+			"call_id", req.CallID,
+			"is_error", req.IsError)
+	}
+	if err := submitter.SubmitToolResult(req.CallID, req.Content, req.IsError); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
 // streamSSERelay streams events from a relay. Returns next offset and whether execution suspended.

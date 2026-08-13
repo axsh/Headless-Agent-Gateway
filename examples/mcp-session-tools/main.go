@@ -1,8 +1,8 @@
 // mcp-session-tools demonstrates CreateSession / GetSession / PatchSession
-// with mcp_servers and functions via client/v1.
+// with mcp_servers and functions via the Tern client SDK.
 //
 // Prerequisites:
-//   - A running tern server
+//   - A running tern server (e.g. examples/minimal-server)
 //
 // Usage:
 //
@@ -23,9 +23,9 @@ import (
 )
 
 func main() {
-	server := flag.String("server", "http://localhost:3100", "tern agent service URL")
-	workDir := flag.String("work-dir", "", "workspace directory (default: temp dir)")
-	agent := flag.String("agent", "wayfinder", "agent name")
+	server := flag.String("server", "http://localhost:3100", "Tern agent service URL")
+	workDir := flag.String("work-dir", "", "Workspace directory (default: temp dir)")
+	agent := flag.String("agent", "wayfinder", "Agent name")
 	flag.Parse()
 
 	wd := *workDir
@@ -35,14 +35,16 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("using work_dir:", wd)
+		fmt.Println("using work-dir:", wd)
 	}
 	wd, _ = filepath.Abs(wd)
 	sessionDir := filepath.Join(wd, ".tern-session")
+	_ = os.MkdirAll(sessionDir, 0o755)
 
 	ctx := context.Background()
-	c := client.New(*server)
+	c := client.New(*server, client.WithNoTimeout())
 	enabled := true
+
 	sess, err := c.CreateSession(ctx, client.SessionRequest{
 		Agent:      *agent,
 		WorkDir:    wd,
@@ -70,16 +72,16 @@ func main() {
 		},
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("CreateSession: %v", err)
 	}
-	fmt.Println("created session:", sess.ID)
+	fmt.Println("session_id:", sess.ID)
 
 	info, err := c.GetSession(ctx, sess.ID)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("GetSession: %v", err)
 	}
-	fmt.Printf("get: mcp_servers=%d functions=%d\n", len(info.MCPServers), len(info.Functions))
-	if h := info.MCPServers["remote-docs"].Headers["Authorization"]; h != "***" && h != "" {
+	fmt.Printf("mcp_servers=%d functions=%d\n", len(info.MCPServers), len(info.Functions))
+	if h := info.MCPServers["remote-docs"].Headers["Authorization"]; h != "" && h != "***" {
 		log.Fatalf("expected masked Authorization, got %q", h)
 	}
 
@@ -90,9 +92,9 @@ func main() {
 			Args:      []string{"-y", "@modelcontextprotocol/server-filesystem", wd},
 		},
 	}
-	info, err = c.PatchSession(ctx, sess.ID, client.SessionPatch{MCPServers: &fsOnly})
+	patched, err := c.PatchSession(ctx, sess.ID, client.SessionPatch{MCPServers: &fsOnly})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("PatchSession: %v", err)
 	}
-	fmt.Printf("patched mcp_servers=%d (functions unchanged=%d)\n", len(info.MCPServers), len(info.Functions))
+	fmt.Printf("after patch mcp_servers=%d functions=%d\n", len(patched.MCPServers), len(patched.Functions))
 }

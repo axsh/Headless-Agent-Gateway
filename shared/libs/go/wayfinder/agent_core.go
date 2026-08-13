@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
@@ -19,6 +20,8 @@ import (
 const (
 	// maxIterations prevents infinite tool-calling loops.
 	maxIterations = 25
+	// functionCallTimeout is how long to wait for client tool_results.
+	functionCallTimeout = 120 * time.Second
 )
 
 // SubagentRunner is the interface for subagent execution.
@@ -45,6 +48,14 @@ type AgentCore struct {
 	runner        subagent.AgentRunner // Runner for creating child sessions (WBS)
 	subagentLLM   subagent.LLMClient   // LLM client for subagent summarization
 	emitter       *EventEmitter        // Streaming event emitter (nil = no-op)
+
+	pendingMu sync.Mutex
+	pending   map[string]chan clientToolResult
+}
+
+type clientToolResult struct {
+	content string
+	isError bool
 }
 
 // NewAgentCore creates a new AgentCore.
@@ -79,6 +90,7 @@ func NewAgentCore(llm LLMClient, config *AgentConfig, log logger.Logger) *AgentC
 		logger:        log,
 		store:         store,
 		compactionCfg: session.DefaultCompactionConfig(),
+		pending:       make(map[string]chan clientToolResult),
 	}
 }
 
@@ -271,13 +283,15 @@ func (ac *AgentCore) runSimple(ctx context.Context, prompt string) (string, erro
 				ac.logger.Info("ask_user invoked, suspending session")
 				req, _ := tools.FeedbackFromError(toolErr)
 				ac.emitter.Emit(codingagent.StreamEvent{
-					Type:     codingagent.EventUserInputRequired,
-					Content:  req.Prompt,
-					Choices:  req.Choices,
+					Type:    codingagent.EventUserInputRequired,
+					Content: req.Prompt,
+					Choices: req.Choices,
 				})
 				ac.saveSession(session.StatusSuspended)
 				return result, tools.ErrFeedbackRequired
 			}
+			// Client function calls are resolved inside executeTool (wait for tool_results).
+			_ = toolErr
 		}
 
 		// Save session after each tool round.
@@ -620,12 +634,71 @@ func (ac *AgentCore) executeTool(ctx context.Context, tc ToolCall) (string, erro
 		if errors.Is(err, tools.ErrFeedbackRequired) {
 			return result, err
 		}
+		var fcErr *tools.FunctionCallError
+		if errors.As(err, &fcErr) {
+			return ac.waitForClientFunction(ctx, fcErr.Req)
+		}
 		ac.logger.Debug("tool execution failed", "tool", tc.Name, "error", err.Error())
 		return fmt.Sprintf("Error: %v", err), nil
 	}
 
 	ac.logger.Debug("tool execution completed", "tool", tc.Name, "result_len", len(result))
 	return result, nil
+}
+
+// waitForClientFunction emits function_call and waits for SubmitToolResult.
+func (ac *AgentCore) waitForClientFunction(ctx context.Context, req tools.FunctionCallRequest) (string, error) {
+	ch := make(chan clientToolResult, 1)
+	ac.pendingMu.Lock()
+	ac.pending[req.CallID] = ch
+	ac.pendingMu.Unlock()
+	defer func() {
+		ac.pendingMu.Lock()
+		delete(ac.pending, req.CallID)
+		ac.pendingMu.Unlock()
+	}()
+
+	ac.logger.Info("waiting for client function result",
+		"call_id", req.CallID, "name", req.Name)
+	ac.emitter.Emit(codingagent.StreamEvent{
+		Type:      codingagent.EventFunctionCall,
+		CallID:    req.CallID,
+		Name:      req.Name,
+		ToolName:  req.Name,
+		Arguments: req.Arguments,
+		ToolInput: req.Arguments,
+	})
+
+	timer := time.NewTimer(functionCallTimeout)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return "Error: function call canceled", nil
+	case <-timer.C:
+		ac.logger.Warn("function call timed out", "call_id", req.CallID, "name", req.Name)
+		return "Error: function call timed out", nil
+	case res := <-ch:
+		if res.isError {
+			return fmt.Sprintf("Error: %s", res.content), nil
+		}
+		return res.content, nil
+	}
+}
+
+// SubmitToolResult delivers a client function result for a pending call_id.
+func (ac *AgentCore) SubmitToolResult(callID, content string, isError bool) error {
+	ac.pendingMu.Lock()
+	ch, ok := ac.pending[callID]
+	ac.pendingMu.Unlock()
+	if !ok {
+		return fmt.Errorf("no pending function call %q", callID)
+	}
+	select {
+	case ch <- clientToolResult{content: content, isError: isError}:
+		return nil
+	default:
+		return fmt.Errorf("function call %q already resolved", callID)
+	}
 }
 
 // Messages returns the current conversation messages (for session persistence).

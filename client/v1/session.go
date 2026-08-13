@@ -302,3 +302,42 @@ func (s *Session) UpdateConfigDir(ctx context.Context, configDir string) (*Sessi
 func (s *Session) Patch(ctx context.Context, patch SessionPatch) (*SessionInfo, error) {
 	return s.client.PatchSession(ctx, s.ID, patch)
 }
+
+// ToolResultRequest is the body for POST /api/v1/sessions/:id/tool_results.
+type ToolResultRequest struct {
+	CallID  string `json:"call_id"`
+	Content string `json:"content"`
+	IsError bool   `json:"is_error,omitempty"`
+}
+
+// SubmitToolResult posts a client-executed function result to the server.
+func (c *Client) SubmitToolResult(ctx context.Context, sessionID string, req ToolResultRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal tool result: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/api/v1/sessions/"+sessionID+"/tool_results", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create tool_results request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("tool_results: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read tool_results response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("tool_results failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// SubmitToolResult posts a function result for this session.
+func (s *Session) SubmitToolResult(ctx context.Context, req ToolResultRequest) error {
+	return s.client.SubmitToolResult(ctx, s.ID, req)
+}

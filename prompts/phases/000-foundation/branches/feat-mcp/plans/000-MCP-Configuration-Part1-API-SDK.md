@@ -4,6 +4,8 @@
 >
 > **Series**: Part 1 / 4 — 共有型・検証・Client API・Go SDK・API ドキュメント  
 > **Next**: [001-MCP-Configuration-Part2-Host-Wayfinder](file://prompts/phases/000-foundation/branches/feat-mcp/plans/001-MCP-Configuration-Part2-Host-Wayfinder.md)
+>
+> **Status**: [/] In progress
 
 ## Goal Description
 

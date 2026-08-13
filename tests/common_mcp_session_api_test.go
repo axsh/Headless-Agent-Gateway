@@ -1,4 +1,3 @@
-// Package llm_test: MCP / functions session API contract (Part 1).
 package llm_test
 
 import (
@@ -6,32 +5,30 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-
-	"github.com/axsh/arctic-tern/shared/libs/go/toolconfig"
 )
 
-func TestMCPSessionAPI_CreateGetPatch(t *testing.T) {
+func TestMCPSessionAPI_CreateGetPatchMask(t *testing.T) {
 	ts, _ := setupAgentServiceTestServer(t)
-	enabled := true
-	createBody, _ := json.Marshal(map[string]any{
+
+	body, _ := json.Marshal(map[string]any{
 		"agent":    "claudecode",
 		"work_dir": t.TempDir(),
-		"mcp_servers": map[string]toolconfig.MCPServerConfig{
-			"remote": {
-				Transport: "http",
-				URL:       "https://mcp.example.com/mcp",
-				Headers:   map[string]string{"Authorization": "Bearer secret"},
-				Enabled:   &enabled,
+		"mcp_servers": map[string]any{
+			"remote": map[string]any{
+				"transport": "http",
+				"url":       "https://mcp.example.com/mcp",
+				"headers":   map[string]string{"Authorization": "Bearer secret-token"},
+				"env":       map[string]string{"TOKEN": "secret-env"},
 			},
 		},
-		"functions": map[string]toolconfig.FunctionConfig{
-			"lookup_ticket": {
-				Description: "Look up a ticket",
-				Parameters:  json.RawMessage(`{"type":"object","properties":{"ticket_id":{"type":"string"}}}`),
+		"functions": map[string]any{
+			"lookup_ticket": map[string]any{
+				"description": "Look up a ticket",
+				"parameters":   map[string]any{"type": "object"},
 			},
 		},
 	})
-	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(createBody))
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,33 +45,21 @@ func TestMCPSessionAPI_CreateGetPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer getResp.Body.Close()
-	var got map[string]any
-	json.NewDecoder(getResp.Body).Decode(&got)
-	mcp := got["mcp_servers"].(map[string]any)
+	var record map[string]any
+	json.NewDecoder(getResp.Body).Decode(&record)
+	mcp := record["mcp_servers"].(map[string]any)
 	remote := mcp["remote"].(map[string]any)
 	headers := remote["headers"].(map[string]any)
 	if headers["Authorization"] != "***" {
-		t.Fatalf("expected masked Authorization, got %#v", headers)
+		t.Fatalf("header not masked: %#v", headers)
+	}
+	env := remote["env"].(map[string]any)
+	if env["TOKEN"] != "***" {
+		t.Fatalf("env not masked: %#v", env)
 	}
 
-	// Invalid create must 400.
-	badBody, _ := json.Marshal(map[string]any{
-		"agent":       "claudecode",
-		"work_dir":    t.TempDir(),
-		"mcp_servers": map[string]toolconfig.MCPServerConfig{"fs": {Transport: "stdio"}},
-	})
-	badResp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(badBody))
-	if err != nil {
-		t.Fatal(err)
-	}
-	badResp.Body.Close()
-	if badResp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("invalid create status=%d", badResp.StatusCode)
-	}
-
-	// Clear mcp_servers via PATCH.
-	patchBody, _ := json.Marshal(map[string]any{"mcp_servers": map[string]any{}})
-	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/sessions/"+sid, bytes.NewReader(patchBody))
+	clearBody, _ := json.Marshal(map[string]any{"mcp_servers": map[string]any{}})
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/v1/sessions/"+sid, bytes.NewReader(clearBody))
 	req.Header.Set("Content-Type", "application/json")
 	patchResp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -84,15 +69,30 @@ func TestMCPSessionAPI_CreateGetPatch(t *testing.T) {
 	if patchResp.StatusCode != http.StatusOK {
 		t.Fatalf("patch status=%d", patchResp.StatusCode)
 	}
+}
 
-	// Omit tools on create remains compatible.
-	omitBody, _ := json.Marshal(map[string]string{"agent": "claudecode", "work_dir": t.TempDir()})
-	omitResp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(omitBody))
+func TestMCPSessionAPI_InvalidCreate(t *testing.T) {
+	ts, _ := setupAgentServiceTestServer(t)
+	body, _ := json.Marshal(map[string]any{
+		"agent": "claudecode",
+		"mcp_servers": map[string]any{
+			"bad": map[string]any{"transport": "stdio"},
+		},
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	omitResp.Body.Close()
-	if omitResp.StatusCode != http.StatusCreated {
-		t.Fatalf("omit create status=%d", omitResp.StatusCode)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d want 400", resp.StatusCode)
+	}
+}
+
+func TestMCPSessionAPI_OmitToolsCompatible(t *testing.T) {
+	ts, _ := setupAgentServiceTestServer(t)
+	sid := createAgentServiceSession(t, ts.URL, "claudecode")
+	if sid == "" {
+		t.Fatal("empty session id")
 	}
 }

@@ -10,41 +10,38 @@ import (
 )
 
 func TestCreateGetPatchSessionTools(t *testing.T) {
+	var gotCreateBody map[string]any
 	mux := http.NewServeMux()
-	var stored map[string]any
 	mux.HandleFunc("/api/v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			http.Error(w, "method", http.StatusMethodNotAllowed)
-			return
+			t.Fatalf("method = %s", r.Method)
 		}
-		var req SessionRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		stored = map[string]any{
-			"id":          "sess-1",
-			"agent_name":  req.Agent,
-			"work_dir":    req.WorkDir,
-			"mcp_servers": toolconfig.MaskMCPServers(req.MCPServers),
-			"functions":   req.Functions,
-		}
+		json.NewDecoder(r.Body).Decode(&gotCreateBody)
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"session_id": "sess-1", "status": "created"})
+		json.NewEncoder(w).Encode(map[string]string{"session_id": "s1", "status": "created"})
 	})
-	mux.HandleFunc("/api/v1/sessions/sess-1", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/sessions/s1", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			json.NewEncoder(w).Encode(stored)
+			json.NewEncoder(w).Encode(SessionInfo{
+				ID: "s1",
+				MCPServers: map[string]toolconfig.MCPServerConfig{
+					"remote": {
+						Transport: "http",
+						URL:       "https://mcp.example.com/mcp",
+						Headers:   map[string]string{"Authorization": "***"},
+					},
+				},
+			})
 		case http.MethodPatch:
 			var patch SessionPatch
 			json.NewDecoder(r.Body).Decode(&patch)
-			if patch.MCPServers != nil {
-				stored["mcp_servers"] = toolconfig.MaskMCPServers(*patch.MCPServers)
+			if patch.MCPServers == nil {
+				t.Fatalf("expected mcp_servers in patch")
 			}
-			json.NewEncoder(w).Encode(stored)
+			json.NewEncoder(w).Encode(SessionInfo{ID: "s1", MCPServers: *patch.MCPServers})
 		default:
-			http.Error(w, "method", http.StatusMethodNotAllowed)
+			t.Fatalf("unexpected method %s", r.Method)
 		}
 	})
 	ts := httptest.NewServer(mux)
@@ -56,12 +53,7 @@ func TestCreateGetPatchSessionTools(t *testing.T) {
 		Agent:   "wayfinder",
 		WorkDir: "/tmp/ws",
 		MCPServers: map[string]toolconfig.MCPServerConfig{
-			"remote": {
-				Transport: "http",
-				URL:       "https://mcp.example.com/mcp",
-				Headers:   map[string]string{"Authorization": "Bearer x"},
-				Enabled:   &enabled,
-			},
+			"remote": {Transport: "http", URL: "https://mcp.example.com/mcp", Enabled: &enabled},
 		},
 		Functions: map[string]toolconfig.FunctionConfig{
 			"lookup_ticket": {
@@ -73,19 +65,27 @@ func TestCreateGetPatchSessionTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if sess.ID != "s1" {
+		t.Fatalf("id = %s", sess.ID)
+	}
+	if gotCreateBody["mcp_servers"] == nil {
+		t.Fatalf("create body missing mcp_servers: %#v", gotCreateBody)
+	}
+
 	info, err := c.GetSession(t.Context(), sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.MCPServers["remote"].Headers["Authorization"] != "***" {
-		t.Fatalf("expected masked header, got %#v", info.MCPServers)
+		t.Fatalf("masked header missing: %#v", info.MCPServers)
 	}
+
 	empty := map[string]toolconfig.MCPServerConfig{}
-	info, err = c.PatchSession(t.Context(), sess.ID, SessionPatch{MCPServers: &empty})
+	patched, err := c.PatchSession(t.Context(), sess.ID, SessionPatch{MCPServers: &empty})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(info.MCPServers) != 0 {
-		t.Fatalf("expected cleared mcp_servers, got %#v", info.MCPServers)
+	if len(patched.MCPServers) != 0 {
+		t.Fatalf("expected cleared mcp_servers")
 	}
 }

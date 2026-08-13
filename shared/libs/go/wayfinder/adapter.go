@@ -90,6 +90,13 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 			"servers", len(cfg.MCPServers),
 			"tool_groups", len(toolsByServer))
 	}
+	if len(cfg.Functions) > 0 {
+		if err := RegisterClientFunctions(core.Registry(), cfg.Functions); err != nil {
+			return nil, fmt.Errorf("wayfinder: register functions: %w", err)
+		}
+		a.logger.Info("client functions registered",
+			"session_id", sessionID, "count", len(cfg.Functions))
+	}
 
 	// === Wire all components ===
 
@@ -216,6 +223,11 @@ func (s *wayfinderSession) Close() error {
 		_ = s.mcpMgr.Close()
 	}
 	return nil
+}
+
+// SubmitToolResult delivers a client-executed function result to AgentCore.
+func (s *wayfinderSession) SubmitToolResult(callID, content string, isError bool) error {
+	return s.core.SubmitToolResult(callID, content, isError)
 }
 
 // generateSessionID creates a simple unique session ID.

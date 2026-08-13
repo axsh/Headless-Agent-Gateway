@@ -392,6 +392,8 @@ func (s *Server) routeSessionByID(w http.ResponseWriter, r *http.Request) {
 		s.handleSendMessage(w, r)
 	} else if strings.HasSuffix(path, "/respond") {
 		s.handleRespond(w, r)
+	} else if strings.HasSuffix(path, "/tool_results") {
+		s.handleToolResults(w, r)
 	} else if strings.HasSuffix(path, "/terminate") {
 		s.handleTerminate(w, r)
 	} else if strings.HasSuffix(path, "/logs") {
