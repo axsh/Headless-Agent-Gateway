@@ -8,6 +8,7 @@ import (
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
+	"github.com/axsh/arctic-tern/shared/libs/go/mcp"
 	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/planning"
 	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/subagent"
 )
@@ -69,14 +70,28 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 	llmClient := NewBifrostClient(a.baseURL, a.token)
 	core := NewAgentCore(llmClient, agentCfg, a.logger)
 
-	// === Wire all components ===
-
 	// 1. Session ID.
 	sessionID := cfg.AgentSessionID
 	if sessionID == "" {
 		sessionID = generateSessionID()
 	}
 	core.SetSessionID(sessionID)
+
+	var mcpMgr *mcp.Manager
+	if len(cfg.MCPServers) > 0 {
+		mcpMgr = mcp.NewManager(sessionID, nil, nil)
+		if err := mcpMgr.ConnectAll(ctx, cfg.MCPServers); err != nil {
+			a.logger.Warn("mcp connectall returned error", "err", err)
+		}
+		toolsByServer, _ := mcpMgr.ListAllTools(ctx)
+		RegisterMCPTools(core.Registry(), mcpMgr, toolsByServer)
+		a.logger.Info("mcp tools registered",
+			"session_id", sessionID,
+			"servers", len(cfg.MCPServers),
+			"tool_groups", len(toolsByServer))
+	}
+
+	// === Wire all components ===
 
 	// 2. Session resume (restore messages from existing session).
 	if cfg.AgentSessionID != "" {
@@ -122,6 +137,7 @@ func (a *Adapter) CreateSession(ctx context.Context, opts ...codingagent.Session
 		config: agentCfg,
 		logger: a.logger,
 		prompt: cfg.Prompt,
+		mcpMgr: mcpMgr,
 	}, nil
 }
 
@@ -137,6 +153,7 @@ type wayfinderSession struct {
 	config *AgentConfig
 	logger logger.Logger
 	prompt string
+	mcpMgr *mcp.Manager
 	mu     sync.Mutex
 }
 
@@ -195,6 +212,9 @@ func (s *wayfinderSession) Send(ctx context.Context, message string) (<-chan cod
 // Close terminates the session.
 func (s *wayfinderSession) Close() error {
 	s.logger.Debug("session closed", "session_id", s.id)
+	if s.mcpMgr != nil {
+		_ = s.mcpMgr.Close()
+	}
 	return nil
 }
 

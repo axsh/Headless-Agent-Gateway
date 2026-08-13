@@ -82,6 +82,11 @@ func NewAgentCore(llm LLMClient, config *AgentConfig, log logger.Logger) *AgentC
 	}
 }
 
+// Registry returns the tool registry (for MCP / function registration).
+func (ac *AgentCore) Registry() *tools.Registry {
+	return ac.registry
+}
+
 // Run executes the agent with a user prompt.
 // It determines the execution route and dispatches accordingly.
 func (ac *AgentCore) Run(ctx context.Context, prompt string) (string, error) {

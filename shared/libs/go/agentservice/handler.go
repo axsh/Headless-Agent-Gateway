@@ -470,6 +470,12 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if record.ConfigDir != "" {
 		opts = append(opts, codingagent.WithConfigDir(record.ConfigDir))
 	}
+	if len(record.MCPServers) > 0 {
+		opts = append(opts, codingagent.WithMCPServers(record.MCPServers))
+	}
+	if len(record.Functions) > 0 {
+		opts = append(opts, codingagent.WithFunctions(record.Functions))
+	}
 	if agentCfg.ScannerMaxTokenBytes > 0 {
 		opts = append(opts, codingagent.WithScannerMaxTokenBytes(agentCfg.ScannerMaxTokenBytes))
 	}

@@ -1,6 +1,10 @@
 package codingagent
 
-import "path/filepath"
+import (
+	"path/filepath"
+
+	"github.com/axsh/arctic-tern/shared/libs/go/toolconfig"
+)
 
 // SessionOption configures a session at creation time.
 type SessionOption func(*SessionConfig)
@@ -30,6 +34,12 @@ type SessionConfig struct {
 	// entries into SessionDir before launch. Empty means disabled
 	// (backward compatible: no overlay).
 	ConfigDir string
+
+	// MCPServers are session-scoped MCP server definitions (Client API).
+	MCPServers map[string]toolconfig.MCPServerConfig
+
+	// Functions are session-scoped client function schemas (Client API).
+	Functions map[string]toolconfig.FunctionConfig
 
 	// VFS mounts (container execution)
 	VFSMounts []VFSMount // Host->container file mappings
@@ -97,6 +107,16 @@ func WithSessionDir(dir string) SessionOption {
 // WithConfigDir sets the optional agent config set directory.
 func WithConfigDir(dir string) SessionOption {
 	return func(c *SessionConfig) { c.ConfigDir = dir }
+}
+
+// WithMCPServers sets session-scoped MCP server definitions.
+func WithMCPServers(servers map[string]toolconfig.MCPServerConfig) SessionOption {
+	return func(c *SessionConfig) { c.MCPServers = servers }
+}
+
+// WithFunctions sets session-scoped client function schemas.
+func WithFunctions(fns map[string]toolconfig.FunctionConfig) SessionOption {
+	return func(c *SessionConfig) { c.Functions = fns }
 }
 
 // WithExecutionMode sets the execution mode for stdin handling.
