@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -38,7 +39,7 @@ func ParseShellCommand(command string) []ParsedFileOp {
 
 	add := func(path, op string) {
 		path = stripQuotes(path)
-		if path == "" {
+		if path == "" || isIgnoredArtifactPath(path) {
 			return
 		}
 		if existing, ok := seen[path]; ok {
@@ -122,6 +123,22 @@ func stripQuotes(s string) string {
 		}
 	}
 	return s
+}
+
+// isIgnoredArtifactPath reports paths that must not become System Artifacts
+// (device nodes and OS null devices used as redirect/tee targets).
+func isIgnoredArtifactPath(path string) bool {
+	p := strings.TrimSpace(stripQuotes(path))
+	if p == "" {
+		return true
+	}
+	norm := strings.ToLower(filepath.ToSlash(p))
+	norm = strings.TrimSuffix(norm, ":")
+	switch norm {
+	case "/dev/null", "/dev/stdout", "/dev/stderr", "nul":
+		return true
+	}
+	return false
 }
 
 func priority(op string) int {
