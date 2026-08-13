@@ -275,7 +275,7 @@ flowchart TB
 
   subgraph CLIPath["Claude / Codex path"]
     Inject["Native MCP inject R8"]
-    Claude["Claude settings.json"]
+    Claude["Claude work_dir/.mcp.json"]
     Codex["Codex config.toml"]
   end
 
@@ -655,7 +655,7 @@ func main() {
 | MCP Manager | list/call、部分障害、クリーンアップ |
 | FC ブリッジ | function_call 通知、tool_results 適用、タイムアウト |
 | Wayfinder 接続 | 定義の Registry 載荷とディスパッチ分岐 |
-| Claude / Codex 注入 | `mcp_servers` → settings.json / config.toml へのマッピング、マージ、Vault 解決 |
+| Claude / Codex 注入 | `mcp_servers` → `.mcp.json` / `config.toml` へのマッピング、マージ、Vault 解決 |
 | client/v1 | マーシャリングとヘルパ |
 
 ### 統合テスト
