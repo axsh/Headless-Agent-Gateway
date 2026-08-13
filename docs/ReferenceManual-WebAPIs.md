@@ -116,14 +116,42 @@ Initializes a new coding session.
   - `work_dir` (string, Required): The absolute workspace directory path where the agent will operate.
   - `session_dir` (string, Optional): The directory path to store session data. Defaults to `work_dir/.{agent_name}`.
   - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into `session_dir` before launching the agent. When omitted, behavior is unchanged from previous versions (no overlay).
+  - `mcp_servers` (object, Optional): Named MCP server definitions (`stdio` or `http`). Validated on create; invalid configs return `400` and do not create a session. See [MCP and local functions](#mcp-and-local-functions).
+  - `functions` (object, Optional): Client-defined function schemas for Function calling (Wayfinder). Names must not start with `mcp__`.
   - Paths (`work_dir`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
   ```json
   {
-    "agent": "claudecode",
-    "model": "claude-3-5-sonnet-20241022",
+    "agent": "wayfinder",
+    "model": "qwen2.5-coder:7b",
     "work_dir": "/path/to/workspace",
-    "session_dir": "/path/to/tern-sessions/card-1",
-    "config_dir": "/path/to/config-sets/alpha"
+    "session_dir": "/path/to/tern-sessions/job-1",
+    "mcp_servers": {
+      "filesystem": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+      },
+      "remote-docs": {
+        "transport": "http",
+        "url": "https://mcp.example.com/mcp",
+        "headers": {
+          "Authorization": "vault://mcp/remote-docs/token"
+        },
+        "timeout_ms": 30000
+      }
+    },
+    "functions": {
+      "lookup_ticket": {
+        "description": "Look up a ticket by ID",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ticket_id": { "type": "string" }
+          },
+          "required": ["ticket_id"]
+        }
+      }
+    }
   }
   ```
   - Persistence env mapping remains: Claude Code uses `CLAUDE_CONFIG_DIR=session_dir`; Codex uses `CODEX_HOME=session_dir`.
@@ -149,15 +177,35 @@ Retrieves metadata and the active state of a created session.
 - **Path**: `/api/v1/sessions/:id`
 - **Response (200 OK)**:
   - `status`: The execution state of the session (`active`, `completed`, `error`, `closed`).
+  - `mcp_servers` / `functions`: Present when configured. Values in `mcp_servers.*.headers` and `mcp_servers.*.env` are masked as `***`.
   ```json
   {
     "id": "a95db64cb646901efb395a18d817a37d",
-    "agent_name": "claudecode",
-    "model": "claude-3-5-sonnet-20241022",
+    "agent_name": "wayfinder",
+    "model": "qwen2.5-coder:7b",
     "status": "active",
     "work_dir": "/path/to/workspace",
-    "session_dir": "/path/to/workspace/.claudecode",
-    "config_dir": "/path/to/config-sets/alpha",
+    "session_dir": "/path/to/tern-sessions/job-1",
+    "mcp_servers": {
+      "remote-docs": {
+        "transport": "http",
+        "url": "https://mcp.example.com/mcp",
+        "headers": { "Authorization": "***" },
+        "timeout_ms": 30000
+      }
+    },
+    "functions": {
+      "lookup_ticket": {
+        "description": "Look up a ticket by ID",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ticket_id": { "type": "string" }
+          },
+          "required": ["ticket_id"]
+        }
+      }
+    },
     "agent_session_id": "agent-internal-session-id",
     "error": ""
   }
@@ -166,24 +214,63 @@ Retrieves metadata and the active state of a created session.
 
 ---
 
-### 6. Update Session (`config_dir`)
+### 6. Update Session (`config_dir`, `mcp_servers`, `functions`)
 
-Updates `config_dir` on an existing session without changing `work_dir`, `session_dir`, or `agent_session_id`. Overlay of the new config runs on the **next** message send (when the agent process starts). Updating `config_dir` does **not** require `terminate`; the same Tern `session_id` continues and the next SendMessage resumes the agent conversation (`agent_session_id` — Claude `--resume`, Codex `exec resume`) while applying the new overlay. `terminate` ends active execution and closes session status; it is not part of the normal config-switch flow. Named `profile` resolution is out of scope; pass an absolute or process-visible directory path.
+Updates selected session fields without changing `work_dir`, `session_dir`, or `agent_session_id`. Changes apply on the **next** message send (when the agent process starts). Updating these fields does **not** require `terminate`.
 
 - **Method**: `PATCH`
 - **Path**: `/api/v1/sessions/:id`
-- **Request Body (JSON)**:
-  - `config_dir` (string, required): Path to the config set directory. An empty string clears `config_dir` (disables overlay; Codex restores `--ignore-user-config` on subsequent launches).
-- **Example**:
+- **Request Body (JSON)**: At least one of the following must be present (omitted fields are left unchanged):
+  - `config_dir` (string): Path to the config set directory. An empty string clears `config_dir`.
+  - `mcp_servers` (object): Full replacement of MCP servers. Use `{}` to clear.
+  - `functions` (object): Full replacement of local functions. Use `{}` to clear.
+- **Example** (replace MCP only):
   ```json
   {
-    "config_dir": "/path/to/config-sets/beta"
+    "mcp_servers": {
+      "filesystem": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
+      }
+    }
   }
   ```
-- **Response (200 OK)**: Full session record (same shape as Get Session).
+- **Response (200 OK)**: Full session record (same shape as Get Session, with MCP secrets masked).
 - **Errors**:
   - `404` session not found
-  - `400` missing `config_dir`, path does not exist, or path is not a directory
+  - `400` no updatable fields, invalid path, or invalid MCP/function schema
+
+### MCP and local functions
+
+Session-scoped tools are configured only via the Client API (not `config.yaml`).
+
+| Field | Purpose |
+|-------|---------|
+| `mcp_servers` | External MCP servers (`transport`: `stdio` or `http`) |
+| `functions` | Client-executed Function calling schemas (Wayfinder) |
+
+Claude Code / Codex receive `mcp_servers` via native config injection on agent start (see implementation notes). Wayfinder connects as an MCP host. Submitting results for local functions uses `POST /api/v1/sessions/:id/tool_results` (documented when Function calling wiring ships).
+
+Runnable Go sample: `examples/mcp-session-tools/`.
+
+---
+
+### 6b. Update Session (`config_dir` only) — compatibility note
+
+The previous `config_dir`-only PATCH body remains supported:
+
+```json
+{
+  "config_dir": "/path/to/config-sets/beta"
+}
+```
+
+Named `profile` resolution is out of scope; pass an absolute or process-visible directory path.
+
+- **Errors** (config_dir path):
+  - `404` session not found
+  - `400` path does not exist, or path is not a directory
 
 ---
 

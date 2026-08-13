@@ -17,6 +17,7 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/toolconfig"
 	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
@@ -73,12 +74,14 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 // handleCreateSession handles POST /api/v1/sessions.
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Agent      string `json:"agent"`
-		Model      string `json:"model"`
-		WorkDir    string `json:"work_dir"`
-		Prompt     string `json:"prompt"`
-		SessionDir string `json:"session_dir"`
-		ConfigDir  string `json:"config_dir"`
+		Agent      string                                `json:"agent"`
+		Model      string                                `json:"model"`
+		WorkDir    string                                `json:"work_dir"`
+		Prompt     string                                `json:"prompt"`
+		SessionDir string                                `json:"session_dir"`
+		ConfigDir  string                                `json:"config_dir"`
+		MCPServers map[string]toolconfig.MCPServerConfig `json:"mcp_servers"`
+		Functions  map[string]toolconfig.FunctionConfig  `json:"functions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -86,11 +89,21 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.logger != nil {
-		s.logger.Debug("creating session", "agent", req.Agent, "model", req.Model, "work_dir", req.WorkDir)
+		s.logger.Debug("creating session",
+			"agent", req.Agent,
+			"model", req.Model,
+			"work_dir", req.WorkDir,
+			"mcp_server_count", len(req.MCPServers),
+			"function_count", len(req.Functions))
 	}
 
 	if _, ok := s.agents[req.Agent]; !ok {
 		http.Error(w, "unknown agent: "+req.Agent, http.StatusBadRequest)
+		return
+	}
+
+	if err := toolconfig.ValidateSessionTools(req.MCPServers, req.Functions); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -119,6 +132,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		WorkDir:    req.WorkDir,
 		SessionDir: req.SessionDir,
 		ConfigDir:  req.ConfigDir,
+		MCPServers: req.MCPServers,
+		Functions:  req.Functions,
 	}
 
 	// R2, R4: Resolve WorkDir to absolute path for record consistency.
@@ -195,8 +210,15 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
+	encodeSessionRecord(w, record)
+}
+
+// encodeSessionRecord writes a session record with MCP secrets masked.
+func encodeSessionRecord(w http.ResponseWriter, record *codingagent.SessionRecord) {
+	out := *record
+	out.MCPServers = toolconfig.MaskMCPServers(record.MCPServers)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(record)
+	json.NewEncoder(w).Encode(out)
 }
 
 // validateAndResolveConfigDir returns an absolute config_dir path.
@@ -224,10 +246,10 @@ func validateAndResolveConfigDir(configDir string) (resolved string, status int,
 }
 
 // handlePatchSession handles PATCH /api/v1/sessions/:id.
-// Body must include config_dir (string). Empty string clears config_dir
-// (no overlay on subsequent launches; Codex restores --ignore-user-config).
-// Does not modify work_dir, session_dir, or agent_session_id.
-// Overlay of the new config runs on the next SendMessage.
+// At least one of config_dir, mcp_servers, functions must be present.
+// Omitted fields are unchanged; empty object clears mcp_servers/functions;
+// empty string clears config_dir. Does not modify work_dir, session_dir, or
+// agent_session_id. Overlay / MCP inject apply on the next SendMessage.
 func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 	id := extractPathParam(r.URL.Path, "/api/v1/sessions/")
 	if s.logger != nil {
@@ -240,24 +262,43 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ConfigDir *string `json:"config_dir"`
+		ConfigDir  *string                                 `json:"config_dir"`
+		MCPServers *map[string]toolconfig.MCPServerConfig  `json:"mcp_servers"`
+		Functions  *map[string]toolconfig.FunctionConfig   `json:"functions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.ConfigDir == nil {
-		http.Error(w, "config_dir is required", http.StatusBadRequest)
+	if req.ConfigDir == nil && req.MCPServers == nil && req.Functions == nil {
+		http.Error(w, "at least one of config_dir, mcp_servers, functions is required", http.StatusBadRequest)
 		return
 	}
 
 	oldConfigDir := record.ConfigDir
-	resolved, status, errMsg := validateAndResolveConfigDir(*req.ConfigDir)
-	if status != 0 {
-		http.Error(w, errMsg, status)
-		return
+	if req.ConfigDir != nil {
+		resolved, status, errMsg := validateAndResolveConfigDir(*req.ConfigDir)
+		if status != 0 {
+			http.Error(w, errMsg, status)
+			return
+		}
+		record.ConfigDir = resolved
 	}
-	record.ConfigDir = resolved
+	if req.MCPServers != nil {
+		if err := toolconfig.ValidateMCPServers(*req.MCPServers); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		record.MCPServers = *req.MCPServers
+	}
+	if req.Functions != nil {
+		if err := toolconfig.ValidateFunctions(*req.Functions); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		record.Functions = *req.Functions
+	}
+
 	record.UpdatedAt = time.Now()
 	if err := s.sessions.Update(record); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -265,15 +306,16 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.logger != nil {
-		s.logger.Debug("session config_dir updated",
+		s.logger.Debug("session patched",
 			"session_id", id,
 			"old_config_dir", oldConfigDir,
 			"config_dir", record.ConfigDir,
+			"mcp_server_count", len(record.MCPServers),
+			"function_count", len(record.Functions),
 			"session_dir", record.SessionDir)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(record)
+	encodeSessionRecord(w, record)
 }
 
 // handleDeleteSession handles DELETE /api/v1/sessions/:id.

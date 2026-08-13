@@ -8,22 +8,26 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/axsh/arctic-tern/shared/libs/go/toolconfig"
 )
 
 // SessionInfo is the typed session record returned by GetSession and
-// UpdateSessionConfigDir. Field names match the CAWA JSON (snake_case tags).
+// PatchSession. Field names match the CAWA JSON (snake_case tags).
 type SessionInfo struct {
-	ID             string    `json:"id"`
-	AgentName      string    `json:"agent_name"`
-	Model          string    `json:"model"`
-	Status         string    `json:"status"`
-	Error          string    `json:"error,omitempty"`
-	WorkDir        string    `json:"work_dir"`
-	AgentSessionID string    `json:"agent_session_id"`
-	SessionDir     string    `json:"session_dir"`
-	ConfigDir      string    `json:"config_dir,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string                                `json:"id"`
+	AgentName      string                                `json:"agent_name"`
+	Model          string                                `json:"model"`
+	Status         string                                `json:"status"`
+	Error          string                                `json:"error,omitempty"`
+	WorkDir        string                                `json:"work_dir"`
+	AgentSessionID string                                `json:"agent_session_id"`
+	SessionDir     string                                `json:"session_dir"`
+	ConfigDir      string                                `json:"config_dir,omitempty"`
+	MCPServers     map[string]toolconfig.MCPServerConfig `json:"mcp_servers,omitempty"`
+	Functions      map[string]toolconfig.FunctionConfig  `json:"functions,omitempty"`
+	CreatedAt      time.Time                             `json:"created_at"`
+	UpdatedAt      time.Time                             `json:"updated_at"`
 }
 
 // Session represents an active coding agent session.
@@ -40,11 +44,21 @@ func ResumeSession(c *Client, sessionID string) *Session {
 
 // SessionRequest is the request to create a session.
 type SessionRequest struct {
-	Agent      string `json:"agent"`
-	Model      string `json:"model,omitempty"`
-	WorkDir    string `json:"work_dir"`
-	SessionDir string `json:"session_dir,omitempty"`
-	ConfigDir  string `json:"config_dir,omitempty"`
+	Agent      string                                `json:"agent"`
+	Model      string                                `json:"model,omitempty"`
+	WorkDir    string                                `json:"work_dir"`
+	SessionDir string                                `json:"session_dir,omitempty"`
+	ConfigDir  string                                `json:"config_dir,omitempty"`
+	MCPServers map[string]toolconfig.MCPServerConfig `json:"mcp_servers,omitempty"`
+	Functions  map[string]toolconfig.FunctionConfig  `json:"functions,omitempty"`
+}
+
+// SessionPatch is the body for PATCH /api/v1/sessions/:id.
+// Omitted pointer fields are left unchanged on the server.
+type SessionPatch struct {
+	ConfigDir  *string                                `json:"config_dir,omitempty"`
+	MCPServers *map[string]toolconfig.MCPServerConfig `json:"mcp_servers,omitempty"`
+	Functions  *map[string]toolconfig.FunctionConfig  `json:"functions,omitempty"`
 }
 
 // CreateSession creates a new session and returns a Session object.
@@ -243,7 +257,12 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*SessionInfo
 //   - Do not Terminate between turns merely to switch config_dir; terminate is
 //     only for forced teardown / cleanup after the demo.
 func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDir string) (*SessionInfo, error) {
-	body, err := json.Marshal(map[string]string{"config_dir": configDir})
+	return c.PatchSession(ctx, sessionID, SessionPatch{ConfigDir: &configDir})
+}
+
+// PatchSession updates selected session fields via PATCH /api/v1/sessions/:id.
+func (c *Client) PatchSession(ctx context.Context, sessionID string, patch SessionPatch) (*SessionInfo, error) {
+	body, err := json.Marshal(patch)
 	if err != nil {
 		return nil, fmt.Errorf("marshal patch request: %w", err)
 	}
@@ -277,4 +296,9 @@ func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDi
 // UpdateConfigDir updates config_dir for this session (see UpdateSessionConfigDir).
 func (s *Session) UpdateConfigDir(ctx context.Context, configDir string) (*SessionInfo, error) {
 	return s.client.UpdateSessionConfigDir(ctx, s.ID, configDir)
+}
+
+// Patch updates selected fields for this session (see PatchSession).
+func (s *Session) Patch(ctx context.Context, patch SessionPatch) (*SessionInfo, error) {
+	return s.client.PatchSession(ctx, s.ID, patch)
 }
