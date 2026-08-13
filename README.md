@@ -203,6 +203,9 @@ stream.Output(os.Stdout)
 ```go
 err := session.SendTextWithHandlers(ctx, "Refactor the auth module", client.StreamHandlers{
     OnText: func(text string) { fmt.Print(text) },
+    OnToolUse: func(toolName string, toolInput map[string]any) {
+        fmt.Printf("tool=%s input=%v\n", toolName, toolInput)
+    },
     OnUserInputRequired: func(ev client.UserInputRequiredEvent) (string, error) {
         // ev.Content holds the question; ev.Choices holds structured options (Wayfinder only)
         return "Use the default approach and continue", nil
@@ -211,6 +214,8 @@ err := session.SendTextWithHandlers(ctx, "Refactor the auth module", client.Stre
 ```
 
 If `OnUserInputRequired` is not set, the SDK stops with an error when input is required. This prevents unintended auto-responses.
+
+`OnToolUse` receives tool arguments from the SSE `tool_input` field (`Event.ToolInput`). This is a breaking change from the previous `func(toolName string)` signature; see [docs/client-sse-tool-input.md](docs/client-sse-tool-input.md).
 
 While a session is `suspended`, only `respond` and `terminate` are accepted. Sending a new message to the same session returns HTTP 409 Conflict.
 
@@ -597,6 +602,9 @@ stream.Output(os.Stdout)
 // 3. Interactive message with user-input callback
 _ = session.SendTextWithHandlers(ctx, "Refactor auth.go", client.StreamHandlers{
     OnText: func(text string) { fmt.Print(text) },
+    OnToolUse: func(toolName string, toolInput map[string]any) {
+        fmt.Printf("tool=%s input=%v\n", toolName, toolInput)
+    },
     OnUserInputRequired: func(ev client.UserInputRequiredEvent) (string, error) {
         return "Proceed with the safer option", nil
     },
