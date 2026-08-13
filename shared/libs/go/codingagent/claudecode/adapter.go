@@ -50,6 +50,15 @@ func (a *ClaudeCodeAdapter) CreateSession(
 		return nil, fmt.Errorf("claudecode: apply config_dir: %w", err)
 	}
 
+	if len(cfg.MCPServers) > 0 {
+		keys := ManagedMCPKeys(cfg.MCPServers)
+		if err := InjectMCPServers(cfg.WorkDir, keys, cfg.MCPServers, nil); err != nil {
+			return nil, fmt.Errorf("claudecode: inject mcp: %w", err)
+		}
+		a.logger.Info("injected mcp servers into .mcp.json",
+			"work_dir", cfg.WorkDir, "count", len(cfg.MCPServers))
+	}
+
 	ch, pm, err := StartProcess(ctx, a.config, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("claudecode: create session: %w", err)

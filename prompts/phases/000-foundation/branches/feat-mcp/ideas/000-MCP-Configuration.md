@@ -202,7 +202,7 @@ Client API で指定したツールは、エージェント実行時に LLM の 
 
 Client API の `mcp_servers` を、各 Coding Agent が理解するネイティブ MCP 設定へ書き出し、エージェント起動時に利用可能にすること。
 
-- **R8-1**: Claude Code — セッション設定ルート (現行の `session_dir` / `CLAUDE_CONFIG_DIR` 配下、または既存オーバーレイ先) の MCP 設定 (例: `settings.json` の MCP サーバ定義) へ、`mcp_servers` を注入する
+- **R8-1**: Claude Code — `{work_dir}/.mcp.json` の project-scope `mcpServers` へ、`mcp_servers` を注入する（Claude Code は `settings.json` の mcpServers を読まない）
 - **R8-2**: Codex — セッション設定ルート (現行の `session_dir` / `CODEX_HOME` 配下) の MCP 設定 (例: `config.toml` の MCP サーバ定義) へ、`mcp_servers` を注入する
 - **R8-3**: `stdio` と `http` (HTTPS 含む) の両方を、各エージェントがサポートする形式へマッピングする。エージェント側が非対応のフィールドがあれば、実装計画で明示し劣化方針を決める
 - **R8-4**: 注入はエージェントプロセス起動前に行い、`config_dir` オーバーレイと同様に **次の起動から有効** とする。PATCH で `mcp_servers` を更新した場合も次回起動で再注入する

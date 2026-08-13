@@ -66,6 +66,19 @@ func (a *CodexAdapter) CreateSession(
 		codexHome = ""
 	}
 
+	injectDir := cfg.SessionDir
+	if injectDir == "" {
+		injectDir = codexHome
+	}
+	if injectDir != "" && len(cfg.MCPServers) > 0 {
+		keys := ManagedMCPKeys(cfg.MCPServers)
+		if err := InjectMCPServers(injectDir, keys, cfg.MCPServers, nil); err != nil {
+			return nil, fmt.Errorf("codex: inject mcp: %w", err)
+		}
+		a.logger.Info("injected mcp servers into config.toml",
+			"session_dir", injectDir, "count", len(cfg.MCPServers))
+	}
+
 	ch, pm, err := StartProcess(ctx, a.config, cfg, configOverrides, codexHome)
 	if err != nil {
 		a.logger.Error("failed to start codex process", "error", err.Error())

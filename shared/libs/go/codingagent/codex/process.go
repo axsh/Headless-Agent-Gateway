@@ -158,7 +158,8 @@ func StartProcess(
 	}
 	log = log.WithComponent("codex")
 
-	ignoreUserConfig := cfg.ConfigDir == ""
+	// Load $CODEX_HOME/config.toml when config_dir overlay is active or MCP was injected.
+	ignoreUserConfig := cfg.ConfigDir == "" && len(cfg.MCPServers) == 0
 	args := BuildArgs(cfg.Prompt, configOverrides, ignoreUserConfig, cfg.AgentSessionID)
 	log.Debug("building CLI arguments", "args", args, "ignore_user_config", ignoreUserConfig, "config_dir", cfg.ConfigDir, "resume_session_id", cfg.AgentSessionID)
 
