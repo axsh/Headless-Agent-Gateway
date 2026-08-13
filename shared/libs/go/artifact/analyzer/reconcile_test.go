@@ -1,6 +1,7 @@
 package analyzer_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -76,4 +77,32 @@ func TestReconcile_DedupSameSource(t *testing.T) {
 	_ = older
 	_ = newer
 	assert.Equal(t, "dup.txt", out[0].Key)
+}
+
+func TestReconcile_SkipsRealtimeKeysEvenWhenManyExist(t *testing.T) {
+	now := time.Now()
+	existing := make([]store.SystemArtifactEvent, 0, 70)
+	git := make([]analyzer.GitDiffResult, 0, 71)
+	for i := 0; i < 70; i++ {
+		key := fmt.Sprintf("bulk/f_%03d.txt", i)
+		existing = append(existing, store.SystemArtifactEvent{
+			SessionID: "s1", Key: key, Operation: store.OperationCreate,
+			ToolName: "Write", OccurredAt: now.Add(time.Duration(i) * time.Millisecond),
+		})
+		git = append(git, analyzer.GitDiffResult{
+			Path: key, Operation: store.OperationUpdate, Source: "git",
+		})
+	}
+	git = append(git, analyzer.GitDiffResult{
+		Path: "only-git.txt", Operation: store.OperationCreate, Source: "git",
+	})
+
+	out := analyzer.Reconcile(analyzer.ReconcileInput{
+		SessionID:      "s1",
+		ExistingEvents: existing,
+		GitChanges:     git,
+	}, nil, "/proj")
+	require.Len(t, out, 1)
+	assert.Equal(t, "only-git.txt", out[0].Key)
+	assert.Equal(t, "reconcile:git", out[0].ToolName)
 }

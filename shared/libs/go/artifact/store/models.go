@@ -34,15 +34,15 @@ type SystemArtifactEvent struct {
 
 // SystemArtifactFilter specifies filters and pagination for ListSystemArtifacts.
 type SystemArtifactFilter struct {
-	Q              string   // doublestar glob applied to Key
+	Q              string // doublestar glob applied to Key
 	AgentIDs       []string // filter by agent ID (OR)
 	SessionIDs     []string // filter by session ID (OR)
-	Operation      string   // "" means all
+	Operation      string // "" means all
 	Since          *time.Time
 	Until          *time.Time
 	IncludeDeleted bool // if false, exclude keys whose latest operation is "delete"
 	Page           int  // 1-indexed; 0 treated as 1
-	PerPage        int  // default 30, max 100; 0 treated as 30
+	PerPage        int  // 0 or negative → default 100 (safety); positive → honored as-is (no hard max)
 	Sort           string // "key" | "occurred_at" | "operation"
 	Order          string // "asc" | "desc"
 }
@@ -72,7 +72,7 @@ type UserArtifact struct {
 type UserArtifactFilter struct {
 	Q       string // doublestar glob applied to Key
 	Page    int    // 1-indexed
-	PerPage int    // default 30, max 100
+	PerPage int    // 0 or negative → default 100 (safety); positive → honored as-is (no hard max)
 	Sort    string // "key" | "created_at" | "updated_at" | "size"
 	Order   string // "asc" | "desc"
 }

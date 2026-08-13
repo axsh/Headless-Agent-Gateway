@@ -246,10 +246,10 @@ func (h *UserArtifactHandler) handleArchive(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if req.Q != "" {
-		page, _ := h.store.ListUserArtifacts(r.Context(), store.UserArtifactFilter{
-			Q: req.Q, PerPage: 100,
+		artsList, _ := h.store.ListAllUserArtifacts(r.Context(), store.UserArtifactFilter{
+			Q: req.Q,
 		})
-		for _, a := range page.Items {
+		for _, a := range artsList {
 			if _, exists := arts[a.Key]; !exists {
 				arts[a.Key] = a
 			}

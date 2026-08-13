@@ -29,6 +29,9 @@ func (m *memStore) SaveSystemArtifactEvent(_ context.Context, e store.SystemArti
 func (m *memStore) ListSystemArtifacts(_ context.Context, _ store.SystemArtifactFilter) (*store.SystemArtifactPage, error) {
 	return &store.SystemArtifactPage{}, nil
 }
+func (m *memStore) ListAllSystemArtifacts(_ context.Context, _ store.SystemArtifactFilter) ([]store.SystemArtifactEvent, error) {
+	return append([]store.SystemArtifactEvent(nil), m.events...), nil
+}
 func (m *memStore) GetSystemArtifactByKey(_ context.Context, _ string) ([]store.SystemArtifactEvent, error) {
 	return nil, nil
 }
@@ -38,6 +41,9 @@ func (m *memStore) GetUserArtifactByKey(_ context.Context, _ string) (*store.Use
 }
 func (m *memStore) ListUserArtifacts(_ context.Context, _ store.UserArtifactFilter) (*store.UserArtifactPage, error) {
 	return &store.UserArtifactPage{}, nil
+}
+func (m *memStore) ListAllUserArtifacts(_ context.Context, _ store.UserArtifactFilter) ([]store.UserArtifact, error) {
+	return nil, nil
 }
 func (m *memStore) DeleteUserArtifact(_ context.Context, _ string) error { return nil }
 func (m *memStore) Close() error                                         { return nil }

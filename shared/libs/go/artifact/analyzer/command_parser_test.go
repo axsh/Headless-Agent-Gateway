@@ -74,6 +74,56 @@ func TestParseShellCommand(t *testing.T) {
 			cmd:  "'hi' | Out-File out.txt",
 			want: []analyzer.ParsedFileOp{{Path: "out.txt", Operation: store.OperationCreate}},
 		},
+		{
+			name: "dev null create",
+			cmd:  "echo hi > /dev/null",
+			want: nil,
+		},
+		{
+			name: "dev null append",
+			cmd:  "echo hi >> /dev/null",
+			want: nil,
+		},
+		{
+			name: "stderr to null",
+			cmd:  "cmd 2>/dev/null",
+			want: nil,
+		},
+		{
+			name: "stdout and stderr null",
+			cmd:  "cmd >/dev/null 2>&1",
+			want: nil,
+		},
+		{
+			name: "mixed null and file",
+			cmd:  "echo hi > /dev/null && echo x > real.txt",
+			want: []analyzer.ParsedFileOp{{Path: "real.txt", Operation: store.OperationCreate}},
+		},
+		{
+			name: "tee null",
+			cmd:  "cat foo | tee /dev/null",
+			want: nil,
+		},
+		{
+			name: "windows NUL",
+			cmd:  "echo hi >NUL",
+			want: nil,
+		},
+		{
+			name: "windows nul lower",
+			cmd:  "echo hi > nul",
+			want: nil,
+		},
+		{
+			name: "dev stdout",
+			cmd:  "echo hi > /dev/stdout",
+			want: nil,
+		},
+		{
+			name: "dev stderr",
+			cmd:  "echo hi > /dev/stderr",
+			want: nil,
+		},
 	}
 
 	for _, tc := range tests {
