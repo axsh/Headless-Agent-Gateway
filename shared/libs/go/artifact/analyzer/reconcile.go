@@ -166,14 +166,17 @@ func RunSessionReconciliation(
 		return nil
 	}
 
-	page, err := st.ListSystemArtifacts(context.Background(), store.SystemArtifactFilter{SessionIDs: []string{sessionID}})
+	existing, err := st.ListAllSystemArtifacts(context.Background(), store.SystemArtifactFilter{
+		SessionIDs:     []string{sessionID},
+		IncludeDeleted: true,
+	})
 	if err != nil {
 		return err
 	}
 
 	input := ReconcileInput{
 		SessionID:      sessionID,
-		ExistingEvents: page.Items,
+		ExistingEvents: existing,
 	}
 
 	if IsGitRepo(workDir) {

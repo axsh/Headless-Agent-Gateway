@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -267,6 +268,131 @@ func TestSystemAPI_Archive_EmptyResult(t *testing.T) {
 	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
 	require.NoError(t, err)
 	assert.Empty(t, zr.File)
+}
+
+func TestSystemAPI_List_DefaultPerPage100(t *testing.T) {
+	s := newSystemTestStore(t)
+	seedSession(t, s, "s1", "cursor")
+	for i := 0; i < 120; i++ {
+		key := filepath.ToSlash(filepath.Join("d", padAPI(i)+".go"))
+		seedEvent(t, s, "s1", key, store.OperationCreate, "/proj/"+key)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/artifacts/system?session_id=s1", nil)
+	newSystemHandler(s).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, float64(120), resp["total_count"])
+	assert.Equal(t, float64(100), resp["per_page"])
+	assert.Len(t, resp["items"], 100)
+}
+
+func TestSystemAPI_List_PerPage200_NoClamp(t *testing.T) {
+	s := newSystemTestStore(t)
+	seedSession(t, s, "s1", "cursor")
+	for i := 0; i < 150; i++ {
+		key := filepath.ToSlash(filepath.Join("e", padAPI(i)+".go"))
+		seedEvent(t, s, "s1", key, store.OperationCreate, "/proj/"+key)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/artifacts/system?session_id=s1&per_page=200", nil)
+	newSystemHandler(s).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, float64(150), resp["total_count"])
+	assert.Equal(t, float64(200), resp["per_page"])
+	assert.Len(t, resp["items"], 150)
+}
+
+func TestSystemAPI_List_SeventyUpdates_ThreePages(t *testing.T) {
+	s := newSystemTestStore(t)
+	seedSession(t, s, "s70", "cursor")
+	for i := 0; i < 70; i++ {
+		key := "updated/file_" + padAPI(i) + ".go"
+		seedEvent(t, s, "s70", key, store.OperationCreate, "/proj/"+key)
+		require.NoError(t, s.SaveSystemArtifactEvent(context.Background(), store.SystemArtifactEvent{
+			SessionID: "s70", AgentID: "cursor", Key: key, ActualPath: "/proj/" + key,
+			Operation: store.OperationUpdate, OccurredAt: time.Now().Add(time.Hour + time.Duration(i)*time.Millisecond),
+			ToolName: "StrReplace",
+		}))
+	}
+	seen := map[string]struct{}{}
+	for pageNum := 1; pageNum <= 3; pageNum++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet,
+			fmt.Sprintf("/api/v1/artifacts/system?session_id=s70&operation=update&per_page=30&sort=key&order=asc&page=%d", pageNum), nil)
+		newSystemHandler(s).ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			TotalCount int `json:"total_count"`
+			Items      []struct {
+				Key string `json:"key"`
+			} `json:"items"`
+		}
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		assert.Equal(t, 70, resp.TotalCount)
+		want := 30
+		if pageNum == 3 {
+			want = 10
+		}
+		assert.Len(t, resp.Items, want)
+		for _, it := range resp.Items {
+			seen[it.Key] = struct{}{}
+		}
+	}
+	assert.Len(t, seen, 70)
+}
+
+func TestSystemAPI_List_FiftyItems_TwoPages(t *testing.T) {
+	s := newSystemTestStore(t)
+	seedSession(t, s, "s50", "cursor")
+	for i := 0; i < 50; i++ {
+		seedEvent(t, s, "s50", "gen/file_"+padAPI(i)+".go", store.OperationCreate, "/proj/x")
+	}
+	seen := map[string]struct{}{}
+	for pageNum := 1; pageNum <= 2; pageNum++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet,
+			fmt.Sprintf("/api/v1/artifacts/system?session_id=s50&per_page=30&sort=key&order=asc&page=%d", pageNum), nil)
+		newSystemHandler(s).ServeHTTP(rec, req)
+		var resp struct {
+			Items []struct {
+				Key string `json:"key"`
+			} `json:"items"`
+		}
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		for _, it := range resp.Items {
+			seen[it.Key] = struct{}{}
+		}
+	}
+	assert.Len(t, seen, 50)
+}
+
+func TestSystemAPI_Archive_GlobMoreThan100(t *testing.T) {
+	s := newSystemTestStore(t)
+	seedSession(t, s, "s1", "cursor")
+	dir := t.TempDir()
+	for i := 0; i < 120; i++ {
+		key := "arch/file_" + padAPI(i) + ".go"
+		fpath := filepath.Join(dir, padAPI(i)+".go")
+		require.NoError(t, os.WriteFile(fpath, []byte("x"), 0o644))
+		seedEvent(t, s, "s1", key, store.OperationCreate, fpath)
+	}
+	body, _ := json.Marshal(map[string]any{"q": "arch/**"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/artifacts/system/archive", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	newSystemHandler(s).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	require.NoError(t, err)
+	assert.Len(t, zr.File, 120)
+}
+
+func padAPI(i int) string {
+	return fmt.Sprintf("%03d", i)
 }
 
 // Helper to suppress unused import warning.

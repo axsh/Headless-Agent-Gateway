@@ -20,12 +20,16 @@ type ArtifactStore interface {
 	// System artifact operations.
 	SaveSystemArtifactEvent(ctx context.Context, e SystemArtifactEvent) error
 	ListSystemArtifacts(ctx context.Context, f SystemArtifactFilter) (*SystemArtifactPage, error)
+	// ListAllSystemArtifacts returns all matching events; Page/PerPage are ignored.
+	ListAllSystemArtifacts(ctx context.Context, f SystemArtifactFilter) ([]SystemArtifactEvent, error)
 	GetSystemArtifactByKey(ctx context.Context, key string) ([]SystemArtifactEvent, error)
 
 	// User artifact operations.
 	SaveUserArtifact(ctx context.Context, a UserArtifact) error
 	GetUserArtifactByKey(ctx context.Context, key string) (*UserArtifact, error)
 	ListUserArtifacts(ctx context.Context, f UserArtifactFilter) (*UserArtifactPage, error)
+	// ListAllUserArtifacts returns all matching artifacts; Page/PerPage are ignored.
+	ListAllUserArtifacts(ctx context.Context, f UserArtifactFilter) ([]UserArtifact, error)
 	DeleteUserArtifact(ctx context.Context, key string) error
 
 	// Close releases DB resources.
@@ -150,6 +154,35 @@ func (s *SQLiteStore) ListSystemArtifacts(ctx context.Context, f SystemArtifactF
 	perPage := normalizePerPage(f.PerPage)
 	page := normalizePage(f.Page)
 
+	all, err := s.filterSystemArtifacts(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	total := len(all)
+	offset := (page - 1) * perPage
+	if offset >= total {
+		return &SystemArtifactPage{TotalCount: total, Page: page, PerPage: perPage}, nil
+	}
+	end := offset + perPage
+	if end > total {
+		end = total
+	}
+	return &SystemArtifactPage{
+		TotalCount: total,
+		Page:       page,
+		PerPage:    perPage,
+		Items:      all[offset:end],
+	}, nil
+}
+
+// ListAllSystemArtifacts returns all matching system artifact events.
+// Page and PerPage on the filter are ignored.
+func (s *SQLiteStore) ListAllSystemArtifacts(ctx context.Context, f SystemArtifactFilter) ([]SystemArtifactEvent, error) {
+	return s.filterSystemArtifacts(ctx, f)
+}
+
+func (s *SQLiteStore) filterSystemArtifacts(ctx context.Context, f SystemArtifactFilter) ([]SystemArtifactEvent, error) {
 	// Build WHERE predicates that SQL can handle.
 	var where []string
 	var args []any
@@ -231,22 +264,7 @@ func (s *SQLiteStore) ListSystemArtifacts(ctx context.Context, f SystemArtifactF
 	if !f.IncludeDeleted {
 		all = excludeDeletedKeys(all)
 	}
-
-	total := len(all)
-	offset := (page - 1) * perPage
-	if offset >= total {
-		return &SystemArtifactPage{TotalCount: total, Page: page, PerPage: perPage}, nil
-	}
-	end := offset + perPage
-	if end > total {
-		end = total
-	}
-	return &SystemArtifactPage{
-		TotalCount: total,
-		Page:       page,
-		PerPage:    perPage,
-		Items:      all[offset:end],
-	}, nil
+	return all, nil
 }
 
 // excludeDeletedKeys returns only those events belonging to keys whose
@@ -337,6 +355,35 @@ func (s *SQLiteStore) ListUserArtifacts(ctx context.Context, f UserArtifactFilte
 	perPage := normalizePerPage(f.PerPage)
 	page := normalizePage(f.Page)
 
+	all, err := s.filterUserArtifacts(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	total := len(all)
+	offset := (page - 1) * perPage
+	if offset >= total {
+		return &UserArtifactPage{TotalCount: total, Page: page, PerPage: perPage}, nil
+	}
+	end := offset + perPage
+	if end > total {
+		end = total
+	}
+	return &UserArtifactPage{
+		TotalCount: total,
+		Page:       page,
+		PerPage:    perPage,
+		Items:      all[offset:end],
+	}, nil
+}
+
+// ListAllUserArtifacts returns all matching user artifacts.
+// Page and PerPage on the filter are ignored.
+func (s *SQLiteStore) ListAllUserArtifacts(ctx context.Context, f UserArtifactFilter) ([]UserArtifact, error) {
+	return s.filterUserArtifacts(ctx, f)
+}
+
+func (s *SQLiteStore) filterUserArtifacts(ctx context.Context, f UserArtifactFilter) ([]UserArtifact, error) {
 	orderCol := safeUserSortCol(f.Sort)
 	orderDir := safeOrder(f.Order)
 
@@ -378,22 +425,7 @@ func (s *SQLiteStore) ListUserArtifacts(ctx context.Context, f UserArtifactFilte
 		}
 		all = filtered
 	}
-
-	total := len(all)
-	offset := (page - 1) * perPage
-	if offset >= total {
-		return &UserArtifactPage{TotalCount: total, Page: page, PerPage: perPage}, nil
-	}
-	end := offset + perPage
-	if end > total {
-		end = total
-	}
-	return &UserArtifactPage{
-		TotalCount: total,
-		Page:       page,
-		PerPage:    perPage,
-		Items:      all[offset:end],
-	}, nil
+	return all, nil
 }
 
 // DeleteUserArtifact removes the user artifact record for the given key.
@@ -404,12 +436,12 @@ func (s *SQLiteStore) DeleteUserArtifact(ctx context.Context, key string) error 
 
 // ---- helpers ----
 
+// DefaultPerPage is the safety default when PerPage is omitted or non-positive.
+const DefaultPerPage = 100
+
 func normalizePerPage(n int) int {
 	if n <= 0 {
-		return 30
-	}
-	if n > 100 {
-		return 100
+		return DefaultPerPage
 	}
 	return n
 }

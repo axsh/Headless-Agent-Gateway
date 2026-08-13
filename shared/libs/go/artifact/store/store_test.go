@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -273,4 +274,156 @@ func TestClose(t *testing.T) {
 	require.NoError(t, s.Close())
 	_, err = os.Stat(dbPath)
 	assert.NoError(t, err) // file should still exist, just closed
+}
+
+func TestListSystemArtifacts_DefaultPerPage100_NoHardMax(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	insertSession(t, s, "s1", "cursor")
+
+	for i := 0; i < 150; i++ {
+		key := "bulk/file_" + pad3(i) + ".go"
+		require.NoError(t, s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+			SessionID: "s1", AgentID: "cursor", Key: key,
+			Operation: store.OperationCreate, OccurredAt: time.Now().Add(time.Duration(i) * time.Millisecond),
+		}))
+	}
+
+	def, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{SessionIDs: []string{"s1"}})
+	require.NoError(t, err)
+	assert.Equal(t, 100, def.PerPage)
+	assert.Equal(t, 150, def.TotalCount)
+	assert.Len(t, def.Items, 100)
+
+	wide, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{
+		SessionIDs: []string{"s1"}, PerPage: 200,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 200, wide.PerPage)
+	assert.Equal(t, 150, wide.TotalCount)
+	assert.Len(t, wide.Items, 150)
+}
+
+func TestListSystemArtifacts_FiftyItems_ExplicitPagination(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	insertSession(t, s, "s50", "cursor")
+	for i := 0; i < 50; i++ {
+		require.NoError(t, s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+			SessionID: "s50", AgentID: "cursor", Key: "gen/file_" + pad3(i) + ".go",
+			Operation: store.OperationCreate, OccurredAt: time.Now().Add(time.Duration(i) * time.Millisecond),
+		}))
+	}
+	p1, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{
+		SessionIDs: []string{"s50"}, Page: 1, PerPage: 30, Sort: "key", Order: "asc",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 50, p1.TotalCount)
+	assert.Len(t, p1.Items, 30)
+
+	p2, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{
+		SessionIDs: []string{"s50"}, Page: 2, PerPage: 30, Sort: "key", Order: "asc",
+	})
+	require.NoError(t, err)
+	assert.Len(t, p2.Items, 20)
+
+	seen := map[string]struct{}{}
+	for _, it := range append(p1.Items, p2.Items...) {
+		seen[it.Key] = struct{}{}
+	}
+	assert.Len(t, seen, 50)
+}
+
+func TestListSystemArtifacts_AfterCloseSession_StillListed(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	insertSession(t, s, "s-close", "cursor")
+	require.NoError(t, s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+		SessionID: "s-close", AgentID: "cursor", Key: "keep.go",
+		Operation: store.OperationCreate, OccurredAt: time.Now(),
+	}))
+	require.NoError(t, s.CloseSession(ctx, "s-close"))
+
+	page, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{
+		SessionIDs: []string{"s-close"}, PerPage: 10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, page.TotalCount)
+	assert.Equal(t, "keep.go", page.Items[0].Key)
+}
+
+func TestListSystemArtifacts_SeventyUpdates_ThreePages(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	insertSession(t, s, "s70", "cursor")
+	for i := 0; i < 70; i++ {
+		key := "updated/file_" + pad3(i) + ".go"
+		require.NoError(t, s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+			SessionID: "s70", AgentID: "cursor", Key: key,
+			Operation: store.OperationCreate, OccurredAt: time.Now().Add(time.Duration(i) * time.Millisecond),
+			ToolName: "Write",
+		}))
+		require.NoError(t, s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+			SessionID: "s70", AgentID: "cursor", Key: key,
+			Operation: store.OperationUpdate, OccurredAt: time.Now().Add(time.Hour + time.Duration(i)*time.Millisecond),
+			ToolName: "StrReplace",
+		}))
+	}
+
+	var all []store.SystemArtifactEvent
+	for pageNum := 1; pageNum <= 4; pageNum++ {
+		page, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{
+			SessionIDs: []string{"s70"}, Operation: store.OperationUpdate,
+			Page: pageNum, PerPage: 30, Sort: "key", Order: "asc",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 70, page.TotalCount)
+		switch pageNum {
+		case 1, 2:
+			assert.Len(t, page.Items, 30)
+		case 3:
+			assert.Len(t, page.Items, 10)
+		case 4:
+			assert.Len(t, page.Items, 0)
+		}
+		all = append(all, page.Items...)
+	}
+	seen := map[string]struct{}{}
+	for _, it := range all {
+		seen[it.Key] = struct{}{}
+		assert.Equal(t, store.OperationUpdate, it.Operation)
+	}
+	assert.Len(t, seen, 70)
+	require.GreaterOrEqual(t, len(all), 70)
+	assert.True(t, all[29].Key < all[30].Key)
+	assert.True(t, all[59].Key < all[60].Key)
+}
+
+func TestListAllSystemArtifacts_ReturnsMoreThanDefaultPage(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	insertSession(t, s, "s-all", "cursor")
+	for i := 0; i < 70; i++ {
+		key := "all/file_" + pad3(i) + ".go"
+		require.NoError(t, s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+			SessionID: "s-all", AgentID: "cursor", Key: key,
+			Operation: store.OperationCreate, OccurredAt: time.Now().Add(time.Duration(i) * time.Millisecond),
+		}))
+		require.NoError(t, s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+			SessionID: "s-all", AgentID: "cursor", Key: key,
+			Operation: store.OperationUpdate, OccurredAt: time.Now().Add(time.Hour + time.Duration(i)*time.Millisecond),
+		}))
+	}
+	all, err := s.ListAllSystemArtifacts(ctx, store.SystemArtifactFilter{SessionIDs: []string{"s-all"}})
+	require.NoError(t, err)
+	assert.Len(t, all, 140)
+
+	page, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{SessionIDs: []string{"s-all"}})
+	require.NoError(t, err)
+	assert.Equal(t, 140, page.TotalCount)
+	assert.Len(t, page.Items, 100)
+}
+
+func pad3(i int) string {
+	return fmt.Sprintf("%03d", i)
 }

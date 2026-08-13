@@ -190,15 +190,15 @@ func (h *SystemArtifactHandler) handleArchive(w http.ResponseWriter, r *http.Req
 
 	// Keys matched by glob.
 	if req.Q != "" {
-		page, _ := h.store.ListSystemArtifacts(r.Context(), store.SystemArtifactFilter{
+		events, _ := h.store.ListAllSystemArtifacts(r.Context(), store.SystemArtifactFilter{
 			Q:          req.Q,
 			SessionIDs: req.SessionID,
-			PerPage:    100,
+			Sort:       "occurred_at",
+			Order:      "asc",
 		})
-		for _, e := range page.Items {
-			if _, exists := keys[e.Key]; !exists {
-				keys[e.Key] = e.ActualPath
-			}
+		for _, e := range events {
+			// Ascending occurred_at: later events overwrite ActualPath for the same key.
+			keys[e.Key] = e.ActualPath
 		}
 	}
 
