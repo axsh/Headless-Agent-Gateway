@@ -39,7 +39,7 @@ type UserInputRequiredEvent struct {
 // StreamHandlers configures callbacks for interactive streaming.
 type StreamHandlers struct {
 	OnText              func(text string)
-	OnToolUse           func(toolName string)
+	OnToolUse           func(toolName string, toolInput map[string]any)
 	OnToolResult        func(content string)
 	OnUserInputRequired func(ev UserInputRequiredEvent) (response string, err error)
 	OnError             func(err string) error
@@ -48,11 +48,12 @@ type StreamHandlers struct {
 
 // Event is a single streaming event from the server.
 type Event struct {
-	Type               EventType
-	Text               string
-	ToolName           string
-	Error              string
-	UserInputRequired  UserInputRequiredEvent
+	Type              EventType
+	Text              string
+	ToolName          string
+	ToolInput         map[string]any
+	Error             string
+	UserInputRequired UserInputRequiredEvent
 }
 
 // Stream processes SSE events from a session message.
@@ -61,7 +62,7 @@ type Stream struct {
 	onText    func(text string)
 	onResult  func(ev Event)
 	onError   func(err string)
-	onToolUse func(toolName string)
+	onToolUse func(toolName string, toolInput map[string]any)
 }
 
 // newStream creates a Stream from an HTTP response body.
@@ -85,7 +86,7 @@ func (s *Stream) Output(w io.Writer) error {
 		case EventText:
 			fmt.Fprint(w, ev.Text)
 		case EventToolUse:
-			fmt.Fprintf(w, "\n[Tool: %s]\n", ev.ToolName)
+			fmt.Fprint(w, formatToolUseLine(ev.ToolName, ev.ToolInput))
 		case EventToolResult:
 			fmt.Fprintf(w, "[Tool Result] %s\n", ev.Text)
 		case EventSystem:
@@ -128,9 +129,25 @@ func (s *Stream) OnError(fn func(err string)) *Stream {
 }
 
 // OnToolUse sets a custom handler for tool_use events.
-func (s *Stream) OnToolUse(fn func(toolName string)) *Stream {
+func (s *Stream) OnToolUse(fn func(toolName string, toolInput map[string]any)) *Stream {
 	s.onToolUse = fn
 	return s
+}
+
+// formatToolUseLine renders a one-line tool_use summary.
+// Prefers non-empty string keys in order: command, then path. Never dumps full tool_input.
+func formatToolUseLine(toolName string, toolInput map[string]any) string {
+	for _, key := range []string{"command", "path"} {
+		if toolInput == nil {
+			break
+		}
+		if v, ok := toolInput[key]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				return fmt.Sprintf("\n[Tool: %s] %s=%s\n", toolName, key, s)
+			}
+		}
+	}
+	return fmt.Sprintf("\n[Tool: %s]\n", toolName)
 }
 
 // Run executes the stream with the configured handlers.
@@ -145,7 +162,7 @@ func (s *Stream) Run() error {
 			}
 		case EventToolUse:
 			if s.onToolUse != nil {
-				s.onToolUse(ev.ToolName)
+				s.onToolUse(ev.ToolName, ev.ToolInput)
 			}
 		case EventResult:
 			if s.onResult != nil {
@@ -173,7 +190,7 @@ func (s *Stream) RunWithHandlers(ctx context.Context, session *Session, h Stream
 				}
 			case EventToolUse:
 				if h.OnToolUse != nil {
-					h.OnToolUse(ev.ToolName)
+					h.OnToolUse(ev.ToolName, ev.ToolInput)
 				}
 			case EventToolResult:
 				if h.OnToolResult != nil {
@@ -248,14 +265,15 @@ func (s *Stream) events() <-chan Event {
 				break
 			}
 			var raw struct {
-				Type     string   `json:"type"`
-				Content  string   `json:"content"`
-				ToolName string   `json:"tool_name,omitempty"`
-				PromptID string   `json:"prompt_id,omitempty"`
-				Choices  []string `json:"choices,omitempty"`
-				ChunkID  string   `json:"chunk_id,omitempty"`
-				Index    int      `json:"index,omitempty"`
-				Total    int      `json:"total,omitempty"`
+				Type      string         `json:"type"`
+				Content   string         `json:"content"`
+				ToolName  string         `json:"tool_name,omitempty"`
+				ToolInput map[string]any `json:"tool_input,omitempty"`
+				PromptID  string         `json:"prompt_id,omitempty"`
+				Choices   []string       `json:"choices,omitempty"`
+				ChunkID   string         `json:"chunk_id,omitempty"`
+				Index     int            `json:"index,omitempty"`
+				Total     int            `json:"total,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &raw); err != nil {
 				continue
@@ -292,9 +310,10 @@ func (s *Stream) events() <-chan Event {
 			}
 
 			ev := Event{
-				Type:     EventType(raw.Type),
-				Text:     raw.Content,
-				ToolName: raw.ToolName,
+				Type:      EventType(raw.Type),
+				Text:      raw.Content,
+				ToolName:  raw.ToolName,
+				ToolInput: raw.ToolInput,
 			}
 			if ev.Type == EventError {
 				ev.Error = raw.Content
