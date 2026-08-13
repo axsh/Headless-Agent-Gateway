@@ -181,6 +181,34 @@ func (sc *SystemArtifactClient) List(ctx context.Context, f SystemArtifactFilter
 	}, nil
 }
 
+// ListAll collects all matching system artifact events by walking pages.
+// f.Page is ignored. When f.PerPage <= 0, each request omits per_page so the
+// server default (100) applies.
+func (sc *SystemArtifactClient) ListAll(ctx context.Context, f SystemArtifactFilter) ([]SystemArtifactItem, error) {
+	var all []SystemArtifactItem
+	pageNum := 1
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		cf := f
+		cf.Page = pageNum
+		page, err := sc.List(ctx, cf)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.Items...)
+		if len(page.Items) == 0 || len(all) >= page.TotalCount {
+			break
+		}
+		if pageNum > 100000 {
+			return all, fmt.Errorf("list all system artifacts: exceeded page safety limit")
+		}
+		pageNum++
+	}
+	return all, nil
+}
+
 // Download streams the content of the system artifact at key.
 // The caller must close the returned ReadCloser.
 func (sc *SystemArtifactClient) Download(ctx context.Context, key string) (io.ReadCloser, error) {
@@ -366,6 +394,34 @@ func (uc *UserArtifactClient) List(ctx context.Context, f UserArtifactFilter) (*
 		PerPage:    raw.PerPage,
 		Items:      raw.Items,
 	}, nil
+}
+
+// ListAll collects all matching user artifacts by walking pages.
+// f.Page is ignored. When f.PerPage <= 0, each request omits per_page so the
+// server default (100) applies.
+func (uc *UserArtifactClient) ListAll(ctx context.Context, f UserArtifactFilter) ([]UserArtifactItem, error) {
+	var all []UserArtifactItem
+	pageNum := 1
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		cf := f
+		cf.Page = pageNum
+		page, err := uc.List(ctx, cf)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.Items...)
+		if len(page.Items) == 0 || len(all) >= page.TotalCount {
+			break
+		}
+		if pageNum > 100000 {
+			return all, fmt.Errorf("list all user artifacts: exceeded page safety limit")
+		}
+		pageNum++
+	}
+	return all, nil
 }
 
 // Archive requests a ZIP archive of user artifacts.

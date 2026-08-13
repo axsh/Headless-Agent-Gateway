@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -241,4 +242,42 @@ func TestUserClient_Archive(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, rc)
 	assert.NotEmpty(t, buf.Bytes())
+}
+
+func TestSystemClient_ListAll_WalksPages(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/artifacts/system", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "" || page == "1" {
+			items := make([]map[string]any, 0, 100)
+			for i := 0; i < 100; i++ {
+				items = append(items, map[string]any{
+					"key": "p1-" + strconv.Itoa(i), "operation": "create",
+					"occurred_at": time.Now().Format(time.RFC3339),
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"source": "system", "total_count": 170, "page": 1, "per_page": 100, "items": items,
+			})
+			return
+		}
+		items := make([]map[string]any, 0, 70)
+		for i := 0; i < 70; i++ {
+			items = append(items, map[string]any{
+				"key": "p2-" + strconv.Itoa(i), "operation": "create",
+				"occurred_at": time.Now().Format(time.RFC3339),
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"source": "system", "total_count": 170, "page": 2, "per_page": 100, "items": items,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	all, err := c.SystemArtifacts().ListAll(context.Background(), v1.SystemArtifactFilter{})
+	require.NoError(t, err)
+	assert.Len(t, all, 170)
 }

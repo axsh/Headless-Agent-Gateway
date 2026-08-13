@@ -617,14 +617,22 @@ import client "github.com/axsh/arctic-tern/client/v1"
 c := client.New("http://localhost:3100")
 
 // List all Go files written in a specific session.
+// When PerPage is omitted, the server defaults to 100 (safety limit).
+// Explicit PerPage values are honored without a hard maximum.
 page, _ := c.SystemArtifacts().List(ctx, client.SystemArtifactFilter{
     Q:          "**/*.go",
     SessionIDs: []string{"sess-abc123"},
-    PerPage:    20,
+    PerPage:    200,
 })
 for _, item := range page.Items {
     fmt.Printf("%s  op=%s  session=%s\n", item.Key, item.Operation, item.SessionID)
 }
+
+// Or collect every matching page in one call:
+items, _ := c.SystemArtifacts().ListAll(ctx, client.SystemArtifactFilter{
+    SessionIDs: []string{"sess-abc123"},
+})
+_ = items
 ```
 
 ### Downloading a single file
