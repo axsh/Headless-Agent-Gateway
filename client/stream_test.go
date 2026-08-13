@@ -192,3 +192,182 @@ func (r *errorReader) Read(p []byte) (int, error) {
 	return 0, r.err
 }
 
+func TestStream_Events_ToolUseIncludesToolInput(t *testing.T) {
+	tests := []struct {
+		name     string
+		dataJSON string
+		check    func(t *testing.T, evs []Event)
+	}{
+		{
+			name:     "with_command",
+			dataJSON: `{"type":"tool_use","tool_name":"command_execution","tool_input":{"command":"ls -la"}}`,
+			check: func(t *testing.T, evs []Event) {
+				t.Helper()
+				ev := findLegacyEvent(t, evs, EventToolUse)
+				if ev.ToolName != "command_execution" {
+					t.Fatalf("ToolName = %q", ev.ToolName)
+				}
+				if ev.ToolInput["command"] != "ls -la" {
+					t.Fatalf("ToolInput[command] = %v", ev.ToolInput["command"])
+				}
+			},
+		},
+		{
+			name:     "missing_tool_input",
+			dataJSON: `{"type":"tool_use","tool_name":"Bash"}`,
+			check: func(t *testing.T, evs []Event) {
+				t.Helper()
+				ev := findLegacyEvent(t, evs, EventToolUse)
+				if ev.ToolInput != nil {
+					t.Fatalf("ToolInput = %#v, want nil", ev.ToolInput)
+				}
+			},
+		},
+		{
+			name:     "empty_tool_input",
+			dataJSON: `{"type":"tool_use","tool_name":"Bash","tool_input":{}}`,
+			check: func(t *testing.T, evs []Event) {
+				t.Helper()
+				ev := findLegacyEvent(t, evs, EventToolUse)
+				if ev.ToolInput == nil || len(ev.ToolInput) != 0 {
+					t.Fatalf("ToolInput = %#v", ev.ToolInput)
+				}
+			},
+		},
+		{
+			name:     "nested",
+			dataJSON: `{"type":"tool_use","tool_name":"apply_patch","tool_input":{"changes":[{"path":"a.go"}]}}`,
+			check: func(t *testing.T, evs []Event) {
+				t.Helper()
+				ev := findLegacyEvent(t, evs, EventToolUse)
+				changes, ok := ev.ToolInput["changes"].([]any)
+				if !ok || len(changes) != 1 {
+					t.Fatalf("changes = %#v", ev.ToolInput["changes"])
+				}
+				item, ok := changes[0].(map[string]any)
+				if !ok || item["path"] != "a.go" {
+					t.Fatalf("changes[0] = %#v", changes[0])
+				}
+			},
+		},
+		{
+			name:     "non_tool_use",
+			dataJSON: `{"type":"text","content":"hi"}`,
+			check: func(t *testing.T, evs []Event) {
+				t.Helper()
+				ev := findLegacyEvent(t, evs, EventText)
+				if ev.ToolInput != nil {
+					t.Fatalf("ToolInput = %#v, want nil", ev.ToolInput)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := "data: " + tc.dataJSON + "\n\n" +
+				"data: {\"type\":\"result\"}\n\n" +
+				"data: [DONE]\n\n"
+			stream := newStream(io.NopCloser(strings.NewReader(payload)))
+			var evs []Event
+			for ev := range stream.Events() {
+				if ev.Type == EventError {
+					t.Fatalf("unexpected error: %s", ev.Error)
+				}
+				evs = append(evs, ev)
+			}
+			tc.check(t, evs)
+		})
+	}
+}
+
+func TestStream_OnToolUse_RunReceivesToolInput(t *testing.T) {
+	payload := "data: {\"type\":\"tool_use\",\"tool_name\":\"command_execution\",\"tool_input\":{\"command\":\"echo hi\"}}\n\n" +
+		"data: {\"type\":\"result\"}\n\n" +
+		"data: [DONE]\n\n"
+	stream := newStream(io.NopCloser(strings.NewReader(payload)))
+
+	var gotName string
+	var gotInput map[string]any
+	err := stream.OnToolUse(func(toolName string, toolInput map[string]any) {
+		gotName = toolName
+		gotInput = toolInput
+	}).Run()
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotName != "command_execution" {
+		t.Fatalf("toolName = %q", gotName)
+	}
+	if gotInput["command"] != "echo hi" {
+		t.Fatalf("toolInput = %#v", gotInput)
+	}
+}
+
+func TestStream_Output_ToolUseSummaryCommandAndPath(t *testing.T) {
+	tests := []struct {
+		name       string
+		dataJSON   string
+		wantSubstr []string
+		denySubstr []string
+	}{
+		{
+			name:       "command",
+			dataJSON:   `{"type":"tool_use","tool_name":"command_execution","tool_input":{"command":"ls -la"}}`,
+			wantSubstr: []string{"[Tool: command_execution]", "command=ls -la"},
+			denySubstr: []string{`"tool_input"`},
+		},
+		{
+			name:       "path",
+			dataJSON:   `{"type":"tool_use","tool_name":"Write","tool_input":{"path":"main.go"}}`,
+			wantSubstr: []string{"[Tool: Write]", "path=main.go"},
+			denySubstr: []string{"command="},
+		},
+		{
+			name:       "command_over_path",
+			dataJSON:   `{"type":"tool_use","tool_name":"X","tool_input":{"command":"x","path":"y"}}`,
+			wantSubstr: []string{"command=x"},
+			denySubstr: []string{"path=y"},
+		},
+		{
+			name:       "no_summary_keys",
+			dataJSON:   `{"type":"tool_use","tool_name":"SomeTool","tool_input":{"changes":[]}}`,
+			wantSubstr: []string{"\n[Tool: SomeTool]\n"},
+			denySubstr: []string{"command=", "path="},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := "data: " + tc.dataJSON + "\n\ndata: [DONE]\n\n"
+			stream := newStream(io.NopCloser(strings.NewReader(payload)))
+			var buf strings.Builder
+			if err := stream.Output(&buf); err != nil {
+				t.Fatalf("Output: %v", err)
+			}
+			got := buf.String()
+			for _, s := range tc.wantSubstr {
+				if !strings.Contains(got, s) {
+					t.Fatalf("output %q missing %q", got, s)
+				}
+			}
+			for _, s := range tc.denySubstr {
+				if strings.Contains(got, s) {
+					t.Fatalf("output %q unexpectedly contains %q", got, s)
+				}
+			}
+		})
+	}
+}
+
+func findLegacyEvent(t *testing.T, evs []Event, typ EventType) Event {
+	t.Helper()
+	for _, ev := range evs {
+		if ev.Type == typ {
+			return ev
+		}
+	}
+	t.Fatalf("event type %q not found in %#v", typ, evs)
+	return Event{}
+}
+
