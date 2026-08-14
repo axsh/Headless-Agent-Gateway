@@ -18,6 +18,10 @@ providers:
           - name: gpt-4.1-mini
           - name: gpt-5.3-codex
             mode: responses
+          - name: text-embedding-3-small
+            mode: embedding
+          - name: text-embedding-3-large
+            mode: embedding
 
   # Anthropic
   anthropic:
@@ -39,6 +43,8 @@ providers:
             behavior:
               structured_output: true
               max_output_tokens: 65536
+          - name: text-embedding-004
+            mode: embedding
 
   # Ollama (local inference, no API key required)
   ollama:
@@ -48,6 +54,8 @@ providers:
           - name: qwen2.5-coder:7b
             behavior:
               tool_call_fallback: true
+          - name: nomic-embed-text
+            mode: embedding
     network_config:
       base_url: "http://localhost:11434"
 

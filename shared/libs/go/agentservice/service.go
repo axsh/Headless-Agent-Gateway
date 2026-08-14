@@ -342,6 +342,8 @@ func (s *Server) HTTPHandler() http.Handler {
 	if s.isVersionEnabled(1) {
 		mux.HandleFunc("/api/v1/agents", s.routeAgents)
 		mux.HandleFunc("/api/v1/models", s.routeModels)
+		mux.HandleFunc("/api/v1/embeddings", s.routeEmbeddings)
+		mux.HandleFunc("/api/v1/embeddings/models", s.routeEmbeddingModels)
 		mux.HandleFunc("/api/v1/sessions", s.routeSessions)
 		mux.HandleFunc("/api/v1/sessions/", s.routeSessionByID)
 

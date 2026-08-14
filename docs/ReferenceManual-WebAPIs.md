@@ -15,6 +15,8 @@ By default, all API endpoints are exposed at `http://localhost:3100` (customizab
 | `GET` | `/health` | Health check of the agent service, LLMGP status, and server settings. |
 | `GET` | `/api/v1/agents` | Retrieve the list of available coding agents. |
 | `GET` | `/api/v1/models` | Retrieve available LLM models and the default model. |
+| `POST` | `/api/v1/embeddings` | Create text embeddings (bypasses Coding Agents; proxied to LLMGP). |
+| `GET` | `/api/v1/embeddings/models` | Retrieve embedding-only models (`mode: embedding`). |
 | `POST` | `/api/v1/sessions` | Initialize a new coding session. |
 | `GET` | `/api/v1/sessions/:id` | Retrieve metadata and state of a specific session. |
 | `PATCH` | `/api/v1/sessions/:id` | Update session fields (currently `config_dir`). |
@@ -99,6 +101,35 @@ Retrieves the list of all available LLM models and the default model, obtained v
       "model": "claude-3-5-sonnet-20241022",
       "tool_call_fallback": false
     }
+  }
+  ```
+
+---
+
+### 3.1 Create Embeddings
+
+Creates text embeddings via LLMGP. This endpoint **does not** start a Coding Agent session; AgentService proxies the request to `POST /v1/embeddings` on the gateway.
+
+- **Method**: `POST`
+- **Path**: `/api/v1/embeddings`
+- **Request Body (JSON)**: OpenAI Embeddings API compatible (`model`, `input` as string or string array, optional `encoding_format`, `dimensions`)
+- **Response (200 OK)**: OpenAI-compatible embedding list (`object`, `data`, `model`, `usage`)
+
+### 3.2 List Embedding Models
+
+Returns models declared with `mode: embedding` in `model_profiles.yaml`. These models are excluded from `GET /api/v1/models`.
+
+- **Method**: `GET`
+- **Path**: `/api/v1/embeddings/models`
+- **Response (200 OK)**:
+  ```json
+  {
+    "models": [
+      {
+        "provider": "openai",
+        "model": "text-embedding-3-small"
+      }
+    ]
   }
   ```
 

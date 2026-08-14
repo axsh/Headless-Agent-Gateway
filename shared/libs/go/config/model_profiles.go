@@ -10,7 +10,66 @@ const (
 	DefaultMaxPromptBytes      = 1048576
 	DefaultMaxExecutionSeconds = 3600
 	DefaultIdleTimeoutSeconds  = 300
+
+	// Model mode values for ModelConfig.Mode.
+	ModelModeChat      = "chat"      // default when Mode == ""
+	ModelModeResponses = "responses"
+	ModelModeEmbedding = "embedding"
 )
+
+// EffectiveMode returns the model mode; empty Mode is treated as chat.
+func EffectiveMode(mode string) string {
+	if mode == "" {
+		return ModelModeChat
+	}
+	return mode
+}
+
+// IsEmbeddingMode reports whether mode is embedding.
+func IsEmbeddingMode(mode string) bool {
+	return mode == ModelModeEmbedding
+}
+
+// ModelRef is a provider/model pair used by list helpers.
+type ModelRef struct {
+	Provider string
+	Model    string
+	Mode     string
+}
+
+// ListModelRefs returns models matching wantMode.
+// wantMode == ModelModeEmbedding: only embedding models.
+// wantMode == "" (agent list): all non-embedding (chat/responses/empty).
+func (c *ModelProfilesConfig) ListModelRefs(wantMode string) []ModelRef {
+	if c == nil {
+		return nil
+	}
+	var out []ModelRef
+	for providerName, provider := range c.Providers {
+		for _, key := range provider.ApiKeys {
+			for _, model := range key.Models {
+				mode := model.Mode
+				if wantMode == ModelModeEmbedding {
+					if !IsEmbeddingMode(mode) {
+						continue
+					}
+				} else if wantMode == "" {
+					if IsEmbeddingMode(mode) {
+						continue
+					}
+				} else if mode != wantMode {
+					continue
+				}
+				out = append(out, ModelRef{
+					Provider: providerName,
+					Model:    model.Name,
+					Mode:     EffectiveMode(mode),
+				})
+			}
+		}
+	}
+	return out
+}
 
 // ModelProfilesConfig represents model_profiles.yaml.
 type ModelProfilesConfig struct {
@@ -99,7 +158,7 @@ type KeyConfig struct {
 type ModelConfig struct {
 	Name        string         `yaml:"name"`
 	LogicalName string         `yaml:"logical_name,omitempty"`
-	Mode        string         `yaml:"mode,omitempty"` // "chat" (default) or "responses"
+	Mode        string         `yaml:"mode,omitempty"` // "chat" (default), "responses", or "embedding"
 	Behavior    *ModelBehavior `yaml:"behavior,omitempty"`
 }
 
@@ -141,6 +200,9 @@ func (c *ModelProfilesConfig) Validate() error {
 				if model.Name == "" {
 					return fmt.Errorf("provider %q key %q has empty model name", provName, key.Name)
 				}
+				if err := validateModelMode(model.Mode); err != nil {
+					return fmt.Errorf("provider %q key %q model %q: %w", provName, key.Name, model.Name, err)
+				}
 			}
 		}
 	}
@@ -169,4 +231,13 @@ func (c *ModelProfilesConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func validateModelMode(mode string) error {
+	switch mode {
+	case "", ModelModeChat, ModelModeResponses, ModelModeEmbedding:
+		return nil
+	default:
+		return fmt.Errorf("unknown mode %q (want chat, responses, embedding, or empty)", mode)
+	}
 }
