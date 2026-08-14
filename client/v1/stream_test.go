@@ -169,9 +169,9 @@ func TestStream_Events_IncompleteChunksError(t *testing.T) {
 
 func TestStream_Events_ToolUseIncludesToolInput(t *testing.T) {
 	tests := []struct {
-		name      string
-		dataJSON  string
-		check     func(t *testing.T, evs []v1.Event)
+		name     string
+		dataJSON string
+		check    func(t *testing.T, evs []v1.Event)
 	}{
 		{
 			name:     "with_command",
@@ -373,6 +373,31 @@ func TestStream_Output_ToolUseSummaryCommandAndPath(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestStream_Events_CapturesTurnID(t *testing.T) {
+	payload := "data: {\"type\":\"system\",\"content\":\"turn context\",\"turn_id\":\"turn-123\",\"correlation_id\":\"corr-1\"}\n\n" +
+		"data: {\"type\":\"text\",\"content\":\"hello\",\"turn_id\":\"turn-123\"}\n\n" +
+		"data: [DONE]\n\n"
+	stream := v1.NewStreamFromReader(strings.NewReader(payload))
+	var gotSystem bool
+	for ev := range stream.Events() {
+		if ev.Type == v1.EventSystem {
+			gotSystem = true
+			if ev.TurnID != "turn-123" {
+				t.Fatalf("system TurnID = %q", ev.TurnID)
+			}
+			if ev.CorrelationID != "corr-1" {
+				t.Fatalf("system CorrelationID = %q", ev.CorrelationID)
+			}
+		}
+	}
+	if !gotSystem {
+		t.Fatal("missing system event")
+	}
+	if stream.TurnID() != "turn-123" {
+		t.Fatalf("TurnID() = %q", stream.TurnID())
 	}
 }
 

@@ -641,6 +641,13 @@ items, _ := c.SystemArtifacts().ListAll(ctx, client.SystemArtifactFilter{
     SessionIDs: []string{"sess-abc123"},
 })
 _ = items
+
+// Turn-scoped list: get only files from one SendMessage turn.
+turnOnly, _ := c.SystemArtifacts().List(ctx, client.SystemArtifactFilter{
+    SessionIDs: []string{"sess-abc123"},
+    TurnIDs:    []string{"turn-123"},
+})
+_ = turnOnly
 ```
 
 ### Downloading a single file

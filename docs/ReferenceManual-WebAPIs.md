@@ -238,6 +238,7 @@ Sends prompt text and image data to an active session, initiating agent executio
   Provide structured blocks (text or image) within the `content` array.
   ```json
   {
+    "correlation_id": "job-20260814-001",
     "content": [
       {
         "type": "text",
@@ -266,6 +267,8 @@ Sends prompt text and image data to an active session, initiating agent executio
     - `type` (string): Event type (`text`, `system`, `error`, etc.).
     - `content` (string): Text chunk output by the agent.
     - `session_id` (string, system events only): Agent-specific internal session ID.
+    - `turn_id` (string, optional): Server-generated turn identifier for this SendMessage execution.
+    - `correlation_id` (string, optional): Echoed user-supplied correlation ID.
   - **Termination Signal**: Stream ends with `data: [DONE]`.
   - **Response Example**:
     ```http
@@ -280,6 +283,14 @@ Sends prompt text and image data to an active session, initiating agent executio
 
     data: [DONE]
     ```
+
+### 8.1 Turn-Scoped Artifact Correlation
+
+For each `POST /api/v1/sessions/:id/messages` execution, Tern assigns a `turn_id`.
+
+- You may provide an optional `correlation_id` in the request body.
+- `turn_id` and `correlation_id` are propagated to System Artifact events created during that execution.
+- `POST /api/v1/sessions/:id/respond` continues the same turn.
 
   #### B. Bulk JSON Response
   If `text/event-stream` is not specified in the `Accept` header, all streaming events are aggregated and returned as a single JSON array.

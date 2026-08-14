@@ -20,8 +20,8 @@ type memStore struct {
 	events []store.SystemArtifactEvent
 }
 
-func (m *memStore) UpsertSession(_ context.Context, _ store.Session) error        { return nil }
-func (m *memStore) CloseSession(_ context.Context, _ string) error                { return nil }
+func (m *memStore) UpsertSession(_ context.Context, _ store.Session) error { return nil }
+func (m *memStore) CloseSession(_ context.Context, _ string) error         { return nil }
 func (m *memStore) SaveSystemArtifactEvent(_ context.Context, e store.SystemArtifactEvent) error {
 	m.events = append(m.events, e)
 	return nil
@@ -326,4 +326,19 @@ func TestAnalyzer_LegacyShell_Create(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	require.Len(t, ms.events, 1)
 	assert.Equal(t, "legacy.txt", ms.events[0].Key)
+}
+
+func TestAnalyzer_PropagatesTurnContext(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	projectRoot := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, projectRoot, nil)
+
+	body := `{"type":"tool_use","tool_name":"Write","turn_id":"turn-1","correlation_id":"corr-1","tool_input":{"path":"main.go"}}`
+	tl.Add(tasklog.NewAgentLogSendEntry("log-turn", "sess-1", body))
+
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "turn-1", ms.events[0].TurnID)
+	assert.Equal(t, "corr-1", ms.events[0].CorrelationID)
 }

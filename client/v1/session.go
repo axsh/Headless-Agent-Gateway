@@ -92,7 +92,15 @@ func (c *Client) CreateSession(ctx context.Context, req SessionRequest) (*Sessio
 // SendMessage sends a multimodal message to the session and returns a Stream.
 // The content parameter accepts a slice of ContentPart for text, images, etc.
 func (s *Session) SendMessage(ctx context.Context, content []ContentPart) (*Stream, error) {
-	body, err := json.Marshal(map[string]any{"content": content})
+	return s.SendMessageWithCorrelation(ctx, content, "")
+}
+
+// SendMessageWithCorrelation sends a multimodal message with an optional correlation ID.
+func (s *Session) SendMessageWithCorrelation(ctx context.Context, content []ContentPart, correlationID string) (*Stream, error) {
+	body, err := json.Marshal(map[string]any{
+		"content":        content,
+		"correlation_id": correlationID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal message: %w", err)
 	}

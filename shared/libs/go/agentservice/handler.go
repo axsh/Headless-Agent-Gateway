@@ -28,7 +28,8 @@ type MultimodalSupporter interface {
 
 // SendMessageRequest is the request body for POST /api/v1/sessions/:id/messages.
 type SendMessageRequest struct {
-	Content []codingagent.ContentPart `json:"content"`
+	Content       []codingagent.ContentPart `json:"content"`
+	CorrelationID string                    `json:"correlation_id,omitempty"`
 }
 
 // RespondRequest is the request body for POST /api/v1/sessions/:id/respond.
@@ -173,7 +174,6 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			AgentName: req.Agent,
 			StartedAt: time.Now(),
 		})
-		s.captureSessionSnapshot(sessionID, record.WorkDir)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -333,6 +333,12 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	turnID := s.generateID()
+	if s.logger != nil {
+		s.logger.Debug("turn initialized", "session_id", sessionID, "turn_id", turnID)
+	}
+	s.captureTurnSnapshot(sessionID, turnID, record.WorkDir)
+
 	agent, ok := s.agents[record.AgentName]
 	if !ok {
 		http.Error(w, "agent not available", http.StatusInternalServerError)
@@ -467,11 +473,13 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	relay := newEventRelay(ch)
 	stdin, _ := agentSess.(codingagent.StdinWriter)
 	active := &activeExecution{
-		sessionID: sessionID,
-		agentSess: agentSess,
-		stdin:     stdin,
-		relay:     relay,
-		status:    codingagent.StatusActive,
+		sessionID:     sessionID,
+		turnID:        turnID,
+		correlationID: req.CorrelationID,
+		agentSess:     agentSess,
+		stdin:         stdin,
+		relay:         relay,
+		status:        codingagent.StatusActive,
 	}
 	if err := s.execRegistry.Register(sessionID, active); err != nil {
 		finishExecution = true
@@ -529,7 +537,9 @@ func (s *Server) finishActiveExecution(sessionID string, agentSess codingagent.S
 }
 
 // toAgentLogEntry converts a StreamEvent to an AgentLogEntry for TaskLog.
-func toAgentLogEntry(ev codingagent.StreamEvent, sessionID string) *tasklog.AgentLogEntry {
+func toAgentLogEntry(ev codingagent.StreamEvent, sessionID, turnID, correlationID string) *tasklog.AgentLogEntry {
+	ev.TurnID = turnID
+	ev.CorrelationID = correlationID
 	body, _ := json.Marshal(ev)
 	logID := generateLogID()
 	return tasklog.NewAgentLogSendEntry(logID, sessionID, string(body))
@@ -701,6 +711,25 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 	}
 
 	ch := exec.relay.stream(exec.streamOffset, stopOnUserInput)
+
+	if exec.streamOffset == 0 {
+		meta := codingagent.StreamEvent{
+			Type:          codingagent.EventSystem,
+			Content:       "turn context",
+			TurnID:        exec.turnID,
+			CorrelationID: exec.correlationID,
+		}
+		if err := s.writeSSEWireEvents(w, flusher, meta); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("failed to write turn context", "session_id", sessionID, "error", err.Error())
+			}
+			return exec.streamOffset, false
+		}
+		if s.taskLog != nil {
+			s.taskLog.Add(toAgentLogEntry(meta, sessionID, exec.turnID, exec.correlationID))
+		}
+	}
+
 	eventCount := 0
 	var hasError bool
 	var errorMsg string
@@ -726,6 +755,8 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 			if !ok {
 				goto done
 			}
+			ev.TurnID = exec.turnID
+			ev.CorrelationID = exec.correlationID
 			eventCount++
 			exec.streamOffset++
 			if ev.Type == codingagent.EventError {
@@ -750,7 +781,7 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 			}
 
 			if s.taskLog != nil {
-				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID, exec.turnID, exec.correlationID))
 			}
 
 			if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
@@ -784,7 +815,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
-		s.reconcileSessionArtifacts(context.Background(), sessionID)
+		s.reconcileSessionArtifacts(context.Background(), sessionID, exec.turnID, exec.correlationID)
 	}
 	return exec.streamOffset, suspended
 }
@@ -805,6 +836,8 @@ func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, ex
 			if !ok {
 				goto done
 			}
+			ev.TurnID = exec.turnID
+			ev.CorrelationID = exec.correlationID
 			exec.streamOffset++
 			events = append(events, ev)
 			if ev.Type == codingagent.EventError {
@@ -827,7 +860,7 @@ func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, ex
 			}
 			s.updateSessionStatusOnTerminal(sessionID, ev, hasError, errorMsg)
 			if s.taskLog != nil {
-				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID, exec.turnID, exec.correlationID))
 			}
 		}
 	}
@@ -845,7 +878,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
-		s.reconcileSessionArtifacts(context.Background(), sessionID)
+		s.reconcileSessionArtifacts(context.Background(), sessionID, exec.turnID, exec.correlationID)
 	}
 	return suspended
 }
@@ -917,7 +950,7 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 
 			// Record event to TaskLog (C1-1)
 			if s.taskLog != nil {
-				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID, "", ""))
 			}
 
 			// Extract AgentSessionID from EventSystem (C2-1)
@@ -947,7 +980,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
-		s.reconcileSessionArtifacts(context.Background(), sessionID)
+		s.reconcileSessionArtifacts(context.Background(), sessionID, "", "")
 	}
 
 	fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -982,7 +1015,7 @@ func (s *Server) respondJSON(ctx context.Context, w http.ResponseWriter, ch <-ch
 
 			// Record event to TaskLog (C1-4)
 			if s.taskLog != nil {
-				s.taskLog.Add(toAgentLogEntry(ev, sessionID))
+				s.taskLog.Add(toAgentLogEntry(ev, sessionID, "", ""))
 			}
 
 			// Extract AgentSessionID from EventSystem (C2-1)
@@ -1013,7 +1046,7 @@ done:
 			record.Status = codingagent.StatusCompleted
 		}
 		s.sessions.Update(record)
-		s.reconcileSessionArtifacts(context.Background(), sessionID)
+		s.reconcileSessionArtifacts(context.Background(), sessionID, "", "")
 	}
 }
 
@@ -1036,6 +1069,13 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 		s.logger.Debug("terminating session", "session_id", sessionID)
 	}
 
+	turnID := ""
+	correlationID := ""
+	if exec, ok := s.execRegistry.Get(sessionID); ok {
+		turnID = exec.turnID
+		correlationID = exec.correlationID
+	}
+
 	// Cancel the agent execution context.
 	s.CancelExecution(sessionID)
 
@@ -1055,7 +1095,7 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 
 	// Reconcile supplemental artifacts before closing the session record.
 	if s.artifactStore != nil {
-		s.reconcileSessionArtifacts(r.Context(), sessionID)
+		s.reconcileSessionArtifacts(r.Context(), sessionID, turnID, correlationID)
 		_ = s.artifactStore.CloseSession(r.Context(), sessionID)
 	}
 

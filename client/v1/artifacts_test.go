@@ -141,6 +141,32 @@ func TestSystemClient_List_WithFilter(t *testing.T) {
 	assert.NotNil(t, page)
 }
 
+func TestSystemClient_List_WithTurnFilterQuery(t *testing.T) {
+	var gotQuery string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/artifacts/system", func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"source":      "system",
+			"total_count": 0,
+			"page":        1,
+			"per_page":    30,
+			"items":       []map[string]any{},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	_, err := c.SystemArtifacts().List(context.Background(), v1.SystemArtifactFilter{
+		TurnIDs: []string{"t-1", "t-2"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, gotQuery, "turn_id=t-1")
+	assert.Contains(t, gotQuery, "turn_id=t-2")
+}
+
 func TestSystemClient_Download(t *testing.T) {
 	srv := stubArtifactServer(t)
 	defer srv.Close()

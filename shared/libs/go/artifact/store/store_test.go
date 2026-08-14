@@ -106,6 +106,31 @@ func TestListSystemArtifacts_SessionFilter(t *testing.T) {
 	assert.Equal(t, "a.go", page.Items[0].Key)
 }
 
+func TestListSystemArtifacts_TurnFilter(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	insertSession(t, s, "s1", "cursor")
+
+	_ = s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+		SessionID: "s1", AgentID: "cursor", TurnID: "t1", Key: "a.go",
+		Operation: store.OperationCreate, OccurredAt: time.Now(),
+	})
+	_ = s.SaveSystemArtifactEvent(ctx, store.SystemArtifactEvent{
+		SessionID: "s1", AgentID: "cursor", TurnID: "t2", Key: "b.go",
+		Operation: store.OperationCreate, OccurredAt: time.Now(),
+	})
+
+	page, err := s.ListSystemArtifacts(ctx, store.SystemArtifactFilter{
+		SessionIDs: []string{"s1"},
+		TurnIDs:    []string{"t2"},
+		PerPage:    10,
+	})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "b.go", page.Items[0].Key)
+	assert.Equal(t, "t2", page.Items[0].TurnID)
+}
+
 func TestListSystemArtifacts_ExcludeDeleted(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

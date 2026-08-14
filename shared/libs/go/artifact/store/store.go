@@ -101,8 +101,22 @@ CREATE TABLE IF NOT EXISTS user_artifacts (
 CREATE INDEX IF NOT EXISTS idx_ua_key        ON user_artifacts(key);
 CREATE INDEX IF NOT EXISTS idx_ua_created_at ON user_artifacts(created_at);
 `
-	_, err := s.db.Exec(ddl)
-	return err
+	if _, err := s.db.Exec(ddl); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("system_artifact_events", "turn_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("system_artifact_events", "correlation_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sae_turn ON system_artifact_events(turn_id);`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_sae_correlation ON system_artifact_events(correlation_id);`); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Close closes the underlying database connection.
@@ -135,9 +149,9 @@ func (s *SQLiteStore) CloseSession(ctx context.Context, sessionID string) error 
 func (s *SQLiteStore) SaveSystemArtifactEvent(ctx context.Context, e SystemArtifactEvent) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO system_artifact_events
-		 (session_id, agent_id, key, actual_path, operation, occurred_at, tool_name, content_sha)
-		 VALUES(?,?,?,?,?,?,?,?)`,
-		e.SessionID, e.AgentID, e.Key, e.ActualPath, e.Operation,
+		 (session_id, agent_id, turn_id, correlation_id, key, actual_path, operation, occurred_at, tool_name, content_sha)
+		 VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		e.SessionID, e.AgentID, e.TurnID, e.CorrelationID, e.Key, e.ActualPath, e.Operation,
 		e.OccurredAt.UTC().Format(time.RFC3339Nano),
 		e.ToolName, e.ContentSHA,
 	)
@@ -201,6 +215,20 @@ func (s *SQLiteStore) filterSystemArtifacts(ctx context.Context, f SystemArtifac
 			args = append(args, id)
 		}
 	}
+	if len(f.TurnIDs) > 0 {
+		ph := placeholders(len(f.TurnIDs))
+		where = append(where, "turn_id IN ("+ph+")")
+		for _, id := range f.TurnIDs {
+			args = append(args, id)
+		}
+	}
+	if len(f.CorrelationIDs) > 0 {
+		ph := placeholders(len(f.CorrelationIDs))
+		where = append(where, "correlation_id IN ("+ph+")")
+		for _, id := range f.CorrelationIDs {
+			args = append(args, id)
+		}
+	}
 	if f.Operation != "" {
 		where = append(where, "operation=?")
 		args = append(args, f.Operation)
@@ -223,7 +251,7 @@ func (s *SQLiteStore) filterSystemArtifacts(ctx context.Context, f SystemArtifac
 	orderDir := safeOrder(f.Order)
 
 	q := fmt.Sprintf(
-		`SELECT id, session_id, agent_id, key, actual_path, operation, occurred_at, tool_name, content_sha
+		`SELECT id, session_id, agent_id, turn_id, correlation_id, key, actual_path, operation, occurred_at, tool_name, content_sha
 		 FROM system_artifact_events %s ORDER BY %s %s`,
 		baseWhere, orderCol, orderDir,
 	)
@@ -238,7 +266,7 @@ func (s *SQLiteStore) filterSystemArtifacts(ctx context.Context, f SystemArtifac
 	for rows.Next() {
 		var e SystemArtifactEvent
 		var ts string
-		if err := rows.Scan(&e.ID, &e.SessionID, &e.AgentID, &e.Key,
+		if err := rows.Scan(&e.ID, &e.SessionID, &e.AgentID, &e.TurnID, &e.CorrelationID, &e.Key,
 			&e.ActualPath, &e.Operation, &ts, &e.ToolName, &e.ContentSHA); err != nil {
 			return nil, fmt.Errorf("scan system artifact: %w", err)
 		}
@@ -292,7 +320,7 @@ func excludeDeletedKeys(events []SystemArtifactEvent) []SystemArtifactEvent {
 // GetSystemArtifactByKey returns all events for the given key, ordered by occurred_at asc.
 func (s *SQLiteStore) GetSystemArtifactByKey(ctx context.Context, key string) ([]SystemArtifactEvent, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, agent_id, key, actual_path, operation, occurred_at, tool_name, content_sha
+		`SELECT id, session_id, agent_id, turn_id, correlation_id, key, actual_path, operation, occurred_at, tool_name, content_sha
 		 FROM system_artifact_events WHERE key=? ORDER BY occurred_at ASC`,
 		key,
 	)
@@ -305,7 +333,7 @@ func (s *SQLiteStore) GetSystemArtifactByKey(ctx context.Context, key string) ([
 	for rows.Next() {
 		var e SystemArtifactEvent
 		var ts string
-		if err := rows.Scan(&e.ID, &e.SessionID, &e.AgentID, &e.Key,
+		if err := rows.Scan(&e.ID, &e.SessionID, &e.AgentID, &e.TurnID, &e.CorrelationID, &e.Key,
 			&e.ActualPath, &e.Operation, &ts, &e.ToolName, &e.ContentSHA); err != nil {
 			return nil, err
 		}
@@ -491,4 +519,33 @@ func nullTime(t *time.Time) any {
 		return nil
 	}
 	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func (s *SQLiteStore) addColumnIfMissing(tableName, columnName, definition string) error {
+	rows, err := s.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var colType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, columnName) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition))
+	return err
 }
