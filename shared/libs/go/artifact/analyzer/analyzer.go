@@ -67,7 +67,7 @@ func (a *ToolCallAnalyzer) onEntry(e tasklog.Entry) {
 		return
 	}
 
-	events := a.analyzeEvents(ev, agentLog.AgentID)
+	events := a.analyzeEvents(ev, agentLog.AgentID, ev.TurnID, ev.CorrelationID)
 	for _, event := range events {
 		if event != nil {
 			_ = a.st.SaveSystemArtifactEvent(context.Background(), *event)
@@ -76,25 +76,25 @@ func (a *ToolCallAnalyzer) onEntry(e tasklog.Entry) {
 }
 
 // analyzeEvents returns SystemArtifactEvents for recognized file-write tool_use events.
-func (a *ToolCallAnalyzer) analyzeEvents(ev codingagent.StreamEvent, sessionID string) []*store.SystemArtifactEvent {
+func (a *ToolCallAnalyzer) analyzeEvents(ev codingagent.StreamEvent, sessionID, turnID, correlationID string) []*store.SystemArtifactEvent {
 	if ev.Type != codingagent.EventToolUse {
 		return nil
 	}
 
 	switch ev.ToolName {
 	case "file_change":
-		return a.analyzeFileChange(ev, sessionID)
+		return a.analyzeFileChange(ev, sessionID, turnID, correlationID)
 	case "command_execution", "Bash", "shell", "shell_command":
-		return a.analyzeShellTool(ev, sessionID)
+		return a.analyzeShellTool(ev, sessionID, turnID, correlationID)
 	}
 
-	if event := a.analyzeMappedTool(ev, sessionID); event != nil {
+	if event := a.analyzeMappedTool(ev, sessionID, turnID, correlationID); event != nil {
 		return []*store.SystemArtifactEvent{event}
 	}
 	return nil
 }
 
-func (a *ToolCallAnalyzer) analyzeMappedTool(ev codingagent.StreamEvent, sessionID string) *store.SystemArtifactEvent {
+func (a *ToolCallAnalyzer) analyzeMappedTool(ev codingagent.StreamEvent, sessionID, turnID, correlationID string) *store.SystemArtifactEvent {
 	mappings, ok := defaultToolMappings[ev.ToolName]
 	if !ok {
 		return nil
@@ -111,7 +111,7 @@ func (a *ToolCallAnalyzer) analyzeMappedTool(ev codingagent.StreamEvent, session
 	if filePath == "" {
 		return nil
 	}
-	return a.buildEvent(sessionID, ev.ToolName, filePath, operation)
+	return a.buildEvent(sessionID, turnID, correlationID, ev.ToolName, filePath, operation)
 }
 
 func kindToOperation(kind string) string {
@@ -127,7 +127,7 @@ func kindToOperation(kind string) string {
 	}
 }
 
-func (a *ToolCallAnalyzer) analyzeFileChange(ev codingagent.StreamEvent, sessionID string) []*store.SystemArtifactEvent {
+func (a *ToolCallAnalyzer) analyzeFileChange(ev codingagent.StreamEvent, sessionID, turnID, correlationID string) []*store.SystemArtifactEvent {
 	var entries []struct {
 		path string
 		kind string
@@ -162,14 +162,14 @@ func (a *ToolCallAnalyzer) analyzeFileChange(ev codingagent.StreamEvent, session
 		if op == "" {
 			continue
 		}
-		if event := a.buildEvent(sessionID, ev.ToolName, e.path, op); event != nil {
+		if event := a.buildEvent(sessionID, turnID, correlationID, ev.ToolName, e.path, op); event != nil {
 			out = append(out, event)
 		}
 	}
 	return out
 }
 
-func (a *ToolCallAnalyzer) analyzeShellTool(ev codingagent.StreamEvent, sessionID string) []*store.SystemArtifactEvent {
+func (a *ToolCallAnalyzer) analyzeShellTool(ev codingagent.StreamEvent, sessionID, turnID, correlationID string) []*store.SystemArtifactEvent {
 	cmd := ExtractShellCommand(ev.ToolName, ev.ToolInput)
 	if cmd == "" {
 		return nil
@@ -180,27 +180,29 @@ func (a *ToolCallAnalyzer) analyzeShellTool(ev codingagent.StreamEvent, sessionI
 	}
 	var out []*store.SystemArtifactEvent
 	for _, op := range ops {
-		if event := a.buildEvent(sessionID, ev.ToolName, op.Path, op.Operation); event != nil {
+		if event := a.buildEvent(sessionID, turnID, correlationID, ev.ToolName, op.Path, op.Operation); event != nil {
 			out = append(out, event)
 		}
 	}
 	return out
 }
 
-func (a *ToolCallAnalyzer) buildEvent(sessionID, toolName, filePath, operation string) *store.SystemArtifactEvent {
+func (a *ToolCallAnalyzer) buildEvent(sessionID, turnID, correlationID, toolName, filePath, operation string) *store.SystemArtifactEvent {
 	if filePath == "" || operation == "" {
 		return nil
 	}
 	resolved := a.resolvePath(filePath, sessionID)
 	key := a.toRelativePath(resolved, sessionID)
 	return &store.SystemArtifactEvent{
-		SessionID:  sessionID,
-		AgentID:    sessionID,
-		Key:        key,
-		ActualPath: resolved,
-		Operation:  operation,
-		OccurredAt: time.Now(),
-		ToolName:   toolName,
+		SessionID:     sessionID,
+		AgentID:       sessionID,
+		TurnID:        turnID,
+		CorrelationID: correlationID,
+		Key:           key,
+		ActualPath:    resolved,
+		Operation:     operation,
+		OccurredAt:    time.Now(),
+		ToolName:      toolName,
 	}
 }
 

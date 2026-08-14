@@ -80,6 +80,8 @@ func (h *SystemArtifactHandler) handleList(w http.ResponseWriter, r *http.Reques
 		Q:              q.Get("q"),
 		SessionIDs:     q["session_id"],
 		AgentIDs:       q["agent_id"],
+		TurnIDs:        q["turn_id"],
+		CorrelationIDs: q["correlation_id"],
 		Operation:      q.Get("operation"),
 		IncludeDeleted: q.Get("include_deleted") == "true",
 		Sort:           q.Get("sort"),
@@ -233,13 +235,15 @@ func systemItemsJSON(events []store.SystemArtifactEvent) []map[string]any {
 	out := make([]map[string]any, len(events))
 	for i, e := range events {
 		out[i] = map[string]any{
-			"key":         e.Key,
-			"operation":   e.Operation,
-			"agent_id":    e.AgentID,
-			"session_id":  e.SessionID,
-			"occurred_at": e.OccurredAt.UTC().Format(time.RFC3339),
-			"tool_name":   e.ToolName,
-			"sha":         e.ContentSHA,
+			"key":            e.Key,
+			"operation":      e.Operation,
+			"agent_id":       e.AgentID,
+			"session_id":     e.SessionID,
+			"turn_id":        e.TurnID,
+			"correlation_id": e.CorrelationID,
+			"occurred_at":    e.OccurredAt.UTC().Format(time.RFC3339),
+			"tool_name":      e.ToolName,
+			"sha":            e.ContentSHA,
 		}
 	}
 	return out

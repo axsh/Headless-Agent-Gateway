@@ -15,17 +15,17 @@ import (
 type EventType string
 
 const (
-	EventText         EventType = "text"
-	EventToolUse      EventType = "tool_use"
-	EventToolResult   EventType = "tool_result"
-	EventToolResultPart EventType = "tool_result_part"
-	EventSystem       EventType = "system"
-	EventResult       EventType = "result"
-	EventError        EventType = "error"
-	EventNodeStart    EventType = "node_start"
-	EventNodeComplete EventType = "node_complete"
-	EventNodeFailed   EventType = "node_failed"
-	EventProgress     EventType = "progress"
+	EventText              EventType = "text"
+	EventToolUse           EventType = "tool_use"
+	EventToolResult        EventType = "tool_result"
+	EventToolResultPart    EventType = "tool_result_part"
+	EventSystem            EventType = "system"
+	EventResult            EventType = "result"
+	EventError             EventType = "error"
+	EventNodeStart         EventType = "node_start"
+	EventNodeComplete      EventType = "node_complete"
+	EventNodeFailed        EventType = "node_failed"
+	EventProgress          EventType = "progress"
 	EventUserInputRequired EventType = "user_input_required"
 )
 
@@ -52,6 +52,8 @@ type Event struct {
 	Text              string
 	ToolName          string
 	ToolInput         map[string]any
+	TurnID            string
+	CorrelationID     string
 	Error             string
 	UserInputRequired UserInputRequiredEvent
 }
@@ -63,6 +65,7 @@ type Stream struct {
 	onResult  func(ev Event)
 	onError   func(err string)
 	onToolUse func(toolName string, toolInput map[string]any)
+	turnID    string
 }
 
 // newStream creates a Stream from an HTTP response body.
@@ -241,6 +244,11 @@ func (s *Stream) Events() <-chan Event {
 	return ch
 }
 
+// TurnID returns the first observed turn_id in the stream.
+func (s *Stream) TurnID() string {
+	return s.turnID
+}
+
 // events is the internal event iterator using iter pattern.
 func (s *Stream) events() <-chan Event {
 	ch := make(chan Event, 8)
@@ -265,15 +273,17 @@ func (s *Stream) events() <-chan Event {
 				break
 			}
 			var raw struct {
-				Type      string         `json:"type"`
-				Content   string         `json:"content"`
-				ToolName  string         `json:"tool_name,omitempty"`
-				ToolInput map[string]any `json:"tool_input,omitempty"`
-				PromptID  string         `json:"prompt_id,omitempty"`
-				Choices   []string       `json:"choices,omitempty"`
-				ChunkID   string         `json:"chunk_id,omitempty"`
-				Index     int            `json:"index,omitempty"`
-				Total     int            `json:"total,omitempty"`
+				Type          string         `json:"type"`
+				Content       string         `json:"content"`
+				ToolName      string         `json:"tool_name,omitempty"`
+				ToolInput     map[string]any `json:"tool_input,omitempty"`
+				PromptID      string         `json:"prompt_id,omitempty"`
+				Choices       []string       `json:"choices,omitempty"`
+				TurnID        string         `json:"turn_id,omitempty"`
+				CorrelationID string         `json:"correlation_id,omitempty"`
+				ChunkID       string         `json:"chunk_id,omitempty"`
+				Index         int            `json:"index,omitempty"`
+				Total         int            `json:"total,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &raw); err != nil {
 				continue
@@ -310,10 +320,15 @@ func (s *Stream) events() <-chan Event {
 			}
 
 			ev := Event{
-				Type:      EventType(raw.Type),
-				Text:      raw.Content,
-				ToolName:  raw.ToolName,
-				ToolInput: raw.ToolInput,
+				Type:          EventType(raw.Type),
+				Text:          raw.Content,
+				ToolName:      raw.ToolName,
+				ToolInput:     raw.ToolInput,
+				TurnID:        raw.TurnID,
+				CorrelationID: raw.CorrelationID,
+			}
+			if s.turnID == "" && raw.TurnID != "" {
+				s.turnID = raw.TurnID
 			}
 			if ev.Type == EventError {
 				ev.Error = raw.Content

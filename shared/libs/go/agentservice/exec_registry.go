@@ -11,12 +11,14 @@ import (
 var ErrSessionBusy = errors.New("session busy")
 
 type activeExecution struct {
-	sessionID   string
-	agentSess   codingagent.Session
-	stdin       codingagent.StdinWriter
-	relay       *eventRelay
-	status      string
-	streamOffset int
+	sessionID     string
+	turnID        string
+	correlationID string
+	agentSess     codingagent.Session
+	stdin         codingagent.StdinWriter
+	relay         *eventRelay
+	status        string
+	streamOffset  int
 }
 
 type execRegistry struct {

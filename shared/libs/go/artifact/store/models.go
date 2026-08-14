@@ -21,28 +21,32 @@ type Session struct {
 
 // SystemArtifactEvent represents one file-operation event produced by a Coding Agent tool call.
 type SystemArtifactEvent struct {
-	ID         int64
-	SessionID  string
-	AgentID    string
-	Key        string // project-root-relative logical path
-	ActualPath string // absolute path on the file system
-	Operation  string // "create" | "update" | "delete"
-	OccurredAt time.Time
-	ToolName   string
-	ContentSHA string // SHA256 hex; may be empty
+	ID            int64
+	SessionID     string
+	AgentID       string
+	TurnID        string
+	CorrelationID string
+	Key           string // project-root-relative logical path
+	ActualPath    string // absolute path on the file system
+	Operation     string // "create" | "update" | "delete"
+	OccurredAt    time.Time
+	ToolName      string
+	ContentSHA    string // SHA256 hex; may be empty
 }
 
 // SystemArtifactFilter specifies filters and pagination for ListSystemArtifacts.
 type SystemArtifactFilter struct {
-	Q              string // doublestar glob applied to Key
+	Q              string   // doublestar glob applied to Key
 	AgentIDs       []string // filter by agent ID (OR)
 	SessionIDs     []string // filter by session ID (OR)
-	Operation      string // "" means all
+	TurnIDs        []string // filter by turn ID (OR)
+	CorrelationIDs []string // filter by correlation ID (OR)
+	Operation      string   // "" means all
 	Since          *time.Time
 	Until          *time.Time
-	IncludeDeleted bool // if false, exclude keys whose latest operation is "delete"
-	Page           int  // 1-indexed; 0 treated as 1
-	PerPage        int  // 0 or negative → default 100 (safety); positive → honored as-is (no hard max)
+	IncludeDeleted bool   // if false, exclude keys whose latest operation is "delete"
+	Page           int    // 1-indexed; 0 treated as 1
+	PerPage        int    // 0 or negative → default 100 (safety); positive → honored as-is (no hard max)
 	Sort           string // "key" | "occurred_at" | "operation"
 	Order          string // "asc" | "desc"
 }

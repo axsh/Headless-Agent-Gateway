@@ -106,6 +106,32 @@ func TestSystemAPI_List_SessionFilter(t *testing.T) {
 	assert.Equal(t, "a.go", items[0].(map[string]any)["key"])
 }
 
+func TestSystemAPI_List_TurnFilter(t *testing.T) {
+	s := newSystemTestStore(t)
+	seedSession(t, s, "s1", "cursor")
+	require.NoError(t, s.SaveSystemArtifactEvent(context.Background(), store.SystemArtifactEvent{
+		SessionID: "s1", AgentID: "cursor", TurnID: "t1", Key: "a.go",
+		ActualPath: "/proj/a.go", Operation: store.OperationCreate, OccurredAt: time.Now(), ToolName: "Write",
+	}))
+	require.NoError(t, s.SaveSystemArtifactEvent(context.Background(), store.SystemArtifactEvent{
+		SessionID: "s1", AgentID: "cursor", TurnID: "t2", Key: "b.go",
+		ActualPath: "/proj/b.go", Operation: store.OperationCreate, OccurredAt: time.Now(), ToolName: "Write",
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/artifacts/system?turn_id=t2", nil)
+	newSystemHandler(s).ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, float64(1), resp["total_count"])
+	items := resp["items"].([]any)
+	require.Len(t, items, 1)
+	assert.Equal(t, "b.go", items[0].(map[string]any)["key"])
+	assert.Equal(t, "t2", items[0].(map[string]any)["turn_id"])
+}
+
 func TestSystemAPI_List_Pagination(t *testing.T) {
 	s := newSystemTestStore(t)
 	seedSession(t, s, "s1", "cursor")

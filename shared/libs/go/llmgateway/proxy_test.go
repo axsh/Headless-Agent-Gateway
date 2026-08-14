@@ -723,3 +723,94 @@ func TestHealthResponse_TLSInfo(t *testing.T) {
 		t.Error("expected cert_expires_at in tls info")
 	}
 }
+
+func TestProxyServer_ListModels_ExcludesEmbedding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "model_profiles.yaml")
+	yaml := `
+default_profile:
+  provider: openai
+  model: gpt-4o-mini
+providers:
+  openai:
+    api_keys:
+      - name: default
+        secret: "sk-test"
+        models:
+          - name: gpt-4o-mini
+          - name: text-embedding-3-small
+            mode: embedding
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatalf("write profiles: %v", err)
+	}
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{ModelProfilesPath: path},
+	}
+	p, err := NewProxyServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewProxyServer: %v", err)
+	}
+
+	models := p.ListModels()
+	if len(models) != 1 {
+		t.Fatalf("ListModels() len = %d, want 1", len(models))
+	}
+	if models[0].Model != "gpt-4o-mini" {
+		t.Errorf("model = %q, want gpt-4o-mini", models[0].Model)
+	}
+
+	if err := p.Launch(nil); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer p.Shutdown(nil)
+
+	resp, err := http.Get(p.ProxyURL() + "/v1/models")
+	if err != nil {
+		t.Fatalf("GET /v1/models: %v", err)
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Models []ModelInfo `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, m := range body.Models {
+		if m.Model == "text-embedding-3-small" {
+			t.Fatal("GET /v1/models included embedding model")
+		}
+	}
+}
+
+func TestProxyServer_DefaultModel_NilWhenEmbedding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "model_profiles.yaml")
+	yaml := `
+default_profile:
+  provider: openai
+  model: text-embedding-3-small
+providers:
+  openai:
+    api_keys:
+      - name: default
+        secret: "sk-test"
+        models:
+          - name: text-embedding-3-small
+            mode: embedding
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatalf("write profiles: %v", err)
+	}
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{ModelProfilesPath: path},
+	}
+	p, err := NewProxyServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewProxyServer: %v", err)
+	}
+	if dm := p.DefaultModel(); dm != nil {
+		t.Errorf("DefaultModel() = %v, want nil for embedding default", dm)
+	}
+}
+

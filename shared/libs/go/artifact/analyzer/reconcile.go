@@ -23,6 +23,8 @@ const (
 // ReconcileInput aggregates all sources for one session.
 type ReconcileInput struct {
 	SessionID       string
+	TurnID          string
+	CorrelationID   string
 	ExistingEvents  []store.SystemArtifactEvent
 	GitChanges      []GitDiffResult
 	SnapshotChanges []ParsedFileOp
@@ -102,13 +104,15 @@ func Reconcile(in ReconcileInput, workDirResolver WorkDirResolver, projectRoot s
 			continue
 		}
 		out = append(out, store.SystemArtifactEvent{
-			SessionID:  in.SessionID,
-			AgentID:    in.SessionID,
-			Key:        cand.key,
-			ActualPath: cand.absPath,
-			Operation:  cand.operation,
-			OccurredAt: cand.at,
-			ToolName:   cand.toolName,
+			SessionID:     in.SessionID,
+			AgentID:       in.SessionID,
+			TurnID:        in.TurnID,
+			CorrelationID: in.CorrelationID,
+			Key:           cand.key,
+			ActualPath:    cand.absPath,
+			Operation:     cand.operation,
+			OccurredAt:    cand.at,
+			ToolName:      cand.toolName,
 		})
 	}
 	return dedupEvents(out)
@@ -158,6 +162,7 @@ func dedupEvents(events []store.SystemArtifactEvent) []store.SystemArtifactEvent
 func RunSessionReconciliation(
 	st store.ArtifactStore,
 	sessionID, workDir, projectRoot string,
+	turnID, correlationID string,
 	workDirResolver WorkDirResolver,
 	startSnapshot DirSnapshot,
 	hasStartSnapshot bool,
@@ -166,16 +171,22 @@ func RunSessionReconciliation(
 		return nil
 	}
 
-	existing, err := st.ListAllSystemArtifacts(context.Background(), store.SystemArtifactFilter{
+	filter := store.SystemArtifactFilter{
 		SessionIDs:     []string{sessionID},
 		IncludeDeleted: true,
-	})
+	}
+	if turnID != "" {
+		filter.TurnIDs = []string{turnID}
+	}
+	existing, err := st.ListAllSystemArtifacts(context.Background(), filter)
 	if err != nil {
 		return err
 	}
 
 	input := ReconcileInput{
 		SessionID:      sessionID,
+		TurnID:         turnID,
+		CorrelationID:  correlationID,
 		ExistingEvents: existing,
 	}
 

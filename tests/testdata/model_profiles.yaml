@@ -28,6 +28,8 @@ providers:
           - name: gpt-5.5-pro
           - name: gpt-5.3-codex
             mode: responses
+          - name: text-embedding-3-small
+            mode: embedding
   google:
     api_keys:
       - name: default
@@ -42,11 +44,15 @@ providers:
           - name: gemini-3.5-flash
             behavior:
               max_output_tokens: 65536
+          - name: text-embedding-004
+            mode: embedding
   ollama:
     api_keys:
       - name: default
         models:
           - name: gemma3:4b
+          - name: nomic-embed-text
+            mode: embedding
 
 coding_agents:
   codex:

@@ -161,6 +161,7 @@ func (p *ProxyServer) ReloadProfiles(profiles *config.ModelProfilesConfig) {
 }
 
 // ListModels returns model info from loaded profiles.
+// Embedding-only models (mode: embedding) are excluded from the agent-facing list.
 func (p *ProxyServer) ListModels() []ModelInfo {
 	if p.profiles == nil {
 		return []ModelInfo{}
@@ -170,6 +171,9 @@ func (p *ProxyServer) ListModels() []ModelInfo {
 	for providerName, provider := range p.profiles.Providers {
 		for _, key := range provider.ApiKeys {
 			for _, model := range key.Models {
+				if config.IsEmbeddingMode(model.Mode) {
+					continue
+				}
 				models = append(models, ModelInfo{
 					Provider: providerName,
 					Model:    model.Name,
@@ -181,7 +185,7 @@ func (p *ProxyServer) ListModels() []ModelInfo {
 }
 
 // DefaultModel returns the default model from profiles.
-// Returns nil if no default profile is configured.
+// Returns nil if no default profile is configured, or if the default is an embedding model.
 func (p *ProxyServer) DefaultModel() *ModelInfo {
 	if p.profiles == nil {
 		return nil
@@ -200,6 +204,9 @@ func (p *ProxyServer) DefaultModel() *ModelInfo {
 		for _, key := range prov.ApiKeys {
 			for _, m := range key.Models {
 				if m.Name == dp.Model {
+					if config.IsEmbeddingMode(m.Mode) {
+						return nil
+					}
 					if m.Behavior != nil {
 						info.ToolCallFallback = m.Behavior.ToolCallFallback
 					}
@@ -298,6 +305,7 @@ func (p *ProxyServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 			"GET /v1/models",
 			"POST /v1/messages",
 			"POST /v1/responses",
+			"POST /v1/embeddings",
 		},
 	})
 }

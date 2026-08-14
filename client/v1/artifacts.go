@@ -17,13 +17,15 @@ import (
 
 // SystemArtifactItem represents a single system artifact event in an API response.
 type SystemArtifactItem struct {
-	Key        string    `json:"key"`
-	Operation  string    `json:"operation"`
-	AgentID    string    `json:"agent_id"`
-	SessionID  string    `json:"session_id"`
-	OccurredAt time.Time `json:"occurred_at"`
-	ToolName   string    `json:"tool_name"`
-	SHA        string    `json:"sha"`
+	Key           string    `json:"key"`
+	Operation     string    `json:"operation"`
+	AgentID       string    `json:"agent_id"`
+	SessionID     string    `json:"session_id"`
+	TurnID        string    `json:"turn_id"`
+	CorrelationID string    `json:"correlation_id"`
+	OccurredAt    time.Time `json:"occurred_at"`
+	ToolName      string    `json:"tool_name"`
+	SHA           string    `json:"sha"`
 }
 
 // SystemArtifactPage is the paginated list response for system artifacts.
@@ -39,6 +41,8 @@ type SystemArtifactFilter struct {
 	Q              string
 	AgentIDs       []string
 	SessionIDs     []string
+	TurnIDs        []string
+	CorrelationIDs []string
 	Operation      string
 	Since          *time.Time
 	Until          *time.Time
@@ -118,6 +122,12 @@ func (sc *SystemArtifactClient) List(ctx context.Context, f SystemArtifactFilter
 	}
 	for _, id := range f.SessionIDs {
 		q.Add("session_id", id)
+	}
+	for _, id := range f.TurnIDs {
+		q.Add("turn_id", id)
+	}
+	for _, id := range f.CorrelationIDs {
+		q.Add("correlation_id", id)
 	}
 	if f.Operation != "" {
 		q.Set("operation", f.Operation)
@@ -448,4 +458,3 @@ func (uc *UserArtifactClient) Archive(ctx context.Context, r ArchiveRequest) (io
 	}
 	return resp.Body, nil
 }
-
