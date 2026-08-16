@@ -15,6 +15,7 @@ import (
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 	"github.com/axsh/arctic-tern/shared/libs/go/vault"
@@ -28,15 +29,15 @@ type streamTestCtx struct {
 func (c *streamTestCtx) Config() *config.AppConfig                             { return c.cfg }
 func (c *streamTestCtx) Logger() logger.Logger                                 { return c.log }
 func (c *streamTestCtx) Vault() vault.VaultStore                               { return nil }
-func (c *streamTestCtx) Router() handlerctx.ModelRouter                         { return nil }
+func (c *streamTestCtx) Router() handlerctx.ModelRouter                        { return nil }
 func (c *streamTestCtx) BifrostSDK() *bifrost.Bifrost                          { return nil }
 func (c *streamTestCtx) ToBifrostProvider(string) bifrostSchemas.ModelProvider { return "" }
 func (c *streamTestCtx) SanitizeTools(*bifrostSchemas.BifrostResponsesRequest, bifrostSchemas.ModelProvider) {
 }
 func (c *streamTestCtx) TryFallbackAnthropicResponse([]byte) ([]byte, bool) { return nil, false }
-func (c *streamTestCtx) ExtractSessionID(string) string                      { return "" }
-func (c *streamTestCtx) ExtractFallbackFlag(string) bool                     { return false }
-func (c *streamTestCtx) MaskSecret(string) string                            { return "" }
+func (c *streamTestCtx) ExtractSessionID(string) string                     { return "" }
+func (c *streamTestCtx) ExtractFallbackFlag(string) bool                    { return false }
+func (c *streamTestCtx) MaskSecret(string) string                           { return "" }
 
 type flushRecorder struct {
 	*httptest.ResponseRecorder
@@ -239,9 +240,60 @@ func TestHandlerSource_StreamRetryWiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read handler.go: %v", err)
 	}
-	for _, symbol := range []string{"NewRetryBudget", "RetryLeadingChunk", "openResponsesStream", "openBifrostResponsesStream"} {
+	for _, symbol := range []string{"NewRetryBudget", "RetryLeadingChunk", "openResponsesStream", "openBifrostResponsesStream", "LogIfStreamDeadline"} {
 		if !bytes.Contains(data, []byte(symbol)) {
 			t.Errorf("handler.go does not contain required retry symbol: %s", symbol)
 		}
+	}
+}
+
+type capturingWriter struct {
+	b bytes.Buffer
+}
+
+func (w *capturingWriter) Write(_ logger.Level, payload []byte) (int, error) {
+	return w.b.Write(payload)
+}
+
+func (w *capturingWriter) Close() error { return nil }
+
+func TestHandleResponsesStream_DeadlineExceededLogs(t *testing.T) {
+	orig := openBifrostResponsesStream
+	defer func() { openBifrostResponsesStream = orig }()
+
+	openBifrostResponsesStream = func(hctx handlerctx.HandlerContext, bCtx *bifrostSchemas.BifrostContext, req *bifrostSchemas.BifrostResponsesRequest) (chan *bifrostSchemas.BifrostStreamChunk, *bifrostSchemas.BifrostError) {
+		ch := make(chan *bifrostSchemas.BifrostStreamChunk, 1)
+		ch <- &bifrostSchemas.BifrostStreamChunk{
+			BifrostError: &bifrostSchemas.BifrostError{
+				Error: &bifrostSchemas.ErrorField{
+					Message: "context deadline exceeded",
+				},
+			},
+		}
+		close(ch)
+		return ch, nil
+	}
+
+	w := &capturingWriter{}
+	log := logger.NewDefaultWithOptions(logger.LevelDebug, &logger.TextFormatter{}, w)
+	appCfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Retry: config.RetrySettings{
+				MaxRetries:          0,
+				InitialDelaySeconds: 0,
+				MaxDelaySeconds:     8,
+			},
+		},
+	}
+	ctx := &streamTestCtx{cfg: appCfg, log: log}
+	rec := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handleResponsesStream(ctx, rec, context.Background(), nil, &bifrostSchemas.BifrostResponsesRequest{
+		Model: "gpt-4o",
+	})
+	if !strings.Contains(w.b.String(), llmgateway.LogUpstreamStreamDeadline) {
+		t.Fatalf("logs = %q, want %q", w.b.String(), llmgateway.LogUpstreamStreamDeadline)
+	}
+	if !strings.Contains(rec.Body.String(), "event: error") {
+		t.Fatalf("missing event: error in body=%s", rec.Body.String())
 	}
 }

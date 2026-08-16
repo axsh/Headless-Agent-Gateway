@@ -612,7 +612,7 @@ func (s *Server) streamSSE(ctx context.Context, w http.ResponseWriter, ch <-chan
 		select {
 		case <-ctx.Done():
 			if s.logger != nil {
-				s.logger.Warn("client disconnected during SSE stream",
+				s.logger.Warn(logClientDisconnectedSSE,
 					"session_id", sessionID,
 					"events_sent", eventCount)
 			}

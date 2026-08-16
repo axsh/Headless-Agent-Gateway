@@ -277,6 +277,7 @@ func handleMessagesBifrostNonStream(
 		return nil
 	})
 	if err != nil {
+		llmgateway.LogIfStreamDeadline(log, err, err.Error(), req.Model)
 		log.Error("bifrost anthropic request failed",
 			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
@@ -340,6 +341,7 @@ func handleMessagesBifrostStream(
 	budget := llmgateway.NewRetryBudget(ctx.Config().LLMGateway.Retry)
 	ch, err := openResponsesStream(reqCtx, ctx, budget, bCtx, req)
 	if err != nil {
+		llmgateway.LogIfStreamDeadline(log, err, err.Error(), req.Model)
 		log.Error("bifrost stream anthropic request failed",
 			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
@@ -399,6 +401,7 @@ func handleMessagesBifrostStream(
 					var openErr error
 					ch, openErr = openResponsesStream(reqCtx, ctx, budget, bCtx, req)
 					if openErr != nil {
+						llmgateway.LogIfStreamDeadline(log, openErr, openErr.Error(), req.Model)
 						errJSON, _ := json.Marshal(map[string]string{"message": openErr.Error()})
 						fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
 						flusher.Flush()
@@ -407,6 +410,7 @@ func handleMessagesBifrostStream(
 					ended = false
 					break
 				}
+				llmgateway.LogIfStreamDeadline(log, nil, msg, req.Model)
 				errJSON, _ := json.Marshal(chunk.BifrostError)
 				fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
 				flusher.Flush()

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,13 +18,86 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/portable"
 )
+
+type captureLogEntry struct {
+	level string
+	msg   string
+	kv    []any
+}
+
+type captureLogger struct {
+	mu      sync.Mutex
+	entries []captureLogEntry
+}
+
+func (l *captureLogger) append(level, msg string, fields []any) {
+	copied := append([]any(nil), fields...)
+	l.mu.Lock()
+	l.entries = append(l.entries, captureLogEntry{level: level, msg: msg, kv: copied})
+	l.mu.Unlock()
+}
+
+func (l *captureLogger) Trace(msg string, fields ...any) { l.append("trace", msg, fields) }
+func (l *captureLogger) Debug(msg string, fields ...any) { l.append("debug", msg, fields) }
+func (l *captureLogger) Info(msg string, fields ...any)  { l.append("info", msg, fields) }
+func (l *captureLogger) Warn(msg string, fields ...any)  { l.append("warn", msg, fields) }
+func (l *captureLogger) Error(msg string, fields ...any) { l.append("error", msg, fields) }
+func (l *captureLogger) WithFields(map[string]any) logger.Logger {
+	return l
+}
+func (l *captureLogger) WithComponent(string) logger.Logger { return l }
+
+func (l *captureLogger) find(level, msg string) (captureLogEntry, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, e := range l.entries {
+		if e.level == level && e.msg == msg {
+			return e, true
+		}
+	}
+	return captureLogEntry{}, false
+}
+
+func kvLookup(kv []any, key string) (any, bool) {
+	for i := 0; i+1 < len(kv); i += 2 {
+		k, ok := kv[i].(string)
+		if ok && k == key {
+			return kv[i+1], true
+		}
+	}
+	return nil, false
+}
+
+func kvString(t *testing.T, kv []any, key string) string {
+	t.Helper()
+	v, ok := kvLookup(kv, key)
+	if !ok {
+		t.Fatalf("missing log field %q", key)
+	}
+	return fmt.Sprint(v)
+}
+
+func kvBool(t *testing.T, kv []any, key string) bool {
+	t.Helper()
+	v, ok := kvLookup(kv, key)
+	if !ok {
+		t.Fatalf("missing log field %q", key)
+	}
+	b, ok := v.(bool)
+	if !ok {
+		t.Fatalf("field %q is %T, want bool", key, v)
+	}
+	return b
+}
 
 type retryAgent struct {
 	name         string
 	nativeID     string
 	failTimes    int
+	emptyError   bool
 	nonRetry     bool
 	delay        time.Duration
 	failResumeID string
@@ -108,7 +182,12 @@ func (s *retrySession) Send(_ context.Context, prompt string) (<-chan codingagen
 			if s.agent.genericExit {
 				failContent = "exit status 1"
 			}
-			ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: s.agent.nativeID}
+			if s.agent.emptyError {
+				failContent = ""
+			}
+			if !s.agent.genericExit && !s.agent.emptyError {
+				ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: s.agent.nativeID}
+			}
 			ch <- codingagent.StreamEvent{
 				Type:      codingagent.EventError,
 				Content:   failContent,
@@ -244,6 +323,235 @@ func TestHandleSendMessage_GenericExit1ExhaustedUpstreamError(t *testing.T) {
 	if w2.Code == http.StatusConflict {
 		t.Fatal("session still busy after classified failure")
 	}
+}
+
+func TestHandleSendMessage_GenericExit1ExhaustedLogsCause(t *testing.T) {
+	logs := &captureLogger{}
+	agent := &retryAgent{name: "codex", nativeID: "n1", failTimes: 99, genericExit: true}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 3, IntervalSeconds: 0},
+		agentservice.WithLogger(logs))
+	sessionID := createCodexSessionHTTP(t, handler)
+	w := postSSE(t, handler, sessionID, "hello")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	_, errCount := sseEvents(t, w.Body.String())
+	if errCount != 1 {
+		t.Fatalf("EventError count = %d, want 1 body=%s", errCount, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "[upstream_error]") {
+		t.Fatalf("missing [upstream_error]: %s", w.Body.String())
+	}
+	entry, ok := logs.find("error", "codex process retry exhausted")
+	if !ok {
+		t.Fatalf("missing ERROR log %q; entries=%v", "codex process retry exhausted", logs.entries)
+	}
+	if kvString(t, entry.kv, "session_id") != sessionID {
+		t.Fatalf("session_id = %q, want %q", kvString(t, entry.kv, "session_id"), sessionID)
+	}
+	if kvString(t, entry.kv, "attempt") != "3" {
+		t.Fatalf("attempt = %q, want 3", kvString(t, entry.kv, "attempt"))
+	}
+	if kvString(t, entry.kv, "max_attempts") != "3" {
+		t.Fatalf("max_attempts = %q, want 3", kvString(t, entry.kv, "max_attempts"))
+	}
+	if kvString(t, entry.kv, "resume_mode") != "fresh" {
+		t.Fatalf("resume_mode = %q, want fresh", kvString(t, entry.kv, "resume_mode"))
+	}
+	if kvString(t, entry.kv, "agent_session_id") != "" {
+		t.Fatalf("agent_session_id = %q, want empty", kvString(t, entry.kv, "agent_session_id"))
+	}
+	if !kvBool(t, entry.kv, "agent_session_id_empty") {
+		t.Fatal("agent_session_id_empty = false, want true")
+	}
+	stderr := kvString(t, entry.kv, "stderr")
+	if !strings.Contains(stderr, "exit status 1") {
+		t.Fatalf("stderr = %q, want exit status 1", stderr)
+	}
+	if kvBool(t, entry.kv, "stderr_empty") {
+		t.Fatal("stderr_empty = true, want false")
+	}
+	if kvString(t, entry.kv, "exit_status") != "1" {
+		t.Fatalf("exit_status = %q, want 1", kvString(t, entry.kv, "exit_status"))
+	}
+}
+
+func TestHandleSendMessage_BrokenResumeExhaustedLogsResumeMode(t *testing.T) {
+	logs := &captureLogger{}
+	agent := &retryAgent{name: "codex", nativeID: "thr-broken", nextNativeID: "thr-fresh"}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 3, IntervalSeconds: 0},
+		agentservice.WithLogger(logs))
+	sessionID := createCodexSessionHTTP(t, handler)
+	if w := postSSE(t, handler, sessionID, "turn 1"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":"result"`) {
+		t.Fatalf("turn 1 failed: %d %s", w.Code, w.Body.String())
+	}
+	agent.mu.Lock()
+	agent.failResumeID = "thr-broken"
+	agent.failTimes = 99
+	agent.genericExit = true
+	agent.mu.Unlock()
+	w := postSSE(t, handler, sessionID, "turn 2")
+	if w.Code != http.StatusOK {
+		t.Fatalf("turn 2 status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "[upstream_error]") {
+		t.Fatalf("missing classified error: %s", w.Body.String())
+	}
+	entry, ok := logs.find("error", "codex process retry exhausted")
+	if !ok {
+		t.Fatalf("missing exhaust ERROR; entries=%v", logs.entries)
+	}
+	if kvString(t, entry.kv, "resume_mode") != "fresh" {
+		t.Fatalf("resume_mode = %q, want fresh after self-heal", kvString(t, entry.kv, "resume_mode"))
+	}
+}
+
+func TestHandleSendMessage_ResumeAttemptExhaustedLogsResumeMode(t *testing.T) {
+	logs := &captureLogger{}
+	agent := &retryAgent{name: "codex", nativeID: "thr-keep"}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 1, IntervalSeconds: 0},
+		agentservice.WithLogger(logs))
+	sessionID := createCodexSessionHTTP(t, handler)
+	if w := postSSE(t, handler, sessionID, "turn 1"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":"result"`) {
+		t.Fatalf("turn 1 failed: %d %s", w.Code, w.Body.String())
+	}
+	agent.mu.Lock()
+	agent.failTimes = 99
+	agent.genericExit = true
+	agent.mu.Unlock()
+	w := postSSE(t, handler, sessionID, "turn 2")
+	if w.Code != http.StatusOK {
+		t.Fatalf("turn 2 status=%d body=%s", w.Code, w.Body.String())
+	}
+	entry, ok := logs.find("error", "codex process retry exhausted")
+	if !ok {
+		t.Fatalf("missing exhaust ERROR; entries=%v", logs.entries)
+	}
+	if kvString(t, entry.kv, "resume_mode") != "resume" {
+		t.Fatalf("resume_mode = %q, want resume", kvString(t, entry.kv, "resume_mode"))
+	}
+	if kvString(t, entry.kv, "agent_session_id") != "thr-keep" {
+		t.Fatalf("agent_session_id = %q, want thr-keep", kvString(t, entry.kv, "agent_session_id"))
+	}
+	if kvBool(t, entry.kv, "agent_session_id_empty") {
+		t.Fatal("agent_session_id_empty = true, want false")
+	}
+}
+
+func TestHandleSendMessage_EmptyStderrExhaustedLogsEmptyNote(t *testing.T) {
+	logs := &captureLogger{}
+	agent := &retryAgent{name: "codex", nativeID: "n1", failTimes: 99, genericExit: true, emptyError: true}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 2, IntervalSeconds: 0},
+		agentservice.WithLogger(logs))
+	sessionID := createCodexSessionHTTP(t, handler)
+	w := postSSE(t, handler, sessionID, "hello")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	entry, ok := logs.find("error", "codex process retry exhausted")
+	if !ok {
+		t.Fatalf("missing exhaust ERROR; entries=%v", logs.entries)
+	}
+	if kvString(t, entry.kv, "stderr") != "" {
+		t.Fatalf("stderr = %q, want empty", kvString(t, entry.kv, "stderr"))
+	}
+	if !kvBool(t, entry.kv, "stderr_empty") {
+		t.Fatal("stderr_empty = false, want true")
+	}
+}
+
+func TestStreamSSERelay_DisconnectLogsClientGone(t *testing.T) {
+	logs := &captureLogger{}
+	agent := &retryAgent{name: "codex", nativeID: "n1", delay: 400 * time.Millisecond}
+	srv := agentservice.New(
+		agentservice.WithProcessRetry(config.ProcessRetryConfig{MaxAttempts: 1}),
+		agentservice.WithLogger(logs),
+	)
+	srv.RegisterAgent(agent)
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	sessionID := createCodexSessionHTTP(t, srv.HTTPHandler())
+	reqCtx, cancel := context.WithCancel(context.Background())
+	msgBody, _ := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": "run"}},
+	})
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, ts.URL+"/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(msgBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := logs.find("warn", "client disconnected during SSE stream"); ok {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	entry, ok := logs.find("warn", "client disconnected during SSE stream")
+	if !ok {
+		t.Fatalf("missing disconnect Warn; entries=%v", logs.entries)
+	}
+	if kvString(t, entry.kv, "session_id") != sessionID {
+		t.Fatalf("session_id = %q, want %q", kvString(t, entry.kv, "session_id"), sessionID)
+	}
+}
+
+func TestStreamSSERelay_DrainTimeoutLogsClientDrain(t *testing.T) {
+	logs := &captureLogger{}
+	agent := &retryAgent{name: "codex", nativeID: "n1", delay: 10 * time.Second}
+	srv, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 1},
+		agentservice.WithSSEDrainTimeout(80*time.Millisecond),
+		agentservice.WithLogger(logs))
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	sessionID := createCodexSessionHTTP(t, handler)
+	reqCtx, cancel := context.WithCancel(context.Background())
+	msgBody, _ := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": "run"}},
+	})
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, ts.URL+"/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(msgBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := logs.find("warn", "SSE drain timed out; stopping agent process"); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	entry, ok := logs.find("warn", "SSE drain timed out; stopping agent process")
+	if !ok {
+		t.Fatalf("missing drain Warn; entries=%v", logs.entries)
+	}
+	if kvString(t, entry.kv, "session_id") != sessionID {
+		t.Fatalf("session_id = %q, want %q", kvString(t, entry.kv, "session_id"), sessionID)
+	}
+	if kvString(t, entry.kv, "timeout") == "" {
+		t.Fatal("missing timeout field")
+	}
+	_ = srv
 }
 
 func TestHandleSendMessage_BrokenResumeThreadSelfHeals(t *testing.T) {

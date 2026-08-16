@@ -11,7 +11,14 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
-const defaultSSEClientDrainTimeout = 15 * time.Second
+const (
+	defaultSSEClientDrainTimeout  = 15 * time.Second
+	maxLoggedStderrBytes          = 8 * 1024
+	logCodexProcessRetryExhausted = "codex process retry exhausted"
+	logClientDisconnectedSSE      = "client disconnected during SSE stream"
+	logSSEDrainTimedOut           = "SSE drain timed out; stopping agent process"
+	drainTimeoutTerminalContent   = "client drain timeout"
+)
 
 type streamTerminal struct {
 	kind      codingagent.EventType
@@ -47,7 +54,7 @@ func (s *Server) classifiedTerminal(content string) (tagged string, overloaded b
 
 func (s *Server) stopExecOnDrainTimeout(sessionID string, exec *activeExecution) streamTerminal {
 	if s.logger != nil {
-		s.logger.Warn("SSE drain timed out; stopping agent process",
+		s.logger.Warn(logSSEDrainTimedOut,
 			"session_id", sessionID,
 			"timeout", s.clientDrainTimeout().String())
 	}
@@ -60,7 +67,7 @@ func (s *Server) stopExecOnDrainTimeout(sessionID string, exec *activeExecution)
 	return streamTerminal{
 		kind:      codingagent.EventError,
 		retryable: false,
-		content:   "client drain timeout",
+		content:   drainTimeoutTerminalContent,
 	}
 }
 
@@ -258,6 +265,7 @@ func (s *Server) runTurn(
 				continue
 			}
 			if term.retryable {
+				s.logProcessRetryExhausted(sessionID, attempt, maxAttempts, healFresh, term)
 				content, overloaded := s.classifiedTerminal(term.content)
 				s.emitClassifiedSSE(w, active, content, overloaded)
 			}
@@ -291,6 +299,7 @@ func (s *Server) runTurn(
 			continue
 		}
 		if term.retryable {
+			s.logProcessRetryExhausted(sessionID, attempt, maxAttempts, healFresh, term)
 			content, _ := s.classifiedTerminal(term.content)
 			events = append(events, codingagent.StreamEvent{Type: codingagent.EventError, Content: content})
 			s.updateSessionStatusOnTerminal(sessionID, codingagent.StreamEvent{Type: codingagent.EventError, Content: content}, true, content)
@@ -469,7 +478,7 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 			if !clientGone {
 				clientGone = true
 				if s.logger != nil {
-					s.logger.Warn("client disconnected during SSE stream",
+					s.logger.Warn(logClientDisconnectedSSE,
 						"session_id", sessionID,
 						"events_sent", eventCount)
 				}
@@ -630,4 +639,72 @@ done:
 		}
 	}
 	return term, events, suspended
+}
+
+func (s *Server) logProcessRetryExhausted(sessionID string, attempt, maxAttempts int, healFresh bool, term streamTerminal) {
+	if s.logger == nil {
+		return
+	}
+	agentSessionID := ""
+	if rec, err := s.sessions.Get(sessionID); err == nil {
+		agentSessionID = rec.AgentSessionID
+	}
+	resumeMode := "resume"
+	if healFresh || agentSessionID == "" {
+		resumeMode = "fresh"
+	}
+	stderr := truncateStderrTail(term.content, maxLoggedStderrBytes)
+	s.logger.Debug("codex process retries exhausted",
+		"session_id", sessionID,
+		"attempt", attempt,
+		"max_attempts", maxAttempts,
+		"resume_mode", resumeMode)
+	fields := []any{
+		"session_id", sessionID,
+		"attempt", attempt,
+		"max_attempts", maxAttempts,
+		"resume_mode", resumeMode,
+		"agent_session_id", agentSessionID,
+		"stderr", stderr,
+		"stderr_empty", stderr == "",
+		"agent_session_id_empty", agentSessionID == "",
+		"terminal_content", drainTimeoutTerminalContentMatches(term.content),
+	}
+	if st, ok := parseExitStatus(term.content); ok {
+		fields = append(fields, "exit_status", st)
+	} else {
+		fields = append(fields, "exit_status", "")
+	}
+	s.logger.Error(logCodexProcessRetryExhausted, fields...)
+}
+
+func drainTimeoutTerminalContentMatches(content string) bool {
+	return strings.Contains(content, drainTimeoutTerminalContent)
+}
+
+func truncateStderrTail(s string, n int) string {
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
+}
+
+func parseExitStatus(content string) (status string, ok bool) {
+	const prefix = "exit status "
+	i := strings.LastIndex(strings.ToLower(content), prefix)
+	if i < 0 {
+		return "", false
+	}
+	rest := strings.TrimSpace(content[i+len(prefix):])
+	if rest == "" {
+		return "", false
+	}
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return "", false
+	}
+	return rest[:end], true
 }
