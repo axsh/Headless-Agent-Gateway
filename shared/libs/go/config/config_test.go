@@ -250,6 +250,31 @@ llm_gateway:
 	}
 }
 
+func TestLLMGatewayRetry_ZeroBecomesBoundedDefault(t *testing.T) {
+	cfg := &AppConfig{}
+	cfg.LLMGateway.ApplyDefaults()
+	if cfg.LLMGateway.Retry.MaxRetries != 2 {
+		t.Errorf("Retry.MaxRetries = %d, want 2", cfg.LLMGateway.Retry.MaxRetries)
+	}
+	if cfg.LLMGateway.Retry.InitialDelaySeconds != 1 {
+		t.Errorf("Retry.InitialDelaySeconds = %d, want 1", cfg.LLMGateway.Retry.InitialDelaySeconds)
+	}
+	if cfg.LLMGateway.Retry.MaxDelaySeconds != 8 {
+		t.Errorf("Retry.MaxDelaySeconds = %d, want 8", cfg.LLMGateway.Retry.MaxDelaySeconds)
+	}
+}
+
+func TestAgentServiceProcessRetry_ZeroBecomesThree(t *testing.T) {
+	cfg := &AppConfig{}
+	cfg.AgentService.ApplyDefaults()
+	if cfg.AgentService.ProcessRetry.MaxAttempts != 3 {
+		t.Errorf("ProcessRetry.MaxAttempts = %d, want 3", cfg.AgentService.ProcessRetry.MaxAttempts)
+	}
+	if cfg.AgentService.ProcessRetry.IntervalSeconds != 3 {
+		t.Errorf("ProcessRetry.IntervalSeconds = %d, want 3", cfg.AgentService.ProcessRetry.IntervalSeconds)
+	}
+}
+
 func TestLLMGatewayConfig_ApplyDefaults(t *testing.T) {
 	cfg := &AppConfig{}
 	cfg.LLMGateway.ApplyDefaults()

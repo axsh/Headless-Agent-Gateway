@@ -2,8 +2,14 @@ package codingagent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
+)
+
+const (
+	ErrorCodeUpstreamOverloaded = "upstream_overloaded"
+	ErrorCodeUpstreamError      = "upstream_error"
 )
 
 const (
@@ -29,6 +35,40 @@ func DefaultRetryConfig() *RetryConfig {
 		MaxAttempts:   DefaultMaxAttempts,
 		RetryInterval: DefaultRetryInterval,
 	}
+}
+
+// IsRetryableUpstream reports whether a log, stderr, or API message is a
+// transient upstream stream failure.
+func IsRetryableUpstream(msg string) bool {
+	if msg == "" {
+		return false
+	}
+	if IsRetryableError(errors.New(msg)) {
+		return true
+	}
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "reconnecting...") ||
+		strings.Contains(lower, "we're currently experiencing high demand") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "overloaded") ||
+		strings.Contains(lower, "429")
+}
+
+// ClassifiedErrorContent appends a stable error code tag for SSE EventError content.
+func ClassifiedErrorContent(msg string, retryable bool) string {
+	code := ErrorCodeUpstreamError
+	if retryable {
+		code = ErrorCodeUpstreamOverloaded
+	}
+	tag := "[" + code + "]"
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return tag
+	}
+	if strings.Contains(msg, tag) {
+		return msg
+	}
+	return msg + " " + tag
 }
 
 // IsRetryableError checks whether the error is retryable.

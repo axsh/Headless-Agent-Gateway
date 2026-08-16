@@ -65,6 +65,8 @@ type Server struct {
 	sessionSnapshotsMu sync.Mutex
 	summarizer         portable.Summarizer
 	supplementCfg      config.SupplementConfig
+	processRetry       config.ProcessRetryConfig
+	processRetryCustom bool
 }
 
 // ServerOption configures a Server.
@@ -128,9 +130,26 @@ func WithSummarizer(sum portable.Summarizer) ServerOption {
 	return func(s *Server) { s.summarizer = sum }
 }
 
+// WithProcessRetry sets Codex process re-exec bounds. IntervalSeconds 0 means no wait.
+func WithProcessRetry(cfg config.ProcessRetryConfig) ServerOption {
+	return func(s *Server) {
+		s.processRetry = cfg
+		s.processRetryCustom = true
+	}
+}
+
 // MarkSessionBusy registers a dummy execution so PATCH/SendMessage return 409 (tests).
 func (s *Server) MarkSessionBusy(sessionID, status string) error {
 	return s.execRegistry.Register(sessionID, &activeExecution{sessionID: sessionID, status: status})
+}
+
+func applyProcessRetryDefaults(s *Server) {
+	if s.processRetry.MaxAttempts == 0 {
+		s.processRetry.MaxAttempts = 3
+	}
+	if !s.processRetryCustom && s.processRetry.IntervalSeconds == 0 {
+		s.processRetry.IntervalSeconds = 3
+	}
 }
 
 // New creates a new AgentService Server.
@@ -145,6 +164,7 @@ func New(opts ...ServerOption) *Server {
 	for _, opt := range opts {
 		opt(s)
 	}
+	applyProcessRetryDefaults(s)
 	if s.summarizer == nil {
 		s.summarizer = &GatewaySummarizer{
 			GatewayURL: s.gatewayURL,
@@ -181,6 +201,7 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 	for _, opt := range opts {
 		opt(s)
 	}
+	applyProcessRetryDefaults(s)
 	if s.summarizer == nil {
 		s.summarizer = &GatewaySummarizer{
 			GatewayURL: s.gatewayURL,

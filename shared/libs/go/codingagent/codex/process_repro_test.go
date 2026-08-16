@@ -22,7 +22,7 @@ func installFakeCodexForProcessTest(t *testing.T, dir string, lines []string) {
 		t.Fatalf("write lines: %v", err)
 	}
 	mainSrc := `package main
-import ("fmt"; "os"; "strings")
+import ("fmt"; "os"; "strconv"; "strings")
 func main() {
  for _, arg := range os.Args[1:] {
   if arg == "--version" || arg == "-V" { fmt.Println("fake-codex 0.0.0"); os.Exit(0) }
@@ -30,12 +30,19 @@ func main() {
  hasExec := false
  for _, arg := range os.Args[1:] { if arg == "exec" { hasExec = true; break } }
  if !hasExec { os.Exit(0) }
+ if s := os.Getenv("FAKE_CODEX_STDERR"); s != "" {
+  fmt.Fprintln(os.Stderr, s)
+ }
  data, err := os.ReadFile(os.Getenv("FAKE_CODEX_LINES_FILE"))
  if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
  for _, line := range strings.Split(string(data), "\n") {
   if line != "" { fmt.Println(line) }
  }
- os.Exit(0)
+ code := 0
+ if v := os.Getenv("FAKE_CODEX_EXIT"); v != "" {
+  code, _ = strconv.Atoi(v)
+ }
+ os.Exit(code)
 }`
 	mainPath := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
@@ -150,5 +157,121 @@ func TestStartProcess_NoDuplicateEventResult(t *testing.T) {
 	}
 	if resultCount != 1 {
 		t.Fatalf("expected 1 EventResult, got %d", resultCount)
+	}
+}
+
+func TestStartProcess_ReconnectStderrDoesNotEmitEventErrorOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	installFakeCodexForProcessTest(t, dir, []string{
+		`{"type":"turn.completed"}`,
+	})
+	t.Setenv("FAKE_CODEX_STDERR", "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)")
+	t.Setenv("FAKE_CODEX_EXIT", "0")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var errors, results int
+	for ev := range ch {
+		if ev.Type == codingagent.EventError {
+			errors++
+		}
+		if ev.Type == codingagent.EventResult {
+			results++
+		}
+	}
+	if errors != 0 {
+		t.Fatalf("expected no EventError on successful reconnect, got %d", errors)
+	}
+	if results != 1 {
+		t.Fatalf("expected 1 EventResult, got %d", results)
+	}
+}
+
+func TestStartProcess_RetryableExitSetsRetryableFlag(t *testing.T) {
+	dir := t.TempDir()
+	installFakeCodexForProcessTest(t, dir, nil)
+	stderr := "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"
+	t.Setenv("FAKE_CODEX_STDERR", stderr)
+	t.Setenv("FAKE_CODEX_EXIT", "1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var last codingagent.StreamEvent
+	var saw bool
+	for ev := range ch {
+		if ev.Type == codingagent.EventError {
+			last = ev
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatal("expected EventError on retryable exit")
+	}
+	if !last.Retryable {
+		t.Fatal("Retryable = false, want true")
+	}
+	want := codingagent.ClassifiedErrorContent(stderr, true)
+	if last.Content != want {
+		t.Errorf("Content = %q, want %q", last.Content, want)
+	}
+}
+
+func TestStartProcess_NonRetryableExitNoRetryableFlag(t *testing.T) {
+	dir := t.TempDir()
+	installFakeCodexForProcessTest(t, dir, nil)
+	t.Setenv("FAKE_CODEX_STDERR", "unauthorized")
+	t.Setenv("FAKE_CODEX_EXIT", "1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var last codingagent.StreamEvent
+	var saw bool
+	for ev := range ch {
+		if ev.Type == codingagent.EventError {
+			last = ev
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatal("expected EventError")
+	}
+	if last.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if !strings.Contains(last.Content, "unauthorized") {
+		t.Errorf("Content = %q, want unauthorized", last.Content)
 	}
 }

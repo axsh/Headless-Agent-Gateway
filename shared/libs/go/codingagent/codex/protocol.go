@@ -161,6 +161,9 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 		}
 
 	case "error":
+		if codingagent.IsRetryableUpstream(ev.Message) {
+			return nil
+		}
 		return &codingagent.StreamEvent{
 			Type:    codingagent.EventError,
 			Content: ev.Message,
@@ -177,6 +180,9 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 		msg := fail.Error.Message
 		if msg == "" {
 			msg = "codex turn failed"
+		}
+		if codingagent.IsRetryableUpstream(msg) {
+			return nil
 		}
 		return &codingagent.StreamEvent{
 			Type:    codingagent.EventError,

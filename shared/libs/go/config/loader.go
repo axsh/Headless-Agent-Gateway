@@ -19,6 +19,8 @@ func Load(path string) (*AppConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
+	cfg.LLMGateway.ApplyDefaults()
+	cfg.AgentService.ApplyDefaults()
 	return &cfg, nil
 }
 

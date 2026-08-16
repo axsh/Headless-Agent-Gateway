@@ -54,6 +54,15 @@ type LLMGatewayConfig struct {
 
 // ApplyDefaults fills zero-valued fields with safe defaults.
 func (c *LLMGatewayConfig) ApplyDefaults() {
+	if c.Retry.MaxRetries == 0 {
+		c.Retry.MaxRetries = 2
+	}
+	if c.Retry.InitialDelaySeconds == 0 {
+		c.Retry.InitialDelaySeconds = 1
+	}
+	if c.Retry.MaxDelaySeconds == 0 {
+		c.Retry.MaxDelaySeconds = 8
+	}
 	if c.MaxRequestBodyBytes == 0 {
 		c.MaxRequestBodyBytes = 10 * 1024 * 1024 // 10MB
 	}
@@ -122,7 +131,8 @@ type ServerConfig struct {
 
 // RetrySettings holds retry configuration for upstream provider requests.
 type RetrySettings struct {
-	// MaxRetries is the maximum number of retry attempts (0 = no retry).
+	// MaxRetries is the maximum number of retry attempts after the first try.
+	// Zero is treated as unset and ApplyDefaults fills 2 (3 attempts total).
 	MaxRetries int `yaml:"max_retries"`
 
 	// InitialDelaySeconds is the base delay in seconds for exponential backoff.
@@ -181,6 +191,26 @@ type AgentServiceConfig struct {
 	EnableSubagent bool `yaml:"enable_subagent"`
 	// Supplement is the default context-transfer strategy for agent switches.
 	Supplement SupplementConfig `yaml:"supplement"`
+	// ProcessRetry bounds Codex process re-exec after retryable upstream failures.
+	ProcessRetry ProcessRetryConfig `yaml:"process_retry"`
+}
+
+// ProcessRetryConfig bounds Codex CLI re-exec after retryable process exits.
+type ProcessRetryConfig struct {
+	// MaxAttempts includes the first attempt. Zero is treated as unset (default 3).
+	MaxAttempts int `yaml:"max_attempts"`
+	// IntervalSeconds is the wait between process attempts. Zero is unset (default 3).
+	IntervalSeconds int `yaml:"interval_seconds"`
+}
+
+// ApplyDefaults fills zero-valued process retry fields.
+func (c *AgentServiceConfig) ApplyDefaults() {
+	if c.ProcessRetry.MaxAttempts == 0 {
+		c.ProcessRetry.MaxAttempts = 3
+	}
+	if c.ProcessRetry.IntervalSeconds == 0 {
+		c.ProcessRetry.IntervalSeconds = 3
+	}
 }
 
 // SupplementConfig is the server-default prompt supplement strategy.
