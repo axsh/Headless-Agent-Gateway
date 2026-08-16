@@ -23,6 +23,7 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/portable"
 )
 
 // AgentService is the interface for the Coding Agent API service.
@@ -62,6 +63,8 @@ type Server struct {
 	artifactWorkDir    string
 	sessionSnapshots   map[string]analyzer.DirSnapshot
 	sessionSnapshotsMu sync.Mutex
+	summarizer         portable.Summarizer
+	supplementCfg      config.SupplementConfig
 }
 
 // ServerOption configures a Server.
@@ -115,17 +118,38 @@ func WithArtifactStorage(st *artifactstorage.UserArtifactStorage) ServerOption {
 	}
 }
 
+// WithSupplementConfig sets the server-default supplement strategy.
+func WithSupplementConfig(cfg config.SupplementConfig) ServerOption {
+	return func(s *Server) { s.supplementCfg = cfg }
+}
+
+// WithSummarizer injects a portable.Summarizer (tests replace GatewaySummarizer).
+func WithSummarizer(sum portable.Summarizer) ServerOption {
+	return func(s *Server) { s.summarizer = sum }
+}
+
+// MarkSessionBusy registers a dummy execution so PATCH/SendMessage return 409 (tests).
+func (s *Server) MarkSessionBusy(sessionID, status string) error {
+	return s.execRegistry.Register(sessionID, &activeExecution{sessionID: sessionID, status: status})
+}
+
 // New creates a new AgentService Server.
 func New(opts ...ServerOption) *Server {
 	s := &Server{
 		agents:         make(map[string]codingagent.CodingAgent),
-		sessions:       NewMemorySessionStore(),
+		sessions:       NewWorkspaceSessionStore(),
 		activeSessions: make(map[string]codingagent.Session),
 		execCancels:    make(map[string]context.CancelFunc),
 		execRegistry:   newExecRegistry(),
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.summarizer == nil {
+		s.summarizer = &GatewaySummarizer{
+			GatewayURL: s.gatewayURL,
+			Token:      s.gatewayToken,
+		}
 	}
 	if s.logger != nil {
 		s.logger.Debug("creating agent service", "agent_count", len(s.agents))
@@ -156,6 +180,12 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.summarizer == nil {
+		s.summarizer = &GatewaySummarizer{
+			GatewayURL: s.gatewayURL,
+			Token:      s.gatewayToken,
+		}
 	}
 	if s.logger != nil {
 		s.logger.Debug("creating agent service", "agent_count", len(s.agents))
@@ -383,6 +413,8 @@ func (s *Server) routeSessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		s.handleCreateSession(w, r)
+	case http.MethodGet:
+		s.handleListSessions(w, r)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

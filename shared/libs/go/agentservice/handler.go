@@ -17,6 +17,7 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/tasklog"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/portable"
 	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/session"
 )
 
@@ -28,8 +29,9 @@ type MultimodalSupporter interface {
 
 // SendMessageRequest is the request body for POST /api/v1/sessions/:id/messages.
 type SendMessageRequest struct {
-	Content       []codingagent.ContentPart `json:"content"`
-	CorrelationID string                    `json:"correlation_id,omitempty"`
+	Content       []codingagent.ContentPart   `json:"content"`
+	CorrelationID string                      `json:"correlation_id,omitempty"`
+	Supplement    *session.SupplementStrategy `json:"supplement,omitempty"`
 }
 
 // RespondRequest is the request body for POST /api/v1/sessions/:id/respond.
@@ -129,13 +131,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// SessionDir fallback: use WorkDir/.AgentName if not explicitly set.
+	// SessionDir fallback: {work_dir}/.tern/{session_id}.
 	if record.SessionDir == "" && record.WorkDir != "" {
-		if record.AgentName != "" {
-			record.SessionDir = filepath.Join(record.WorkDir, "."+record.AgentName)
-		} else {
-			record.SessionDir = record.WorkDir
-		}
+		record.SessionDir = filepath.Join(record.WorkDir, ".tern", record.ID)
 	}
 
 	// R1, R4: Resolve SessionDir to absolute path for record consistency.
@@ -196,7 +194,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(record)
+	s.writeSessionJSON(w, record)
 }
 
 // validateAndResolveConfigDir returns an absolute config_dir path.
@@ -221,59 +219,6 @@ func validateAndResolveConfigDir(configDir string) (resolved string, status int,
 		return "", http.StatusBadRequest, "config_dir is not a directory: " + resolved
 	}
 	return resolved, 0, ""
-}
-
-// handlePatchSession handles PATCH /api/v1/sessions/:id.
-// Body must include config_dir (string). Empty string clears config_dir
-// (no overlay on subsequent launches; Codex restores --ignore-user-config).
-// Does not modify work_dir, session_dir, or agent_session_id.
-// Overlay of the new config runs on the next SendMessage.
-func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
-	id := extractPathParam(r.URL.Path, "/api/v1/sessions/")
-	if s.logger != nil {
-		s.logger.Debug("patching session", "session_id", id)
-	}
-	record, err := s.sessions.Get(id)
-	if err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	}
-
-	var req struct {
-		ConfigDir *string `json:"config_dir"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if req.ConfigDir == nil {
-		http.Error(w, "config_dir is required", http.StatusBadRequest)
-		return
-	}
-
-	oldConfigDir := record.ConfigDir
-	resolved, status, errMsg := validateAndResolveConfigDir(*req.ConfigDir)
-	if status != 0 {
-		http.Error(w, errMsg, status)
-		return
-	}
-	record.ConfigDir = resolved
-	record.UpdatedAt = time.Now()
-	if err := s.sessions.Update(record); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if s.logger != nil {
-		s.logger.Debug("session config_dir updated",
-			"session_id", id,
-			"old_config_dir", oldConfigDir,
-			"config_dir", record.ConfigDir,
-			"session_dir", record.SessionDir)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(record)
 }
 
 // handleDeleteSession handles DELETE /api/v1/sessions/:id.
@@ -324,6 +269,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	var req SendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Supplement != nil && !portable.KnownAlgorithm(req.Supplement.Algorithm) {
+		http.Error(w, "unknown supplement algorithm: "+req.Supplement.Algorithm, http.StatusBadRequest)
 		return
 	}
 
@@ -406,14 +355,31 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	userContent := promptText
+	if !hasMultimodal {
+		userContent = codingagent.ExtractText(req.Content)
+	}
 	AppendSessionMessage(record.SessionDir, session.Message{
 		Role:         "user",
+		Content:      userContent,
 		ContentParts: sessionParts,
 		Timestamp:    time.Now(),
+		Origin:       record.AgentName,
 	})
 
+	resumeID := record.AgentSessionID
+	wrapped, wrapErr := s.wrapPromptWithSupplement(r.Context(), record, promptText, req.Supplement)
+	if wrapErr != nil {
+		http.Error(w, wrapErr.Error(), wrapHTTPStatus(wrapErr))
+		return
+	}
+	promptText = wrapped.prompt
+	if resumeID == "" {
+		resumeID = wrapped.resumeID
+	}
+
 	if s.logger != nil {
-		s.logger.Debug("sending message to agent", "session_id", sessionID, "agent", record.AgentName, "model", record.Model)
+		s.logger.Debug("sending message to agent", "session_id", sessionID, "agent", record.AgentName, "model", record.Model, "resume", resumeID != "", "supplement", wrapped.injected)
 		s.logger.Trace("message content", "prompt", promptText)
 	}
 
@@ -425,11 +391,11 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		codingagent.WithIdleTimeout(agentCfg.IdleTimeoutSeconds),
 		codingagent.WithMaxExecution(agentCfg.MaxExecutionSeconds),
 	}
-	if record.AgentSessionID != "" {
-		opts = append(opts, codingagent.WithAgentSessionID(record.AgentSessionID))
+	if resumeID != "" {
+		opts = append(opts, codingagent.WithAgentSessionID(resumeID))
 	}
 	if record.SessionDir != "" {
-		opts = append(opts, codingagent.WithSessionDir(record.SessionDir))
+		opts = append(opts, codingagent.WithSessionDir(NativeSessionDir(record.SessionDir)))
 	}
 	if record.ConfigDir != "" {
 		opts = append(opts, codingagent.WithConfigDir(record.ConfigDir))
@@ -522,6 +488,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 // finishActiveExecution closes the agent session and clears busy-state registries.
 func (s *Server) finishActiveExecution(sessionID string, agentSess codingagent.Session, savedFiles []string) {
+	s.ingestActiveTurn(sessionID)
 	if agentSess != nil {
 		_ = agentSess.Close()
 	}
@@ -682,10 +649,7 @@ func (s *Server) handleRespond(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = s.streamSSERelay(r.Context(), w, exec, false)
 
-	exec.agentSess.Close()
-	s.UnregisterActiveSession(sessionID)
-	s.UnregisterExecCancel(sessionID)
-	s.execRegistry.Unregister(sessionID)
+	s.finishActiveExecution(sessionID, exec.agentSess, nil)
 
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	if flusher, ok := w.(http.Flusher); ok {

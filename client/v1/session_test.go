@@ -178,3 +178,67 @@ func TestSession_UpdateConfigDir_Delegates(t *testing.T) {
 		t.Errorf("ConfigDir = %q, want /tmp/beta", info.ConfigDir)
 	}
 }
+
+func TestUpdateAgent_SendsAgentOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/sessions/s1" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["agent"] != "codex" {
+			t.Errorf("agent = %v", payload["agent"])
+		}
+		if _, ok := payload["config_dir"]; ok {
+			t.Errorf("config_dir should be omitted")
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":         "s1",
+			"agent_name": "codex",
+		})
+	}))
+	defer srv.Close()
+	c := v1.New(srv.URL)
+	session := v1.ResumeSession(c, "s1")
+	info, err := session.UpdateAgent(context.Background(), "codex")
+	if err != nil {
+		t.Fatalf("UpdateAgent: %v", err)
+	}
+	if info.AgentName != "codex" {
+		t.Errorf("AgentName = %q", info.AgentName)
+	}
+}
+
+func TestUpdateSession_WithSupplement(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]any
+		_ = json.Unmarshal(body, &payload)
+		if payload["agent"] != "codex" {
+			t.Errorf("agent = %v", payload["agent"])
+		}
+		sup, _ := payload["supplement"].(map[string]any)
+		if sup["algorithm"] != "full" {
+			t.Errorf("supplement = %#v", payload["supplement"])
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "s1", "agent_name": "codex"})
+	}))
+	defer srv.Close()
+	c := v1.New(srv.URL)
+	agent := "codex"
+	_, err := c.UpdateSession(context.Background(), "s1", v1.UpdateSessionRequest{
+		Agent:      &agent,
+		Supplement: &v1.SupplementStrategy{Algorithm: "full"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

@@ -295,3 +295,42 @@ func TestLLMGatewayConfig_ApplyDefaults_NoOverwrite(t *testing.T) {
 		t.Errorf("Server.WriteTimeoutSeconds: got %d, want 600 (should not overwrite)", cfg.LLMGateway.Server.WriteTimeoutSeconds)
 	}
 }
+
+func TestAgentServiceSupplement_YAMLLoad(t *testing.T) {
+	input := `
+agent_service:
+  port: 3100
+  supplement:
+    algorithm: map_reduce
+    model: ""
+    max_chunk_messages: 20
+    threshold_bytes: 32768
+    recent_keep: 8
+`
+	var cfg AppConfig
+	if err := yaml.Unmarshal([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AgentService.Supplement.Algorithm != "map_reduce" {
+		t.Errorf("algorithm = %q", cfg.AgentService.Supplement.Algorithm)
+	}
+	if cfg.AgentService.Supplement.MaxChunkMessages != 20 {
+		t.Errorf("max_chunk_messages = %d", cfg.AgentService.Supplement.MaxChunkMessages)
+	}
+	if cfg.AgentService.Supplement.ThresholdBytes != 32768 {
+		t.Errorf("threshold_bytes = %d", cfg.AgentService.Supplement.ThresholdBytes)
+	}
+	if cfg.AgentService.Supplement.RecentKeep != 8 {
+		t.Errorf("recent_keep = %d", cfg.AgentService.Supplement.RecentKeep)
+	}
+}
+
+func TestAgentServiceSupplement_UnspecifiedZero(t *testing.T) {
+	var cfg AppConfig
+	if err := yaml.Unmarshal([]byte("agent_service:\n  port: 1\n"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AgentService.Supplement.Algorithm != "" {
+		t.Errorf("unspecified algorithm should be empty, got %q", cfg.AgentService.Supplement.Algorithm)
+	}
+}

@@ -512,6 +512,9 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		agentservice.WithSandboxDisabled(disableSandbox),
 		agentservice.WithSubagentEnabled(enableSubagent),
 	}
+	if cfg != nil {
+		asOpts = append(asOpts, agentservice.WithSupplementConfig(cfg.AgentService.Supplement))
+	}
 	if artifactSt != nil {
 		asOpts = append(asOpts, agentservice.WithArtifactStore(artifactSt, artifactWorkDir))
 	}
