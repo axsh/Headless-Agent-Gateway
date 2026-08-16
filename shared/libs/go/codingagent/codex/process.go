@@ -395,6 +395,9 @@ func StartProcess(
 		// Wait for stderr scanner to finish before calling cmd.Wait().
 		<-stderrDone
 
+		// Close stdin before cmd.Wait() so the stdin copy goroutine can exit.
+		pm.closeStdin()
+
 		// R3: Check exit code and report stderr on failure.
 		if err := cmd.Wait(); err != nil {
 			errMsg := strings.TrimSpace(stderrBuf.String())
