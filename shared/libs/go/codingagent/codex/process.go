@@ -347,6 +347,7 @@ func StartProcess(
 		defer cancel() // Option A: cancel procCtx when stdout closes so the timeout goroutine exits cleanly
 		scanner := codingagent.NewLargeLineScanner(stdout, cfg.ScannerMaxTokenBytes)
 		resultEmitted := false
+		lastErrContent := ""
 		for scanner.Scan() {
 			line := scanner.Text()
 			touchActivity()
@@ -370,6 +371,9 @@ func StartProcess(
 				}
 				if ev.Type == codingagent.EventResult {
 					resultEmitted = true
+				}
+				if ev.Type == codingagent.EventError && ev.Content != "" {
+					lastErrContent = ev.Content
 				}
 				select {
 				case ch <- *ev:
@@ -401,6 +405,12 @@ func StartProcess(
 		// R3: Check exit code and report stderr on failure.
 		if err := cmd.Wait(); err != nil {
 			errMsg := strings.TrimSpace(stderrBuf.String())
+			if errMsg == "" {
+				errMsg = lastErrContent
+				if errMsg != "" {
+					log.Debug("using last stdout EventError as process exit message", "content", errMsg)
+				}
+			}
 			if errMsg == "" {
 				errMsg = err.Error()
 			}

@@ -21,6 +21,15 @@ type request struct {
 	Model string `json:"model"`
 }
 
+func writeGWError(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request, model string, ge *handlerctx.GatewayError) {
+	path, method := "", ""
+	if r != nil && r.URL != nil {
+		path = r.URL.Path
+		method = r.Method
+	}
+	handlerctx.WriteErrorResponse(w, ge, ctx.Logger(), "path", path, "method", method, "model", model)
+}
+
 // HandleResponses returns an http.HandlerFunc that handles POST /v1/responses
 // for OpenAI Responses API. This handler is used by Codex CLI in "responses"
 // wire_api mode.
@@ -34,6 +43,7 @@ func HandleResponses(ctx handlerctx.HandlerContext) http.HandlerFunc {
 func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request) {
 	cfg := ctx.Config()
 	log := ctx.Logger()
+	modelName := ""
 
 	// R5: Apply request body size limit.
 	if maxBody := cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
@@ -45,7 +55,7 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+			writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 				Type:    "invalid_request_error",
 				Message: "request body too large",
 				Code:    "request_too_large",
@@ -53,7 +63,7 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 			})
 			return
 		}
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "failed to read request body",
 			Code:    "request_read_error",
@@ -66,7 +76,7 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 	// Full-parse into Bifrost's OpenAIResponsesRequest to enable typed conversion.
 	var oaiReq bifrostOpenAI.OpenAIResponsesRequest
 	if err := json.Unmarshal(body, &oaiReq); err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
@@ -77,13 +87,14 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 
 	// Wrap model in request for compatibility with routing and legacy fallback code.
 	req := request{Model: oaiReq.Model}
+	modelName = req.Model
 
 	log.Debug("openai responses request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
 
 	// Route the model
 	router := ctx.Router()
 	if router == nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "LLM gateway backend not configured",
 			Code:    "not_configured",
@@ -96,7 +107,7 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 
 	routed, err := router.ResolveModel(req.Model, sessionID)
 	if err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "not_found_error",
 			Message: "model not found: " + req.Model,
 			Code:    "model_not_found",
@@ -110,7 +121,7 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 	// Bifrost SDK path (required)
 	bifrostSDK := ctx.BifrostSDK()
 	if bifrostSDK == nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "Bifrost SDK not initialized",
 			Code:    "not_configured",
@@ -124,7 +135,7 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 	if vault.IsVaultRef(apiKey) && ctx.Vault() != nil {
 		resolved, err := ctx.Vault().Resolve(apiKey)
 		if err != nil {
-			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+			writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 				Type:    "api_error",
 				Message: "failed to resolve API key from vault",
 				Code:    "vault_error",
@@ -233,7 +244,7 @@ func handleResponsesNonStream(
 		log.Error("bifrost responses request failed",
 			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, nil, req.Model, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: err.Error(),
 			Code:    "upstream_error",
@@ -268,7 +279,7 @@ func handleResponsesStream(
 		log.Error("bifrost stream responses request failed",
 			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, nil, req.Model, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: err.Error(),
 			Code:    "upstream_error",

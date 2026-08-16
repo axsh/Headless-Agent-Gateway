@@ -59,6 +59,7 @@ func HandleEmbeddings(ctx handlerctx.HandlerContext) http.HandlerFunc {
 func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request) {
 	cfg := ctx.Config()
 	log := ctx.Logger()
+	modelName := ""
 
 	if maxBody := cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
@@ -68,7 +69,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+			writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 				Type:    "invalid_request_error",
 				Message: "request body too large",
 				Code:    "request_too_large",
@@ -76,7 +77,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 			})
 			return
 		}
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "failed to read request body",
 			Code:    "request_read_error",
@@ -88,7 +89,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 
 	var req openaiEmbeddingRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
@@ -97,8 +98,9 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 		return
 	}
 
+	modelName = req.Model
 	if req.Model == "" {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "model is required",
 			Code:    "missing_model",
@@ -109,7 +111,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 
 	input, err := parseEmbeddingInput(req.Input)
 	if err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: err.Error(),
 			Code:    "invalid_input",
@@ -122,7 +124,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 
 	router := ctx.Router()
 	if router == nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "LLM gateway backend not configured",
 			Code:    "not_configured",
@@ -134,7 +136,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 	sessionID := ctx.ExtractSessionID(r.Header.Get("Authorization"))
 	routed, err := router.ResolveModel(req.Model, sessionID)
 	if err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "not_found_error",
 			Message: "model not found: " + req.Model,
 			Code:    "model_not_found",
@@ -144,7 +146,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 	}
 
 	if !config.IsEmbeddingMode(routed.Mode) {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "model is not an embedding model: " + req.Model,
 			Code:    "invalid_model_mode",
@@ -156,7 +158,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 	log.Debug("embeddings request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode)
 
 	if ctx.BifrostSDK() == nil && embeddingInvokerOverride == nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "Bifrost SDK not initialized",
 			Code:    "not_configured",
@@ -169,7 +171,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 	if vault.IsVaultRef(apiKey) && ctx.Vault() != nil {
 		resolved, resolveErr := ctx.Vault().Resolve(apiKey)
 		if resolveErr != nil {
-			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+			writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 				Type:    "api_error",
 				Message: "failed to resolve API key from vault",
 				Code:    "vault_error",
@@ -213,7 +215,7 @@ func handleEmbeddings(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *h
 		log.Error("bifrost embeddings request failed",
 			"status", status, "message", msg,
 			"model", routed.Model, "provider", routed.Provider)
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: msg,
 			Code:    "upstream_error",

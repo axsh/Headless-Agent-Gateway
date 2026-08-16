@@ -260,12 +260,12 @@ func (p *ProxyServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		WriteErrorResponse(w, &GatewayError{
+		handlerctx.WriteErrorResponse(w, &GatewayError{
 			Type:    "authentication_error",
 			Message: "invalid or missing gateway token",
 			Code:    "unauthorized",
 			Status:  http.StatusUnauthorized,
-		})
+		}, p.logger, "path", r.URL.Path, "method", r.Method, "model", "")
 	}
 }
 

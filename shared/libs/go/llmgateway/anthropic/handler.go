@@ -22,6 +22,15 @@ type request struct {
 	Stream *bool  `json:"stream,omitempty"`
 }
 
+func writeGWError(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request, model string, ge *handlerctx.GatewayError) {
+	path, method := "", ""
+	if r != nil && r.URL != nil {
+		path = r.URL.Path
+		method = r.Method
+	}
+	handlerctx.WriteErrorResponse(w, ge, ctx.Logger(), "path", path, "method", method, "model", model)
+}
+
 // HandleMessages returns an http.HandlerFunc that handles POST /v1/messages
 // for Anthropic-compatible API. It routes the request through the model router
 // and delegates to Bifrost SDK.
@@ -35,6 +44,7 @@ func HandleMessages(ctx handlerctx.HandlerContext) http.HandlerFunc {
 func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request) {
 	cfg := ctx.Config()
 	log := ctx.Logger()
+	modelName := ""
 
 	// R5: Apply request body size limit.
 	if maxBody := cfg.LLMGateway.MaxRequestBodyBytes; maxBody > 0 {
@@ -46,7 +56,7 @@ func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *htt
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+			writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 				Type:    "invalid_request_error",
 				Message: "request body too large",
 				Code:    "request_too_large",
@@ -54,7 +64,7 @@ func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *htt
 			})
 			return
 		}
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "failed to read request body",
 			Code:    "request_read_error",
@@ -66,7 +76,7 @@ func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *htt
 
 	var req request
 	if err := json.Unmarshal(body, &req); err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
@@ -75,12 +85,14 @@ func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *htt
 		return
 	}
 
+	modelName = req.Model
+
 	log.Debug("anthropic messages request received", "method", r.Method, "path", r.URL.Path, "model", req.Model)
 
 	// Route the model
 	router := ctx.Router()
 	if router == nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "LLM gateway backend not configured",
 			Code:    "not_configured",
@@ -93,7 +105,7 @@ func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *htt
 
 	routed, err := router.ResolveModel(req.Model, sessionID)
 	if err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "not_found_error",
 			Message: "model not found: " + req.Model,
 			Code:    "model_not_found",
@@ -114,7 +126,7 @@ func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *htt
 	if vault.IsVaultRef(apiKey) && ctx.Vault() != nil {
 		resolved, err := ctx.Vault().Resolve(apiKey)
 		if err != nil {
-			handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+			writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 				Type:    "api_error",
 				Message: "failed to resolve API key from vault",
 				Code:    "vault_error",
@@ -134,7 +146,7 @@ func handleMessages(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *htt
 	// Bifrost SDK path (required)
 	bifrostSDK := ctx.BifrostSDK()
 	if bifrostSDK == nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "Bifrost SDK not initialized",
 			Code:    "not_configured",
@@ -158,7 +170,7 @@ func handleMessagesViaBifrost(
 	// Full-parse the request body for Bifrost conversion
 	var fullReq FullRequest
 	if err := json.Unmarshal(body, &fullReq); err != nil {
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, routed.Model, &handlerctx.GatewayError{
 			Type:    "invalid_request_error",
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
@@ -185,7 +197,7 @@ func handleMessagesViaBifrost(
 	if err != nil {
 		log.Error("failed to convert anthropic request to bifrost",
 			"error", err, "model", routed.Model, "provider", routed.Provider)
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, r, routed.Model, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "failed to convert request: " + err.Error(),
 			Code:    "conversion_error",
@@ -281,7 +293,7 @@ func handleMessagesBifrostNonStream(
 		log.Error("bifrost anthropic request failed",
 			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, nil, req.Model, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: err.Error(),
 			Code:    "upstream_error",
@@ -295,7 +307,7 @@ func handleMessagesBifrostNonStream(
 	if err != nil {
 		log.Error("failed to convert bifrost response to anthropic",
 			"error", err, "model", req.Model)
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, nil, req.Model, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: "failed to convert response: " + err.Error(),
 			Code:    "conversion_error",
@@ -345,7 +357,7 @@ func handleMessagesBifrostStream(
 		log.Error("bifrost stream anthropic request failed",
 			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
-		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
+		writeGWError(ctx, w, nil, req.Model, &handlerctx.GatewayError{
 			Type:    "api_error",
 			Message: err.Error(),
 			Code:    "upstream_error",
