@@ -54,6 +54,31 @@ func IsRetryableUpstream(msg string) bool {
 		strings.Contains(lower, "429")
 }
 
+// IsNonRetryableError reports a fatal Codex CLI / auth / argv failure
+// that must not trigger process re-exec.
+func IsNonRetryableError(msg string) bool {
+	if msg == "" {
+		return false
+	}
+	lower := strings.ToLower(msg)
+	needles := []string{
+		"unauthorized",
+		"invalid api key",
+		"invalid_api_key",
+		"authentication failed",
+		"model not found",
+		"unknown model",
+		"invalid argument",
+		"flag provided but not defined",
+	}
+	for _, n := range needles {
+		if strings.Contains(lower, n) {
+			return true
+		}
+	}
+	return false
+}
+
 // ClassifiedErrorContent appends a stable error code tag for SSE EventError content.
 func ClassifiedErrorContent(msg string, retryable bool) string {
 	code := ErrorCodeUpstreamError

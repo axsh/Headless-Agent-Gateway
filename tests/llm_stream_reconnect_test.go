@@ -183,8 +183,8 @@ func TestStreamReconnect_ProcessRetrySameResume(t *testing.T) {
 	agent.mu.Lock()
 	last := agent.cfgs[len(agent.cfgs)-1]
 	agent.mu.Unlock()
-	if last.AgentSessionID != "codex-native" {
-		t.Fatalf("resume id = %q", last.AgentSessionID)
+	if last.AgentSessionID != "" {
+		t.Fatalf("resume id = %q, want empty after process retry self-heal", last.AgentSessionID)
 	}
 }
 

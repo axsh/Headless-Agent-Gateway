@@ -9,6 +9,41 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
+func TestIsNonRetryableError(t *testing.T) {
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{"unauthorized", true},
+		{"UNAUTHORIZED: token expired", true},
+		{"invalid api key", true},
+		{"Invalid API Key provided", true},
+		{"invalid_api_key", true},
+		{"authentication failed", true},
+		{"model not found", true},
+		{"unknown model gpt-nope", true},
+		{"invalid argument", true},
+		{"flag provided but not defined: --foo", true},
+		{"exit status 1", false},
+		{"codex CLI process exited with error (exit status 1)", false},
+		{"", false},
+		{"Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)", false},
+		{"prompt size exceeds the limit", false},
+	}
+	for _, tt := range tests {
+		name := tt.in
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			got := codingagent.IsNonRetryableError(tt.in)
+			if got != tt.want {
+				t.Errorf("IsNonRetryableError(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsRetryableUpstream(t *testing.T) {
 	tests := []struct {
 		in   string

@@ -67,6 +67,7 @@ type Server struct {
 	supplementCfg      config.SupplementConfig
 	processRetry       config.ProcessRetryConfig
 	processRetryCustom bool
+	sseDrainTimeout    time.Duration
 }
 
 // ServerOption configures a Server.
@@ -136,6 +137,12 @@ func WithProcessRetry(cfg config.ProcessRetryConfig) ServerOption {
 		s.processRetry = cfg
 		s.processRetryCustom = true
 	}
+}
+
+// WithSSEDrainTimeout overrides the post-disconnect drain bound for tests.
+// Production zero value uses defaultSSEClientDrainTimeout (15s).
+func WithSSEDrainTimeout(d time.Duration) ServerOption {
+	return func(s *Server) { s.sseDrainTimeout = d }
 }
 
 // MarkSessionBusy registers a dummy execution so PATCH/SendMessage return 409 (tests).

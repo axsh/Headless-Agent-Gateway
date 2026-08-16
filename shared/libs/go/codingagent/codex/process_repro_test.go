@@ -2,74 +2,32 @@ package codex_test
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex/testfake"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 func installFakeCodexForProcessTest(t *testing.T, dir string, lines []string) {
 	t.Helper()
-	linesFile := filepath.Join(dir, "lines.jsonl")
-	if err := os.WriteFile(linesFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
-		t.Fatalf("write lines: %v", err)
-	}
-	mainSrc := `package main
-import ("fmt"; "os"; "strconv"; "strings")
-func main() {
- for _, arg := range os.Args[1:] {
-  if arg == "--version" || arg == "-V" { fmt.Println("fake-codex 0.0.0"); os.Exit(0) }
- }
- hasExec := false
- for _, arg := range os.Args[1:] { if arg == "exec" { hasExec = true; break } }
- if !hasExec { os.Exit(0) }
- if s := os.Getenv("FAKE_CODEX_STDERR"); s != "" {
-  fmt.Fprintln(os.Stderr, s)
- }
- data, err := os.ReadFile(os.Getenv("FAKE_CODEX_LINES_FILE"))
- if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
- for _, line := range strings.Split(string(data), "\n") {
-  if line != "" { fmt.Println(line) }
- }
- code := 0
- if v := os.Getenv("FAKE_CODEX_EXIT"); v != "" {
-  code, _ = strconv.Atoi(v)
- }
- os.Exit(code)
-}`
-	mainPath := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(mainPath, []byte(mainSrc), 0644); err != nil {
-		t.Fatalf("write main: %v", err)
-	}
-	binName := "codex"
-	if runtime.GOOS == "windows" {
-		binName = "codex.exe"
-	}
-	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, binName), mainPath)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fake codex: %v\n%s", err, out)
-	}
-	sep := string(os.PathListSeparator)
-	t.Setenv("PATH", dir+sep+os.Getenv("PATH"))
-	t.Setenv("FAKE_CODEX_LINES_FILE", linesFile)
+	testfake.Install(t, dir, testfake.Options{Lines: lines})
 }
 
 func TestStartProcess_EmitsEventResultOnExitZero(t *testing.T) {
 	dir := t.TempDir()
 	padding := strings.Repeat("x", 65537)
 	line2 := `{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"` + padding + `"}}`
-	installFakeCodexForProcessTest(t, dir, []string{
-		`{"type":"item.started"}`,
-		line2,
-		`{"type":"item.completed"}`,
+	testfake.Install(t, dir, testfake.Options{
+		Lines: []string{
+			`{"type":"item.started"}`,
+			line2,
+			`{"type":"item.completed"}`,
+		},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -101,7 +59,7 @@ func TestStartProcess_ScannerErrorEmitsEventError(t *testing.T) {
 	dir := t.TempDir()
 	padding := strings.Repeat("x", 200)
 	line := `{"type":"item.completed","aggregated_output":"` + padding + `"}`
-	installFakeCodexForProcessTest(t, dir, []string{line})
+	testfake.Install(t, dir, testfake.Options{Lines: []string{line}})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -131,8 +89,10 @@ func TestStartProcess_ScannerErrorEmitsEventError(t *testing.T) {
 
 func TestStartProcess_NoDuplicateEventResult(t *testing.T) {
 	dir := t.TempDir()
-	installFakeCodexForProcessTest(t, dir, []string{
-		`{"type":"turn.completed"}`,
+	testfake.Install(t, dir, testfake.Options{
+		Lines: []string{
+			`{"type":"turn.completed"}`,
+		},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -160,13 +120,81 @@ func TestStartProcess_NoDuplicateEventResult(t *testing.T) {
 	}
 }
 
+func TestStartProcess_InProcessRetryableThenResult(t *testing.T) {
+	tests := []struct {
+		name      string
+		errorLine string
+	}{
+		{
+			name:      "errorJSONL",
+			errorLine: `{"type":"error","message":"Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"}`,
+		},
+		{
+			name:      "turnFailed",
+			errorLine: `{"type":"turn.failed","error":{"message":"We're currently experiencing high demand"}}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			launchLog := filepath.Join(dir, "launch.log")
+			testfake.Install(t, dir, testfake.Options{
+				Lines: []string{
+					`{"type":"thread.started","thread_id":"thr-test"}`,
+					tc.errorLine,
+					`{"type":"turn.completed"}`,
+				},
+				LineDelay:     60 * time.Millisecond,
+				LaunchLogPath: launchLog,
+				ExitCode:      0,
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+				Logger: logger.NewDefault(logger.LevelInfo),
+			}, &codingagent.SessionConfig{
+				WorkDir:       t.TempDir(),
+				ExecutionMode: codingagent.ExecutionModeSingleShot,
+			}, nil, "")
+			if err != nil {
+				t.Fatalf("StartProcess: %v", err)
+			}
+			defer pm.Stop()
+
+			var errors, results int
+			for ev := range ch {
+				if ev.Type == codingagent.EventError {
+					errors++
+				}
+				if ev.Type == codingagent.EventResult {
+					results++
+				}
+			}
+			if errors != 0 {
+				t.Fatalf("expected 0 EventError on in-process retryable JSONL, got %d", errors)
+			}
+			if results != 1 {
+				t.Fatalf("expected 1 EventResult, got %d", results)
+			}
+			if count := testfake.LaunchCount(t, launchLog); count != 1 {
+				t.Fatalf("launch count = %d, want 1", count)
+			}
+		})
+	}
+}
+
 func TestStartProcess_ReconnectStderrDoesNotEmitEventErrorOnSuccess(t *testing.T) {
 	dir := t.TempDir()
-	installFakeCodexForProcessTest(t, dir, []string{
-		`{"type":"turn.completed"}`,
+	testfake.Install(t, dir, testfake.Options{
+		Lines: []string{
+			`{"type":"turn.completed"}`,
+		},
+		Stderr:   "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)",
+		ExitCode: 0,
 	})
-	t.Setenv("FAKE_CODEX_STDERR", "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)")
-	t.Setenv("FAKE_CODEX_EXIT", "0")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -198,12 +226,51 @@ func TestStartProcess_ReconnectStderrDoesNotEmitEventErrorOnSuccess(t *testing.T
 	}
 }
 
+func TestStartProcess_GenericExit1IsRetryable(t *testing.T) {
+	dir := t.TempDir()
+	testfake.Install(t, dir, testfake.Options{
+		ExitCode: 1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var last codingagent.StreamEvent
+	var saw bool
+	for ev := range ch {
+		if ev.Type == codingagent.EventError {
+			last = ev
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatal("expected EventError on generic exit 1")
+	}
+	if !last.Retryable {
+		t.Fatal("Retryable = false, want true")
+	}
+	if !strings.Contains(last.Content, "exit status 1") {
+		t.Errorf("Content = %q, want exit status 1", last.Content)
+	}
+}
+
 func TestStartProcess_RetryableExitSetsRetryableFlag(t *testing.T) {
 	dir := t.TempDir()
-	installFakeCodexForProcessTest(t, dir, nil)
 	stderr := "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"
-	t.Setenv("FAKE_CODEX_STDERR", stderr)
-	t.Setenv("FAKE_CODEX_EXIT", "1")
+	testfake.Install(t, dir, testfake.Options{
+		Stderr:   stderr,
+		ExitCode: 1,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -240,9 +307,10 @@ func TestStartProcess_RetryableExitSetsRetryableFlag(t *testing.T) {
 
 func TestStartProcess_NonRetryableExitNoRetryableFlag(t *testing.T) {
 	dir := t.TempDir()
-	installFakeCodexForProcessTest(t, dir, nil)
-	t.Setenv("FAKE_CODEX_STDERR", "unauthorized")
-	t.Setenv("FAKE_CODEX_EXIT", "1")
+	testfake.Install(t, dir, testfake.Options{
+		Stderr:   "unauthorized",
+		ExitCode: 1,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

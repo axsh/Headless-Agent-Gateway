@@ -286,6 +286,64 @@ func wrapHTTPStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
+func (s *Server) wrapPromptForSelfHeal(ctx context.Context, record *codingagent.SessionRecord, userPrompt string) (string, error) {
+	if record == nil || record.SessionDir == "" {
+		return userPrompt, nil
+	}
+	c := session.OpenCanonical(record.SessionDir)
+	meta, err := c.LoadMetadata()
+	if err != nil {
+		return userPrompt, nil
+	}
+	msgs, err := c.LoadRange(1, meta.TotalSeq)
+	if err != nil || len(msgs) == 0 {
+		return userPrompt, nil
+	}
+	var prior []session.Message
+	for _, m := range msgs {
+		if m.Seq == meta.TotalSeq && m.Role == "user" {
+			continue
+		}
+		prior = append(prior, m)
+	}
+	if len(prior) == 0 {
+		return userPrompt, nil
+	}
+	strat, err := portable.MergeStrategy(s.serverSupplement(), meta.Supplement, portable.Strategy{})
+	if err != nil {
+		return "", err
+	}
+	strat = portable.WithDefaults(strat)
+	if strat.Model == "" {
+		strat.Model = record.Model
+	}
+	sup, err := portable.BuildSupplement(ctx, record.AgentName, prior, strat, s.summarizer)
+	if err != nil {
+		return "", err
+	}
+	wrapped := portable.WrapPrompt(sup, userPrompt)
+	if s.logger != nil {
+		s.logger.Debug("wrapped prompt for self-heal resume fallback",
+			"session_id", record.ID,
+			"agent", record.AgentName,
+			"prior", len(prior))
+	}
+	return wrapped, nil
+}
+
+func (s *Server) clearPersistedAgentSessionID(sessionID string) {
+	rec, err := s.sessions.Get(sessionID)
+	if err != nil || rec.AgentSessionID == "" {
+		return
+	}
+	rec.AgentSessionID = ""
+	_ = s.sessions.Update(rec)
+	if s.logger != nil {
+		s.logger.Warn("cleared broken native thread id for self-heal",
+			"session_id", sessionID)
+	}
+}
+
 func (s *Server) ingestActiveTurn(sessionID string) {
 	exec, ok := s.execRegistry.Get(sessionID)
 	if !ok || exec == nil || exec.relay == nil {

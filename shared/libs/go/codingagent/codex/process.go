@@ -395,6 +395,9 @@ func StartProcess(
 		// Wait for stderr scanner to finish before calling cmd.Wait().
 		<-stderrDone
 
+		// Close stdin before cmd.Wait() so the stdin copy goroutine can exit.
+		pm.closeStdin()
+
 		// R3: Check exit code and report stderr on failure.
 		if err := cmd.Wait(); err != nil {
 			errMsg := strings.TrimSpace(stderrBuf.String())
@@ -402,10 +405,11 @@ func StartProcess(
 				errMsg = err.Error()
 			}
 			log.Warn("codex CLI process exited with error", "error", err.Error(), "stderr", errMsg)
-			retryable := codingagent.IsRetryableUpstream(errMsg) || codingagent.IsRetryableError(err)
+			retryable := !codingagent.IsNonRetryableError(errMsg)
 			content := errMsg
 			if retryable {
-				content = codingagent.ClassifiedErrorContent(errMsg, true)
+				overloaded := codingagent.IsRetryableUpstream(errMsg)
+				content = codingagent.ClassifiedErrorContent(errMsg, overloaded)
 			}
 			log.Debug("classified process exit error", "retryable", retryable)
 			select {
