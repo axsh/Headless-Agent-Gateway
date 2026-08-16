@@ -629,6 +629,7 @@ func TestStreamSSERelay_DisconnectUpdatesStatus(t *testing.T) {
 
 	sessionID := createCodexSessionHTTP(t, srv.HTTPHandler())
 	reqCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	resp, err := postMessageHTTP(t, ts.URL, sessionID, "text/event-stream", reqCtx)
 	if err != nil {
 		t.Fatalf("POST message: %v", err)
@@ -659,12 +660,25 @@ func TestStreamSSERelay_DisconnectUpdatesStatus(t *testing.T) {
 		}
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the agent to finish draining in background and reach terminal status.
+	// Client disconnect must not set StatusError immediately; after terminal event
+	// it should transition to completed.
+	deadline := time.Now().Add(3 * time.Second)
+	var finalStatus string
+	for time.Now().Before(deadline) {
+		sess := getSessionFromServer(t, srv.HTTPHandler(), sessionID)
+		finalStatus, _ = sess["status"].(string)
+		if finalStatus == codingagent.StatusCompleted {
+			break
+		}
+		if finalStatus == codingagent.StatusError {
+			t.Fatalf("session status transitioned to error on disconnect: %v", sess["error"])
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
-	sess := getSessionFromServer(t, srv.HTTPHandler(), sessionID)
-	status, _ := sess["status"].(string)
-	if status != codingagent.StatusCompleted {
-		t.Fatalf("status after disconnect = %q, want completed", status)
+	if finalStatus != codingagent.StatusCompleted {
+		t.Fatalf("status after disconnect drain = %q, want completed", finalStatus)
 	}
 }
 

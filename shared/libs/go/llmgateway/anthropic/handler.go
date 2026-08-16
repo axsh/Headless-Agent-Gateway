@@ -225,6 +225,20 @@ func bifrostErrorMessage(berr *bifrostSchemas.BifrostError, fallback string) str
 	return fallback
 }
 
+type responsesStreamFn func(
+	hctx handlerctx.HandlerContext,
+	bCtx *bifrostSchemas.BifrostContext,
+	req *bifrostSchemas.BifrostResponsesRequest,
+) (chan *bifrostSchemas.BifrostStreamChunk, *bifrostSchemas.BifrostError)
+
+var openBifrostResponsesStream responsesStreamFn = func(
+	hctx handlerctx.HandlerContext,
+	bCtx *bifrostSchemas.BifrostContext,
+	req *bifrostSchemas.BifrostResponsesRequest,
+) (chan *bifrostSchemas.BifrostStreamChunk, *bifrostSchemas.BifrostError) {
+	return hctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
+}
+
 func openResponsesStream(
 	reqCtx context.Context,
 	hctx handlerctx.HandlerContext,
@@ -233,7 +247,7 @@ func openResponsesStream(
 	req *bifrostSchemas.BifrostResponsesRequest,
 ) (chan *bifrostSchemas.BifrostStreamChunk, error) {
 	return llmgateway.OpenWithBudget(budget, reqCtx, hctx.Logger(), func() (chan *bifrostSchemas.BifrostStreamChunk, error) {
-		ch, berr := hctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
+		ch, berr := openBifrostResponsesStream(hctx, bCtx, req)
 		if berr != nil {
 			return nil, llmgateway.StreamErr(bifrostErrorMessage(berr, "upstream stream request failed"))
 		}
