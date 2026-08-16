@@ -23,10 +23,10 @@ type mockMultimodalAgent struct {
 func (m *mockMultimodalAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
 	return &mockCodingSession{}, nil
 }
-func (m *mockMultimodalAgent) Name() string              { return m.name }
-func (m *mockMultimodalAgent) Close() error              { return nil }
-func (m *mockMultimodalAgent) SupportsMultimodal() bool  { return true }
-func (m *mockMultimodalAgent) SetGatewayToken(_ string)  {}
+func (m *mockMultimodalAgent) Name() string             { return m.name }
+func (m *mockMultimodalAgent) Close() error             { return nil }
+func (m *mockMultimodalAgent) SupportsMultimodal() bool { return true }
+func (m *mockMultimodalAgent) SetGatewayToken(_ string) {}
 
 // mockNoMultimodalAgent does NOT support multimodal content.
 type mockNoMultimodalAgent struct {
@@ -36,10 +36,10 @@ type mockNoMultimodalAgent struct {
 func (m *mockNoMultimodalAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
 	return &mockCodingSession{}, nil
 }
-func (m *mockNoMultimodalAgent) Name() string              { return m.name }
-func (m *mockNoMultimodalAgent) Close() error              { return nil }
-func (m *mockNoMultimodalAgent) SupportsMultimodal() bool  { return false }
-func (m *mockNoMultimodalAgent) SetGatewayToken(_ string)  {}
+func (m *mockNoMultimodalAgent) Name() string             { return m.name }
+func (m *mockNoMultimodalAgent) Close() error             { return nil }
+func (m *mockNoMultimodalAgent) SupportsMultimodal() bool { return false }
+func (m *mockNoMultimodalAgent) SetGatewayToken(_ string) {}
 
 func newTestServerV2() http.Handler {
 	srv := agentservice.New()

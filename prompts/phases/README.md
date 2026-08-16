@@ -30,6 +30,5 @@ phases/
 
 ## 現在の進捗状況 (feat-llm-backend)
 
-- **000-foundation**:
-  - LLM Gateway Proxy、Config & Secrets、Keyring/File(AES)/Env Vault、階層化エージェントログ（`tasklog`）、OpenAIストリーミング、Passthrough L4ドライバー、サブセッションフォールバック、およびスタンドアロンDocker起動環境をすべて実装し、検証を完了しました。
-
+- **001-phase02**:
+  - ワークスペーストップの `README.md` を参照してください。

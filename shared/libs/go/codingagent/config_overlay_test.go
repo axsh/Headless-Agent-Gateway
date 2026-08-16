@@ -108,4 +108,36 @@ func TestOverlayConfigDir(t *testing.T) {
 			t.Fatalf("protected projects should not be replaced, got %q err=%v", data, err)
 		}
 	})
+
+	t.Run("canonical files are protected", func(t *testing.T) {
+		configDir := t.TempDir()
+		sessionDir := t.TempDir()
+		for _, name := range []string{"record.json", "metadata.json", "context.json"} {
+			if err := os.WriteFile(filepath.Join(configDir, name), []byte("overlay"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(sessionDir, name), []byte("keep-"+name), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		hist := filepath.Join(sessionDir, "history")
+		if err := os.MkdirAll(hist, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(hist, "0000001.json"), []byte(`{"seq":1}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		allow := []string{"record.json", "metadata.json", "context.json", "history", "native"}
+		if err := codingagent.OverlayConfigDir(sessionDir, configDir, allow); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(sessionDir, "record.json"))
+		if err != nil || string(data) != "keep-record.json" {
+			t.Fatalf("record.json replaced: %q err=%v", data, err)
+		}
+		data, err = os.ReadFile(filepath.Join(sessionDir, "history", "0000001.json"))
+		if err != nil || string(data) != `{"seq":1}` {
+			t.Fatalf("history replaced: %q err=%v", data, err)
+		}
+	})
 }

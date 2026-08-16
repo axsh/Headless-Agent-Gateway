@@ -134,3 +134,10 @@ func (r *eventRelay) EventsSnapshot() []codingagent.StreamEvent {
 	defer r.mu.Unlock()
 	return append([]codingagent.StreamEvent(nil), r.events...)
 }
+
+func (r *eventRelay) snapshot() []codingagent.StreamEvent {
+	if r == nil {
+		return nil
+	}
+	return r.EventsSnapshot()
+}

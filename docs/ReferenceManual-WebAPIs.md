@@ -18,8 +18,9 @@ By default, all API endpoints are exposed at `http://localhost:3100` (customizab
 | `POST` | `/api/v1/embeddings` | Create text embeddings (bypasses Coding Agents; proxied to LLMGP). |
 | `GET` | `/api/v1/embeddings/models` | Retrieve embedding-only models (`mode: embedding`). |
 | `POST` | `/api/v1/sessions` | Initialize a new coding session. |
+| `GET` | `/api/v1/sessions?work_dir=` | List sessions persisted under a workspace `.tern` directory. |
 | `GET` | `/api/v1/sessions/:id` | Retrieve metadata and state of a specific session. |
-| `PATCH` | `/api/v1/sessions/:id` | Update session fields (currently `config_dir`). |
+| `PATCH` | `/api/v1/sessions/:id` | Update `config_dir`, `agent`, `model`, and/or `supplement`. |
 | `DELETE` | `/api/v1/sessions/:id` | Delete session data. |
 | `POST` | `/api/v1/sessions/:id/messages` | Send a message (text/image) to a session. |
 | `POST` | `/api/v1/sessions/:id/terminate` | Force terminate an active session process. |
@@ -145,8 +146,8 @@ Initializes a new coding session.
   - `agent` (string, Required): The name of the agent to use (`claudecode`, `wayfinder`, etc.).
   - `model` (string, Optional): The LLM model to use. If not specified, the default model is applied.
   - `work_dir` (string, Required): The absolute workspace directory path where the agent will operate.
-  - `session_dir` (string, Optional): The directory path to store session data. Defaults to `work_dir/.{agent_name}`.
-  - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into `session_dir` before launching the agent. When omitted, behavior is unchanged from previous versions (no overlay).
+  - `session_dir` (string, Optional): The directory path to store session data. Defaults to `work_dir/.tern/{session_id}`. Agent native files (Claude `CLAUDE_CONFIG_DIR`, Codex `CODEX_HOME`) are stored under `{session_dir}/native`.
+  - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into `{session_dir}/native` before launching the agent. When omitted, behavior is unchanged from previous versions (no overlay).
   - Paths (`work_dir`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
   ```json
   {
@@ -157,7 +158,7 @@ Initializes a new coding session.
     "config_dir": "/path/to/config-sets/alpha"
   }
   ```
-  - Persistence env mapping remains: Claude Code uses `CLAUDE_CONFIG_DIR=session_dir`; Codex uses `CODEX_HOME=session_dir`.
+  - Persistence env mapping: Claude Code uses `CLAUDE_CONFIG_DIR={session_dir}/native`; Codex uses `CODEX_HOME={session_dir}/native`.
   - Precedence:
     - Claude Code: CLI flags > project `.claude` under `work_dir` > user config under `CLAUDE_CONFIG_DIR` (after overlay). Project `.claude` nesting of `config_dir` is not supported.
     - Codex: CLI `-c` > (when `config_dir` is set) `$CODEX_HOME` user config/skills > project `.codex`; when `config_dir` is omitted, `--ignore-user-config` + `-c` as today.
@@ -187,34 +188,88 @@ Retrieves metadata and the active state of a created session.
     "model": "claude-3-5-sonnet-20241022",
     "status": "active",
     "work_dir": "/path/to/workspace",
-    "session_dir": "/path/to/workspace/.claudecode",
+    "session_dir": "/path/to/workspace/.tern/a95db64cb646901efb395a18d817a37d",
     "config_dir": "/path/to/config-sets/alpha",
     "agent_session_id": "agent-internal-session-id",
+    "active_agent": "claudecode",
+    "agent_bindings": {
+      "claudecode": {
+        "agent_session_id": "agent-internal-session-id",
+        "ingested_through_seq": 4
+      }
+    },
+    "supplement": {
+      "algorithm": "map_reduce",
+      "max_chunk_messages": 20,
+      "threshold_bytes": 32768,
+      "recent_keep": 8
+    },
     "error": ""
   }
   ```
   - `config_dir` is included when set at CreateSession time (or later via PATCH).
+  - `agent_bindings` and `supplement` are the canonical metadata (effective supplement merges server defaults with the session strategy; turn override is not stored).
 
 ---
 
-### 6. Update Session (`config_dir`)
+### 5.1 List Sessions
 
-Updates `config_dir` on an existing session without changing `work_dir`, `session_dir`, or `agent_session_id`. Overlay of the new config runs on the **next** message send (when the agent process starts). Updating `config_dir` does **not** require `terminate`; the same Tern `session_id` continues and the next SendMessage resumes the agent conversation (`agent_session_id` — Claude `--resume`, Codex `exec resume`) while applying the new overlay. `terminate` ends active execution and closes session status; it is not part of the normal config-switch flow. Named `profile` resolution is out of scope; pass an absolute or process-visible directory path.
+Lists session records persisted under `{work_dir}/.tern/*/record.json`. Memory is only a cache; there is no `session.db`.
+
+- **Method**: `GET`
+- **Path**: `/api/v1/sessions?work_dir=`
+- **Query**: `work_dir` (required) — workspace path whose `.tern` directory is scanned.
+- **Response (200 OK)**: JSON array of session records (same shape as Get Session).
+
+---
+
+### 6. Update Session
+
+Updates `config_dir`, `agent`, `model`, and/or `supplement` on an existing session. At least one of these fields is required. Does **not** change `work_dir`, `session_dir`, or the Tern `id`. Overlay of a new `config_dir` runs on the **next** message send. `terminate` is not part of the normal switch flow.
+
+Switch semantics:
+- **PATCH `agent`**: clears the active `agent_session_id`. Per-agent `agent_bindings` are kept. The next SendMessage for a new agent does **not** pass another agent's native resume id; it injects a Tern history supplement (header `Tern session context transfer`) for foreign origins. Returning to an agent resumes **that** agent's stored native id and injects only newer foreign-origin facts.
+- **PATCH `model` only**: keeps the current native resume id and does **not** inject a transfer header.
+- **PATCH `agent` and `model` together**: agent-switch semantics (active native id cleared).
+- Busy or suspended sessions return `409`.
 
 - **Method**: `PATCH`
 - **Path**: `/api/v1/sessions/:id`
-- **Request Body (JSON)**:
-  - `config_dir` (string, required): Path to the config set directory. An empty string clears `config_dir` (disables overlay; Codex restores `--ignore-user-config` on subsequent launches).
+- **Request Body (JSON)** — at least one of:
+  - `config_dir` (string): Path to the config set directory. An empty string clears overlay.
+  - `agent` (string): Coding agent name (`claudecode`, `codex`, `wayfinder`).
+  - `model` (string): LLM model id.
+  - `supplement` (object): Partial strategy (`algorithm`, `model`, `max_chunk_messages`, `threshold_bytes`, `recent_keep`). Known algorithms: `map_reduce` (default), `full`, `structured`.
 - **Example**:
   ```json
   {
-    "config_dir": "/path/to/config-sets/beta"
+    "agent": "codex",
+    "supplement": {
+      "algorithm": "map_reduce",
+      "model": "",
+      "max_chunk_messages": 20,
+      "threshold_bytes": 32768,
+      "recent_keep": 8
+    }
   }
   ```
 - **Response (200 OK)**: Full session record (same shape as Get Session).
 - **Errors**:
   - `404` session not found
-  - `400` missing `config_dir`, path does not exist, or path is not a directory
+  - `409` session busy or suspended
+  - `400` no updatable field, unknown agent/algorithm, invalid `config_dir`, or unsupported model
+
+Server default strategy (merged under session + turn values):
+
+```yaml
+agent_service:
+  supplement:
+    algorithm: map_reduce
+    model: ""
+    max_chunk_messages: 20
+    threshold_bytes: 32768
+    recent_keep: 8
+```
 
 ---
 
@@ -239,6 +294,9 @@ Sends prompt text and image data to an active session, initiating agent executio
   ```json
   {
     "correlation_id": "job-20260814-001",
+    "supplement": {
+      "algorithm": "full"
+    },
     "content": [
       {
         "type": "text",

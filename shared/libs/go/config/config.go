@@ -179,4 +179,15 @@ type AgentServiceConfig struct {
 	// EnableSubagent enables subagent delegation for WBS node execution.
 	// When true, each WBS node runs in an independent child session.
 	EnableSubagent bool `yaml:"enable_subagent"`
+	// Supplement is the default context-transfer strategy for agent switches.
+	Supplement SupplementConfig `yaml:"supplement"`
+}
+
+// SupplementConfig is the server-default prompt supplement strategy.
+type SupplementConfig struct {
+	Algorithm        string `yaml:"algorithm"`
+	Model            string `yaml:"model"`
+	MaxChunkMessages int    `yaml:"max_chunk_messages"`
+	ThresholdBytes   int    `yaml:"threshold_bytes"`
+	RecentKeep       int    `yaml:"recent_keep"`
 }

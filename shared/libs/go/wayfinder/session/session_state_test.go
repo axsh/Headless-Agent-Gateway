@@ -155,3 +155,78 @@ func TestSessionState_MultimodalSerialization(t *testing.T) {
 		t.Errorf("parts[1] = %+v", parts[1])
 	}
 }
+
+func TestMessage_OriginJSONRoundTrip(t *testing.T) {
+	msg := Message{
+		Role:    "user",
+		Content: "hello",
+		Seq:     1,
+		Origin:  OriginClaudeCode,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var restored Message
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if restored.Origin != OriginClaudeCode {
+		t.Errorf("Origin = %q, want %q", restored.Origin, OriginClaudeCode)
+	}
+}
+
+func TestSessionMetadata_BindingsAndSupplementRoundTrip(t *testing.T) {
+	meta := SessionMetadata{
+		SessionID:   "s-bind",
+		Status:      StatusActive,
+		ActiveAgent: OriginCodex,
+		AgentBindings: map[string]AgentBinding{
+			OriginClaudeCode: {AgentSessionID: "claude-native", IngestedThroughSeq: 4},
+		},
+		Supplement: SupplementStrategy{
+			Algorithm:        "map_reduce",
+			MaxChunkMessages: 20,
+			ThresholdBytes:   32768,
+			RecentKeep:       8,
+		},
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var restored SessionMetadata
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if restored.ActiveAgent != OriginCodex {
+		t.Errorf("ActiveAgent = %q, want %q", restored.ActiveAgent, OriginCodex)
+	}
+	got, ok := restored.AgentBindings[OriginClaudeCode]
+	if !ok {
+		t.Fatal("missing claudecode binding")
+	}
+	if got.AgentSessionID != "claude-native" || got.IngestedThroughSeq != 4 {
+		t.Errorf("binding = %+v", got)
+	}
+	if restored.Supplement.Algorithm != "map_reduce" || restored.Supplement.RecentKeep != 8 {
+		t.Errorf("supplement = %+v", restored.Supplement)
+	}
+}
+
+func TestNormalizeOrigin(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{OriginClaudeCode, OriginClaudeCode},
+		{OriginCodex, OriginCodex},
+		{OriginWayfinder, OriginWayfinder},
+		{"", OriginWayfinder},
+		{"unknown", OriginWayfinder},
+	}
+	for _, tt := range tests {
+		if got := NormalizeOrigin(tt.in); got != tt.want {
+			t.Errorf("NormalizeOrigin(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

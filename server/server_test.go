@@ -129,10 +129,25 @@ func TestNew_OptionPriority(t *testing.T) {
 	}
 }
 
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("get free port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port
+}
+
 func TestServer_LaunchShutdown(t *testing.T) {
 	stub := llmgateway.NewStubGateway()
 	customVault := vault.NewEnvVaultBackend()
-	srv, err := New(WithGateway(stub), WithVaultStore(customVault))
+	cfg := &config.AppConfig{
+		AgentService: config.AgentServiceConfig{Port: freeTCPPort(t)},
+		Vault:        config.VaultConfig{Backends: []string{"env"}},
+	}
+	srv, err := New(WithGateway(stub), WithVaultStore(customVault), WithConfig(cfg))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -242,7 +257,8 @@ func TestServer_EndToEnd_WithProxyServer(t *testing.T) {
 		LLMGateway: config.LLMGatewayConfig{
 			Port: 0,
 		},
-		Vault: config.VaultConfig{Backends: []string{"env"}},
+		AgentService: config.AgentServiceConfig{Port: freeTCPPort(t)},
+		Vault:        config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithConfig(cfg))
 	if err != nil {
@@ -358,18 +374,10 @@ func TestServer_TaskLog(t *testing.T) {
 }
 
 func TestServer_WebSocketURL(t *testing.T) {
-	// Get a free port for AgentService to avoid default 3100 conflict.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("get free port: %v", err)
-	}
-	asPort := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-
 	stub := llmgateway.NewStubGateway()
 	cfg := &config.AppConfig{
 		WebSocket:    config.WebSocketConfig{Port: 0},
-		AgentService: config.AgentServiceConfig{Port: asPort},
+		AgentService: config.AgentServiceConfig{Port: freeTCPPort(t)},
 		Vault:        config.VaultConfig{Backends: []string{"env"}},
 	}
 	srv, err := New(WithGateway(stub), WithConfig(cfg))

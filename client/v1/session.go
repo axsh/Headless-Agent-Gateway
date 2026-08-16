@@ -7,23 +7,55 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
-// SessionInfo is the typed session record returned by GetSession and
-// UpdateSessionConfigDir. Field names match the CAWA JSON (snake_case tags).
+// SessionInfo is the typed session record returned by GetSession and UpdateSession.
 type SessionInfo struct {
-	ID             string    `json:"id"`
-	AgentName      string    `json:"agent_name"`
-	Model          string    `json:"model"`
-	Status         string    `json:"status"`
-	Error          string    `json:"error,omitempty"`
-	WorkDir        string    `json:"work_dir"`
-	AgentSessionID string    `json:"agent_session_id"`
-	SessionDir     string    `json:"session_dir"`
-	ConfigDir      string    `json:"config_dir,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string                  `json:"id"`
+	AgentName      string                  `json:"agent_name"`
+	Model          string                  `json:"model"`
+	Status         string                  `json:"status"`
+	Error          string                  `json:"error,omitempty"`
+	WorkDir        string                  `json:"work_dir"`
+	AgentSessionID string                  `json:"agent_session_id"`
+	SessionDir     string                  `json:"session_dir"`
+	ConfigDir      string                  `json:"config_dir,omitempty"`
+	CreatedAt      time.Time               `json:"created_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
+	AgentBindings  map[string]AgentBinding `json:"agent_bindings,omitempty"`
+	ActiveAgent    string                  `json:"active_agent,omitempty"`
+	Supplement     SupplementStrategy      `json:"supplement,omitempty"`
+}
+
+// AgentBinding is a native session id and ingest watermark for one coding agent.
+type AgentBinding struct {
+	AgentSessionID     string `json:"agent_session_id"`
+	IngestedThroughSeq int    `json:"ingested_through_seq"`
+}
+
+// SupplementStrategy selects how Tern reconstructs foreign-origin history on switch.
+type SupplementStrategy struct {
+	Algorithm        string `json:"algorithm,omitempty"`
+	Model            string `json:"model,omitempty"`
+	MaxChunkMessages int    `json:"max_chunk_messages,omitempty"`
+	ThresholdBytes   int    `json:"threshold_bytes,omitempty"`
+	RecentKeep       int    `json:"recent_keep,omitempty"`
+}
+
+// UpdateSessionRequest is the PATCH body. At least one field must be set.
+type UpdateSessionRequest struct {
+	ConfigDir  *string             `json:"config_dir,omitempty"`
+	Agent      *string             `json:"agent,omitempty"`
+	Model      *string             `json:"model,omitempty"`
+	Supplement *SupplementStrategy `json:"supplement,omitempty"`
+}
+
+// SendMessageOpts are optional SendMessage fields.
+type SendMessageOpts struct {
+	CorrelationID string
+	Supplement    *SupplementStrategy
 }
 
 // Session represents an active coding agent session.
@@ -92,14 +124,20 @@ func (c *Client) CreateSession(ctx context.Context, req SessionRequest) (*Sessio
 // SendMessage sends a multimodal message to the session and returns a Stream.
 // The content parameter accepts a slice of ContentPart for text, images, etc.
 func (s *Session) SendMessage(ctx context.Context, content []ContentPart) (*Stream, error) {
-	return s.SendMessageWithCorrelation(ctx, content, "")
+	return s.SendMessageWithOpts(ctx, content, SendMessageOpts{})
 }
 
 // SendMessageWithCorrelation sends a multimodal message with an optional correlation ID.
 func (s *Session) SendMessageWithCorrelation(ctx context.Context, content []ContentPart, correlationID string) (*Stream, error) {
+	return s.SendMessageWithOpts(ctx, content, SendMessageOpts{CorrelationID: correlationID})
+}
+
+// SendMessageWithOpts sends a message with optional correlation_id and supplement override.
+func (s *Session) SendMessageWithOpts(ctx context.Context, content []ContentPart, opts SendMessageOpts) (*Stream, error) {
 	body, err := json.Marshal(map[string]any{
 		"content":        content,
-		"correlation_id": correlationID,
+		"correlation_id": opts.CorrelationID,
+		"supplement":     opts.Supplement,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal message: %w", err)
@@ -250,8 +288,8 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*SessionInfo
 //   - Overlay applies on the next SendMessage / SendText / Send, not immediately.
 //   - Do not Terminate between turns merely to switch config_dir; terminate is
 //     only for forced teardown / cleanup after the demo.
-func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDir string) (*SessionInfo, error) {
-	body, err := json.Marshal(map[string]string{"config_dir": configDir})
+func (c *Client) UpdateSession(ctx context.Context, sessionID string, reqBody UpdateSessionRequest) (*SessionInfo, error) {
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal patch request: %w", err)
 	}
@@ -282,7 +320,53 @@ func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDi
 	return &result, nil
 }
 
+// UpdateSessionConfigDir sets config_dir on an existing session via PATCH.
+func (c *Client) UpdateSessionConfigDir(ctx context.Context, sessionID, configDir string) (*SessionInfo, error) {
+	return c.UpdateSession(ctx, sessionID, UpdateSessionRequest{ConfigDir: &configDir})
+}
+
 // UpdateConfigDir updates config_dir for this session (see UpdateSessionConfigDir).
 func (s *Session) UpdateConfigDir(ctx context.Context, configDir string) (*SessionInfo, error) {
 	return s.client.UpdateSessionConfigDir(ctx, s.ID, configDir)
+}
+
+// Update updates session fields (agent, model, config_dir, and/or supplement).
+func (s *Session) Update(ctx context.Context, req UpdateSessionRequest) (*SessionInfo, error) {
+	return s.client.UpdateSession(ctx, s.ID, req)
+}
+
+// UpdateAgent switches the coding agent on the same Tern session.
+func (s *Session) UpdateAgent(ctx context.Context, agent string) (*SessionInfo, error) {
+	return s.Update(ctx, UpdateSessionRequest{Agent: &agent})
+}
+
+// UpdateModel changes the model without switching agents.
+func (s *Session) UpdateModel(ctx context.Context, model string) (*SessionInfo, error) {
+	return s.Update(ctx, UpdateSessionRequest{Model: &model})
+}
+
+// ListSessions lists sessions persisted under workDir/.tern.
+func (c *Client) ListSessions(ctx context.Context, workDir string) ([]SessionInfo, error) {
+	u := c.baseURL + "/api/v1/sessions?work_dir=" + url.QueryEscape(workDir)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create list sessions request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read list sessions: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list sessions failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	var result []SessionInfo
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode list sessions: %w", err)
+	}
+	return result, nil
 }

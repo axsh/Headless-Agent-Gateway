@@ -103,3 +103,10 @@ func (m *MemorySessionStore) Delete(id string) error {
 	delete(m.sessions, id)
 	return nil
 }
+
+func (m *MemorySessionStore) upsert(s *codingagent.SessionRecord) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	copy := *s
+	m.sessions[s.ID] = &copy
+}

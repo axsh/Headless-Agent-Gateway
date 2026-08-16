@@ -10,13 +10,18 @@ import (
 // protectedSessionBasenames must never be removed or replaced by overlay,
 // even if they incorrectly appear in an allowlist.
 var protectedSessionBasenames = map[string]struct{}{
-	"projects": {},
-	"sessions": {},
-	"statsig":  {},
-	"debug":    {},
-	"logs":     {},
-	"tmp":      {},
-	"cache":    {},
+	"projects":      {},
+	"sessions":      {},
+	"statsig":       {},
+	"debug":         {},
+	"logs":          {},
+	"tmp":           {},
+	"cache":         {},
+	"history":       {},
+	"metadata.json": {},
+	"context.json":  {},
+	"record.json":   {},
+	"native":        {},
 }
 
 // OverlayConfigDir copies or symlinks allowlisted names from configDir into

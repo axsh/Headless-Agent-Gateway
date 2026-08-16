@@ -34,7 +34,8 @@ func (m *mockCodingAgent) Close() error { return nil }
 type mockCodingSession struct{}
 
 func (s *mockCodingSession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
-	ch := make(chan codingagent.StreamEvent, 2)
+	ch := make(chan codingagent.StreamEvent, 3)
+	ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: "mock-session"}
 	ch <- codingagent.StreamEvent{Type: codingagent.EventText, Content: "hello"}
 	ch <- codingagent.StreamEvent{Type: codingagent.EventResult}
 	close(ch)
@@ -502,8 +503,8 @@ func (s *mockTerminalEventSession) Send(_ context.Context, _ string) (<-chan cod
 	close(ch)
 	return ch, nil
 }
-func (s *mockTerminalEventSession) ID() string     { return "mock-terminal-session" }
-func (s *mockTerminalEventSession) Close() error   { return nil }
+func (s *mockTerminalEventSession) ID() string   { return "mock-terminal-session" }
+func (s *mockTerminalEventSession) Close() error { return nil }
 
 type mockSlowLargeToolAgent struct {
 	name string
