@@ -17,20 +17,25 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
+	"github.com/axsh/arctic-tern/shared/libs/go/wayfinder/portable"
 )
 
 type retryAgent struct {
-	name       string
-	nativeID   string
-	failTimes  int
-	nonRetry   bool
-	delay      time.Duration
-	mu         sync.Mutex
-	creates    int
-	closes     int
-	cfgs       []*codingagent.SessionConfig
-	sendDone   atomic.Bool
-	earlyClose atomic.Int32
+	name         string
+	nativeID     string
+	failTimes    int
+	nonRetry     bool
+	delay        time.Duration
+	failResumeID string
+	nextNativeID string
+	genericExit  bool
+	lastPrompt   string
+	mu           sync.Mutex
+	creates      int
+	closes       int
+	cfgs         []*codingagent.SessionConfig
+	sendDone     atomic.Bool
+	earlyClose   atomic.Int32
 }
 
 func (a *retryAgent) Name() string { return a.name }
@@ -65,7 +70,7 @@ func (s *retrySession) Close() error {
 	s.agent.mu.Unlock()
 	return nil
 }
-func (s *retrySession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
+func (s *retrySession) Send(_ context.Context, prompt string) (<-chan codingagent.StreamEvent, error) {
 	ch := make(chan codingagent.StreamEvent, 4)
 	s.agent.sendDone.Store(false)
 	go func() {
@@ -76,30 +81,58 @@ func (s *retrySession) Send(_ context.Context, _ string) (<-chan codingagent.Str
 		}
 		s.agent.mu.Lock()
 		n := s.agent.creates
+		s.agent.lastPrompt = prompt
+		var cfg *codingagent.SessionConfig
+		if len(s.agent.cfgs) > 0 {
+			cfg = s.agent.cfgs[len(s.agent.cfgs)-1]
+		}
 		s.agent.mu.Unlock()
+		resumeID := ""
+		if cfg != nil {
+			resumeID = cfg.AgentSessionID
+		}
 		if s.agent.nonRetry {
 			ch <- codingagent.StreamEvent{Type: codingagent.EventError, Content: "unauthorized"}
 			return
 		}
-		if n <= s.agent.failTimes {
-			ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: s.agent.nativeID}
+		if s.agent.failResumeID != "" && resumeID == s.agent.failResumeID {
 			ch <- codingagent.StreamEvent{
 				Type:      codingagent.EventError,
-				Content:   "Reconnecting... 1/5 (We're currently experiencing high demand)",
+				Content:   "exit status 1",
 				Retryable: true,
 			}
 			return
 		}
-		ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: s.agent.nativeID}
+		if s.agent.failTimes > 0 && n <= s.agent.failTimes {
+			failContent := "Reconnecting... 1/5 (We're currently experiencing high demand)"
+			if s.agent.genericExit {
+				failContent = "exit status 1"
+			}
+			ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: s.agent.nativeID}
+			ch <- codingagent.StreamEvent{
+				Type:      codingagent.EventError,
+				Content:   failContent,
+				Retryable: true,
+			}
+			return
+		}
+		sid := s.agent.nativeID
+		if resumeID != "" {
+			sid = resumeID
+		} else if s.agent.nextNativeID != "" && n > 1 {
+			sid = s.agent.nextNativeID
+		}
+		ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: sid}
 		ch <- codingagent.StreamEvent{Type: codingagent.EventText, Content: "ok"}
 		ch <- codingagent.StreamEvent{Type: codingagent.EventResult}
 	}()
 	return ch, nil
 }
 
-func newRetryHandler(t *testing.T, agent *retryAgent, retryCfg config.ProcessRetryConfig) (*agentservice.Server, http.Handler) {
+func newRetryHandler(t *testing.T, agent *retryAgent, retryCfg config.ProcessRetryConfig, opts ...agentservice.ServerOption) (*agentservice.Server, http.Handler) {
 	t.Helper()
-	srv := agentservice.New(agentservice.WithProcessRetry(retryCfg))
+	all := append([]agentservice.ServerOption{agentservice.WithProcessRetry(retryCfg)}, opts...)
+	srv := agentservice.New(all...)
 	srv.RegisterAgent(agent)
 	return srv, srv.HTTPHandler()
 }
@@ -159,8 +192,8 @@ func TestHandleSendMessage_CodexRetryableProcessRetriesSameResume(t *testing.T) 
 		t.Fatalf("creates = %d, want 2", agent.creates)
 	}
 	last := agent.lastCfg()
-	if last == nil || last.AgentSessionID != "codex-native" {
-		t.Fatalf("second resume id = %+v, want codex-native", last)
+	if last == nil || last.AgentSessionID != "" {
+		t.Fatalf("second resume id = %+v, want empty after self-heal", last)
 	}
 	_ = srv
 }
@@ -186,6 +219,174 @@ func TestHandleSendMessage_CodexRetryExhaustedOneClassifiedError(t *testing.T) {
 	w2 := postSSE(t, handler, sessionID, "again")
 	if w2.Code == http.StatusConflict {
 		t.Fatal("session still busy after classified failure")
+	}
+}
+
+func TestHandleSendMessage_GenericExit1ExhaustedUpstreamError(t *testing.T) {
+	agent := &retryAgent{name: "codex", nativeID: "n1", failTimes: 99, genericExit: true}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 2, IntervalSeconds: 0})
+	sessionID := createCodexSessionHTTP(t, handler)
+	w := postSSE(t, handler, sessionID, "hello")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	_, errCount := sseEvents(t, w.Body.String())
+	if errCount != 1 {
+		t.Fatalf("EventError count = %d, want 1 body=%s", errCount, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "[upstream_error]") {
+		t.Fatalf("missing [upstream_error]: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "[upstream_overloaded]") {
+		t.Fatalf("unexpected [upstream_overloaded]: %s", w.Body.String())
+	}
+	w2 := postSSE(t, handler, sessionID, "again")
+	if w2.Code == http.StatusConflict {
+		t.Fatal("session still busy after classified failure")
+	}
+}
+
+func TestHandleSendMessage_BrokenResumeThreadSelfHeals(t *testing.T) {
+	agent := &retryAgent{
+		name:         "codex",
+		nativeID:     "thr-broken",
+		failResumeID: "thr-broken",
+		nextNativeID: "thr-fresh",
+	}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 3, IntervalSeconds: 0})
+	sessionID := createCodexSessionHTTP(t, handler)
+
+	w1 := postSSE(t, handler, sessionID, "turn 1")
+	if w1.Code != http.StatusOK || strings.Contains(w1.Body.String(), `"type":"error"`) || !strings.Contains(w1.Body.String(), `"type":"result"`) {
+		t.Fatalf("turn 1 failed: code=%d body=%s", w1.Code, w1.Body.String())
+	}
+
+	w2 := postSSE(t, handler, sessionID, "turn 2")
+	if w2.Code != http.StatusOK {
+		t.Fatalf("turn 2 status=%d body=%s", w2.Code, w2.Body.String())
+	}
+	_, errCount := sseEvents(t, w2.Body.String())
+	if errCount != 0 {
+		t.Fatalf("turn 2 SSE errors=%d body=%s", errCount, w2.Body.String())
+	}
+	if !strings.Contains(w2.Body.String(), `"type":"result"`) {
+		t.Fatalf("turn 2 missing result: %s", w2.Body.String())
+	}
+	agent.mu.Lock()
+	cfgs := append([]*codingagent.SessionConfig{}, agent.cfgs...)
+	creates := agent.creates
+	agent.mu.Unlock()
+	if creates != 3 {
+		t.Fatalf("creates after turn 2 = %d, want 3 (1 + resume fail + fresh)", creates)
+	}
+	if cfgs[1].AgentSessionID != "thr-broken" {
+		t.Fatalf("turn 2 first attempt resume = %q, want thr-broken", cfgs[1].AgentSessionID)
+	}
+	if cfgs[2].AgentSessionID != "" {
+		t.Fatalf("turn 2 self-heal resume = %q, want empty", cfgs[2].AgentSessionID)
+	}
+
+	w3 := postSSE(t, handler, sessionID, "turn 3")
+	if w3.Code != http.StatusOK || sseErrorCountFromRetry(t, w3.Body.String()) != 0 || !strings.Contains(w3.Body.String(), `"type":"result"`) {
+		t.Fatalf("turn 3 failed: code=%d body=%s", w3.Code, w3.Body.String())
+	}
+	if agent.creates != 4 {
+		t.Fatalf("creates = %d, want 4", agent.creates)
+	}
+	last := agent.lastCfg()
+	if last == nil || last.AgentSessionID != "thr-fresh" {
+		t.Fatalf("turn 3 resume = %+v, want thr-fresh", last)
+	}
+}
+
+func sseErrorCountFromRetry(t *testing.T, raw string) int {
+	t.Helper()
+	_, n := sseEvents(t, raw)
+	return n
+}
+
+func TestHandleSendMessage_SelfHealWrapsCanonicalHistory(t *testing.T) {
+	agent := &retryAgent{
+		name:         "codex",
+		nativeID:     "thr-broken",
+		failResumeID: "thr-broken",
+		nextNativeID: "thr-fresh",
+	}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 3, IntervalSeconds: 0})
+	sessionID := createCodexSessionHTTP(t, handler)
+	if w := postSSE(t, handler, sessionID, "remember SECRET-FACT"); w.Code != http.StatusOK {
+		t.Fatalf("turn 1: %d %s", w.Code, w.Body.String())
+	}
+	if w := postSSE(t, handler, sessionID, "what was the fact?"); w.Code != http.StatusOK {
+		t.Fatalf("turn 2: %d %s", w.Code, w.Body.String())
+	}
+	agent.mu.Lock()
+	prompt := agent.lastPrompt
+	cfgPrompt := ""
+	if len(agent.cfgs) > 0 {
+		cfgPrompt = agent.cfgs[len(agent.cfgs)-1].Prompt
+	}
+	agent.mu.Unlock()
+	if !strings.Contains(prompt, portable.TransferHeader) && !strings.Contains(cfgPrompt, portable.TransferHeader) {
+		t.Fatalf("self-heal prompt missing transfer header: send=%q cfg=%q", prompt, cfgPrompt)
+	}
+	if strings.Count(prompt, "what was the fact?") > 1 {
+		t.Fatalf("current user prompt duplicated: %s", prompt)
+	}
+}
+
+func TestStreamSSERelay_DrainTimeoutStopsProcess(t *testing.T) {
+	agent := &retryAgent{name: "codex", nativeID: "n1", delay: 10 * time.Second}
+	srv, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 1},
+		agentservice.WithSSEDrainTimeout(80*time.Millisecond))
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	sessionID := createCodexSessionHTTP(t, handler)
+	reqCtx, cancel := context.WithCancel(context.Background())
+	msgBody, _ := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": "run"}},
+	})
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, ts.URL+"/api/v1/sessions/"+sessionID+"/messages", bytes.NewReader(msgBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var closes int
+	for time.Now().Before(deadline) {
+		agent.mu.Lock()
+		closes = agent.closes
+		agent.mu.Unlock()
+		if closes >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if closes < 1 {
+		t.Fatalf("Close count = %d, want >= 1 after drain timeout", closes)
+	}
+	deadline2 := time.Now().Add(1 * time.Second)
+	var nextCode int
+	for time.Now().Before(deadline2) {
+		w := postSSE(t, srv.HTTPHandler(), sessionID, "next")
+		nextCode = w.Code
+		if nextCode != http.StatusConflict {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if nextCode == http.StatusConflict {
+		t.Fatal("session still busy after drain timeout")
 	}
 }
 

@@ -368,6 +368,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	})
 
 	resumeID := record.AgentSessionID
+	rawUserPrompt := promptText
 	wrapped, wrapErr := s.wrapPromptWithSupplement(r.Context(), record, promptText, req.Supplement)
 	if wrapErr != nil {
 		http.Error(w, wrapErr.Error(), wrapHTTPStatus(wrapErr))
@@ -406,7 +407,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 	execCtx, execCancel := context.WithCancel(context.Background())
 	s.RegisterExecCancel(sessionID, execCancel)
-	s.runTurn(r, w, execCtx, execCancel, record, sessionID, turnID, req.CorrelationID, promptText, resumeID, opts, savedFiles)
+	s.runTurn(r, w, execCtx, execCancel, record, sessionID, turnID, req.CorrelationID, promptText, rawUserPrompt, resumeID, opts, savedFiles)
 }
 
 // finishActiveExecution closes the agent session and clears busy-state registries.

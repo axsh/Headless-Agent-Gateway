@@ -11,6 +11,8 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
+const defaultSSEClientDrainTimeout = 15 * time.Second
+
 type streamTerminal struct {
 	kind      codingagent.EventType
 	retryable bool
@@ -29,6 +31,37 @@ func (s *Server) processRetryLimits(agentName string) (maxAttempts int, interval
 		interval = time.Duration(s.processRetry.IntervalSeconds) * time.Second
 	}
 	return maxAttempts, interval
+}
+
+func (s *Server) clientDrainTimeout() time.Duration {
+	if s.sseDrainTimeout > 0 {
+		return s.sseDrainTimeout
+	}
+	return defaultSSEClientDrainTimeout
+}
+
+func (s *Server) classifiedTerminal(content string) (tagged string, overloaded bool) {
+	overloaded = codingagent.IsRetryableUpstream(content)
+	return codingagent.ClassifiedErrorContent(content, overloaded), overloaded
+}
+
+func (s *Server) stopExecOnDrainTimeout(sessionID string, exec *activeExecution) streamTerminal {
+	if s.logger != nil {
+		s.logger.Warn("SSE drain timed out; stopping agent process",
+			"session_id", sessionID,
+			"timeout", s.clientDrainTimeout().String())
+	}
+	if exec != nil && exec.agentSess != nil {
+		_ = exec.agentSess.Close()
+	}
+	s.execRegistry.Unregister(sessionID)
+	s.UnregisterActiveSession(sessionID)
+	s.UnregisterExecCancel(sessionID)
+	return streamTerminal{
+		kind:      codingagent.EventError,
+		retryable: false,
+		content:   "client drain timeout",
+	}
 }
 
 func (s *Server) sessionOptsWithResume(base []codingagent.SessionOption, sessionID, fallback string) []codingagent.SessionOption {
@@ -63,7 +96,7 @@ func (s *Server) runTurn(
 	execCtx context.Context,
 	execCancel func(),
 	record *codingagent.SessionRecord,
-	sessionID, turnID, correlationID, promptText, fallbackResume string,
+	sessionID, turnID, correlationID, promptText, rawUserPrompt, fallbackResume string,
 	baseOpts []codingagent.SessionOption,
 	savedFiles []string,
 ) {
@@ -74,6 +107,7 @@ func (s *Server) runTurn(
 	var agentSess codingagent.Session
 	var active *activeExecution
 	registered := false
+	healFresh := false
 
 	finish := func() {
 		s.finishActiveExecution(sessionID, agentSess, savedFiles)
@@ -87,7 +121,34 @@ func (s *Server) runTurn(
 				"attempt", attempt,
 				"max_attempts", maxAttempts)
 		}
-		sess, err := agent.CreateSession(execCtx, s.sessionOptsWithResume(baseOpts, sessionID, fallbackResume)...)
+		resumeFallback := fallbackResume
+		if healFresh {
+			resumeFallback = ""
+		}
+		opts := s.sessionOptsWithResume(baseOpts, sessionID, resumeFallback)
+		attemptPrompt := promptText
+		if healFresh {
+			rec := record
+			if latest, err := s.sessions.Get(sessionID); err == nil {
+				rec = latest
+			}
+			wrapped, err := s.wrapPromptForSelfHeal(execCtx, rec, rawUserPrompt)
+			if err != nil {
+				if s.logger != nil {
+					s.logger.Warn("self-heal prompt wrap failed; sending raw user prompt",
+						"session_id", sessionID, "error", err.Error())
+				}
+				attemptPrompt = rawUserPrompt
+			} else {
+				attemptPrompt = wrapped
+			}
+			opts = append(opts, codingagent.WithPrompt(attemptPrompt))
+			if s.logger != nil {
+				s.logger.Debug("self-heal fresh exec without native resume",
+					"session_id", sessionID, "attempt", attempt)
+			}
+		}
+		sess, err := agent.CreateSession(execCtx, opts...)
 		if err != nil {
 			if s.logger != nil {
 				s.logger.Error("failed to create agent session", "session_id", sessionID, "error", err.Error(), "attempt", attempt)
@@ -114,7 +175,7 @@ func (s *Server) runTurn(
 		}
 		agentSess = sess
 		s.RegisterActiveSession(sessionID, sess)
-		ch, err := sess.Send(execCtx, promptText)
+		ch, err := sess.Send(execCtx, attemptPrompt)
 		if err != nil {
 			if s.logger != nil {
 				s.logger.Error("agent send failed", "session_id", sessionID, "error", err.Error(), "attempt", attempt)
@@ -126,6 +187,8 @@ func (s *Server) runTurn(
 			}
 			s.closeAttempt(sessionID, sess)
 			if attempt < maxAttempts {
+				s.clearPersistedAgentSessionID(sessionID)
+				healFresh = true
 				continue
 			}
 			finish()
@@ -183,6 +246,8 @@ func (s *Server) runTurn(
 				}
 				s.closeAttempt(sessionID, sess)
 				agentSess = nil
+				s.clearPersistedAgentSessionID(sessionID)
+				healFresh = true
 				select {
 				case <-time.After(interval):
 				case <-execCtx.Done():
@@ -193,11 +258,13 @@ func (s *Server) runTurn(
 				continue
 			}
 			if term.retryable {
-				content := codingagent.ClassifiedErrorContent(term.content, true)
-				s.emitClassifiedSSE(w, active, content, true)
+				content, overloaded := s.classifiedTerminal(term.content)
+				s.emitClassifiedSSE(w, active, content, overloaded)
 			}
 			s.finishActiveExecution(sessionID, agentSess, savedFiles)
-			s.writeSSEDone(w)
+			if r.Context().Err() == nil {
+				s.writeSSEDone(w)
+			}
 			return
 		}
 
@@ -213,6 +280,8 @@ func (s *Server) runTurn(
 		if term.retryable && attempt < maxAttempts {
 			s.closeAttempt(sessionID, sess)
 			agentSess = nil
+			s.clearPersistedAgentSessionID(sessionID)
+			healFresh = true
 			select {
 			case <-time.After(interval):
 			case <-execCtx.Done():
@@ -222,7 +291,7 @@ func (s *Server) runTurn(
 			continue
 		}
 		if term.retryable {
-			content := codingagent.ClassifiedErrorContent(term.content, true)
+			content, _ := s.classifiedTerminal(term.content)
 			events = append(events, codingagent.StreamEvent{Type: codingagent.EventError, Content: content})
 			s.updateSessionStatusOnTerminal(sessionID, codingagent.StreamEvent{Type: codingagent.EventError, Content: content}, true, content)
 		}
@@ -333,6 +402,18 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+	var drainTimer *time.Timer
+	defer func() {
+		if drainTimer != nil {
+			drainTimer.Stop()
+		}
+	}()
+	drainCh := func() <-chan time.Time {
+		if drainTimer == nil {
+			drainTimer = time.NewTimer(s.clientDrainTimeout())
+		}
+		return drainTimer.C
+	}
 
 	handleEvent := func(ev codingagent.StreamEvent) bool {
 		ev.TurnID = exec.turnID
@@ -369,12 +450,17 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 
 	for {
 		if clientGone {
-			ev, ok := <-ch
-			if !ok {
-				break
-			}
-			if handleEvent(ev) {
-				return term, true
+			select {
+			case ev, ok := <-ch:
+				if !ok {
+					goto done
+				}
+				if handleEvent(ev) {
+					return term, true
+				}
+			case <-drainCh():
+				term = s.stopExecOnDrainTimeout(sessionID, exec)
+				goto done
 			}
 			continue
 		}
@@ -436,28 +522,45 @@ func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, ex
 	var term streamTerminal
 	suspended := false
 	clientGone := false
+	var drainTimer *time.Timer
+	defer func() {
+		if drainTimer != nil {
+			drainTimer.Stop()
+		}
+	}()
+	drainCh := func() <-chan time.Time {
+		if drainTimer == nil {
+			drainTimer = time.NewTimer(s.clientDrainTimeout())
+		}
+		return drainTimer.C
+	}
 
 	for {
 		if clientGone {
-			ev, ok := <-ch
-			if !ok {
-				break
+			select {
+			case ev, ok := <-ch:
+				if !ok {
+					goto done
+				}
+				ev.TurnID = exec.turnID
+				ev.CorrelationID = exec.correlationID
+				exec.streamOffset++
+				if ev.Type == codingagent.EventError && ev.Retryable {
+					term = streamTerminal{kind: codingagent.EventError, retryable: true, content: ev.Content}
+					continue
+				}
+				if ev.Type == codingagent.EventResult {
+					term = streamTerminal{kind: codingagent.EventResult}
+				}
+				if ev.Type == codingagent.EventError {
+					term = streamTerminal{kind: codingagent.EventError, content: ev.Content}
+				}
+				events = append(events, ev)
+				s.updateSessionStatusOnTerminal(sessionID, ev, ev.Type == codingagent.EventError, ev.Content)
+			case <-drainCh():
+				term = s.stopExecOnDrainTimeout(sessionID, exec)
+				goto done
 			}
-			ev.TurnID = exec.turnID
-			ev.CorrelationID = exec.correlationID
-			exec.streamOffset++
-			if ev.Type == codingagent.EventError && ev.Retryable {
-				term = streamTerminal{kind: codingagent.EventError, retryable: true, content: ev.Content}
-				continue
-			}
-			if ev.Type == codingagent.EventResult {
-				term = streamTerminal{kind: codingagent.EventResult}
-			}
-			if ev.Type == codingagent.EventError {
-				term = streamTerminal{kind: codingagent.EventError, content: ev.Content}
-			}
-			events = append(events, ev)
-			s.updateSessionStatusOnTerminal(sessionID, ev, ev.Type == codingagent.EventError, ev.Content)
 			continue
 		}
 		select {
