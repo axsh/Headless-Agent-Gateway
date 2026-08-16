@@ -341,9 +341,9 @@ Sends prompt text and image data to an active session, initiating agent executio
 
     data: [DONE]
     ```
-  - Transient upstream failures (`Reconnecting...`, high demand, HTTP 429) are retried on the server within bounded limits. Clients wait for a final `result` or a single `error`.
-  - When retries are exhausted, `error.content` ends with `[upstream_overloaded]`. Permanent failures end with `[upstream_error]`.
-  - Closing the SSE connection does not kill the coding-agent CLI; the turn continues until `result`/`error` or `POST /terminate`.
+  - Transient Codex process exits (`exit status 1`) and upstream stream failures (`Reconnecting...`, high demand, HTTP 429) are retried on the server within bounded limits. Intermediate failures are not written to SSE. Clients wait for a final `result` or a single `error`.
+  - When retries are exhausted, `error.content` ends with `[upstream_overloaded]` for classified overload messages, or `[upstream_error]` for generic process failures such as `exit status 1`. Permanent failures (`unauthorized`, invalid API key, unknown model, invalid arguments) are not retried and end with `[upstream_error]`.
+  - Closing the SSE connection does not immediately kill the coding-agent CLI. The server drains the in-flight process for up to 15 seconds, then stops it (`ProcessManager.Stop`) and clears the session busy state. A follow-up `POST` on the same `session_id` is accepted (it is `409` only while an execution is still active and the drain deadline has not elapsed). If `codex exec resume` fails retryably, Tern drops the native thread id, injects canonical history into a fresh `codex exec`, and keeps the HTTP `session_id`.
 
 ### 8.1 Turn-Scoped Artifact Correlation
 
