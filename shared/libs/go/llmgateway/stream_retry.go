@@ -3,6 +3,7 @@ package llmgateway
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
@@ -61,6 +62,33 @@ func IsRetryableStreamErr(err error, msg string) bool {
 		}
 	}
 	return codingagent.IsRetryableUpstream(msg)
+}
+
+const LogUpstreamStreamDeadline = "upstream stream read deadline exceeded"
+
+// IsStreamDeadlineExceeded reports a client or upstream read that hit a context deadline.
+func IsStreamDeadlineExceeded(err error, msg string) bool {
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return true
+		}
+		if strings.Contains(err.Error(), "context deadline exceeded") {
+			return true
+		}
+	}
+	return strings.Contains(msg, "context deadline exceeded")
+}
+
+// LogIfStreamDeadline writes the unique operator Error when the stream failed on a deadline.
+func LogIfStreamDeadline(log logger.Logger, err error, msg, model string) {
+	if log == nil || !IsStreamDeadlineExceeded(err, msg) {
+		return
+	}
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	log.Debug("classified stream error as upstream deadline", "model", model)
+	log.Error(LogUpstreamStreamDeadline, "model", model, "error", msg)
 }
 
 // ShouldRetryStreamChunk is true only for retryable errors before any success data.

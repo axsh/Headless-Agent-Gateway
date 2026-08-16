@@ -3,6 +3,7 @@ package llmgateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
@@ -76,5 +77,29 @@ func TestShouldRetryStreamChunk_AfterDataWrittenFalse(t *testing.T) {
 	}
 	if ShouldRetryStreamChunk(false, false) {
 		t.Fatal("must not retry non-retryable leading error")
+	}
+}
+
+func TestIsStreamDeadlineExceeded(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		msg  string
+		want bool
+	}{
+		{"deadline_err", context.DeadlineExceeded, "", true},
+		{"wrapped", fmt.Errorf("wrap: %w", context.DeadlineExceeded), "", true},
+		{"msg", nil, "context deadline exceeded", true},
+		{"client_wrap", nil, "stream read error: context deadline exceeded", true},
+		{"exit1", nil, "exit status 1", false},
+		{"empty", nil, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsStreamDeadlineExceeded(tt.err, tt.msg)
+			if got != tt.want {
+				t.Errorf("IsStreamDeadlineExceeded() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

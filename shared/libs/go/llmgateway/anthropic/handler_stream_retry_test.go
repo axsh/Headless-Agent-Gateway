@@ -28,15 +28,15 @@ type streamTestCtx struct {
 func (c *streamTestCtx) Config() *config.AppConfig                             { return c.cfg }
 func (c *streamTestCtx) Logger() logger.Logger                                 { return c.log }
 func (c *streamTestCtx) Vault() vault.VaultStore                               { return nil }
-func (c *streamTestCtx) Router() handlerctx.ModelRouter                         { return nil }
+func (c *streamTestCtx) Router() handlerctx.ModelRouter                        { return nil }
 func (c *streamTestCtx) BifrostSDK() *bifrost.Bifrost                          { return nil }
 func (c *streamTestCtx) ToBifrostProvider(string) bifrostSchemas.ModelProvider { return "" }
 func (c *streamTestCtx) SanitizeTools(*bifrostSchemas.BifrostResponsesRequest, bifrostSchemas.ModelProvider) {
 }
 func (c *streamTestCtx) TryFallbackAnthropicResponse([]byte) ([]byte, bool) { return nil, false }
-func (c *streamTestCtx) ExtractSessionID(string) string                      { return "" }
-func (c *streamTestCtx) ExtractFallbackFlag(string) bool                     { return false }
-func (c *streamTestCtx) MaskSecret(string) string                            { return "" }
+func (c *streamTestCtx) ExtractSessionID(string) string                     { return "" }
+func (c *streamTestCtx) ExtractFallbackFlag(string) bool                    { return false }
+func (c *streamTestCtx) MaskSecret(string) string                           { return "" }
 
 type flushRecorder struct {
 	*httptest.ResponseRecorder
@@ -235,7 +235,7 @@ func TestHandlerSource_StreamRetryWiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read handler.go: %v", err)
 	}
-	for _, symbol := range []string{"NewRetryBudget", "RetryLeadingChunk", "openResponsesStream", "openBifrostResponsesStream"} {
+	for _, symbol := range []string{"NewRetryBudget", "RetryLeadingChunk", "openResponsesStream", "openBifrostResponsesStream", "LogIfStreamDeadline"} {
 		if !bytes.Contains(data, []byte(symbol)) {
 			t.Errorf("handler.go does not contain required retry symbol: %s", symbol)
 		}
