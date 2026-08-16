@@ -329,7 +329,6 @@ Additional architectural details will be documented separately.
 * [x] Key Vault support
 * [x] Claude Code CLI adapter
 * [x] Codex CLI adapter
-* [ ] Gemini CLI adapter (replaced by Antigravity SDK?)
 * [x] OpenAI LLM backend
 * [x] Anthropic LLM backend
 * [x] Google LLM backend
@@ -338,18 +337,21 @@ Additional architectural details will be documented separately.
 * [x] Tern SDK v1
 * [x] CAWA API v1 (multimodal content blocks)
 * [x] Multimodal support (image input via v1 API)
-* [ ] Interactive agent execution (`user_input_required`, `respond`, `suspended`)
 
 ### Phase 2
 
+This is the current phase.
+
+* [ ] Gemini CLI adapter (replaced by Antigravity SDK?)
+* [ ] Interactive agent execution (`user_input_required`, `respond`, `suspended`)
 * [ ] Agent interaction protocol (SSE reconnect, advanced orchestration)
 * [ ] MCP support
 * [ ] Tern CLI
 * [ ] Tern SDK v2
-* [ ] Session portability
+* [x] Session portability
 * [ ] Context export/import
-* [ ] Agent switching
-* [ ] Model switching
+* [x] Agent switching
+* [x] Model switching
 * [ ] Multimodal Voice support
 
 ### Phase 3
@@ -608,6 +610,21 @@ _ = session.SendTextWithHandlers(ctx, "Refactor auth.go", client.StreamHandlers{
     OnUserInputRequired: func(ev client.UserInputRequiredEvent) (string, error) {
         return "Proceed with the safer option", nil
     },
+})
+
+// 4. Switch coding agent on the same Tern session (do not Terminate)
+_, _ = session.UpdateAgent(ctx, "codex")
+stream, _ = session.SendText(ctx, "Continue with the previous findings")
+stream.Output(os.Stdout)
+
+// Persist a supplement strategy, or override it for one turn.
+full := "full"
+_, _ = session.Update(ctx, client.UpdateSessionRequest{
+    Supplement: &client.SupplementStrategy{Algorithm: full},
+})
+_, _ = session.UpdateModel(ctx, "gpt-4o")
+_, _ = session.SendMessageWithOpts(ctx, []client.ContentPart{{Type: "text", Text: "Summarize so far"}}, client.SendMessageOpts{
+    Supplement: &client.SupplementStrategy{Algorithm: "structured"},
 })
 ```
 
