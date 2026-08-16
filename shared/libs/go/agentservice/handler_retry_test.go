@@ -255,10 +255,17 @@ func TestHandleSendMessage_ClientDisconnectDoesNotFinishUntilTerminal(t *testing
 	if agent.earlyClose.Load() != 0 {
 		t.Fatalf("Close called before Send finished, early=%d closes=%d", agent.earlyClose.Load(), agent.closes)
 	}
-	time.Sleep(400 * time.Millisecond)
-	agent.mu.Lock()
-	closes := agent.closes
-	agent.mu.Unlock()
+	deadline := time.Now().Add(3 * time.Second)
+	var closes int
+	for time.Now().Before(deadline) {
+		agent.mu.Lock()
+		closes = agent.closes
+		agent.mu.Unlock()
+		if closes >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if closes < 1 {
 		t.Fatalf("Close count = %d, want >= 1 after terminal", closes)
 	}
