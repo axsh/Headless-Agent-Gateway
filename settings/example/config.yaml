@@ -4,12 +4,19 @@
 llm_gateway:
   port: 14000
   model_profiles_path: "model_profiles.yaml"
+  retry:
+    max_retries: 2
+    initial_delay_seconds: 1
+    max_delay_seconds: 8
 
 vault:
   backends: [keyring]
 
 agent_service:
   port: 3100
+  process_retry:
+    max_attempts: 3
+    interval_seconds: 3
 
 log:
   level: "info"

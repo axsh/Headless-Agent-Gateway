@@ -513,7 +513,9 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		agentservice.WithSubagentEnabled(enableSubagent),
 	}
 	if cfg != nil {
+		cfg.AgentService.ApplyDefaults()
 		asOpts = append(asOpts, agentservice.WithSupplementConfig(cfg.AgentService.Supplement))
+		asOpts = append(asOpts, agentservice.WithProcessRetry(cfg.AgentService.ProcessRetry))
 	}
 	if artifactSt != nil {
 		asOpts = append(asOpts, agentservice.WithArtifactStore(artifactSt, artifactWorkDir))

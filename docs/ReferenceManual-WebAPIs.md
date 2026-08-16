@@ -341,6 +341,9 @@ Sends prompt text and image data to an active session, initiating agent executio
 
     data: [DONE]
     ```
+  - Transient upstream failures (`Reconnecting...`, high demand, HTTP 429) are retried on the server within bounded limits. Clients wait for a final `result` or a single `error`.
+  - When retries are exhausted, `error.content` ends with `[upstream_overloaded]`. Permanent failures end with `[upstream_error]`.
+  - Closing the SSE connection does not kill the coding-agent CLI; the turn continues until `result`/`error` or `POST /terminate`.
 
 ### 8.1 Turn-Scoped Artifact Correlation
 

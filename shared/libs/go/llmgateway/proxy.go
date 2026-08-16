@@ -43,6 +43,7 @@ func NewProxyServer(cfg *config.AppConfig, vs vault.VaultStore, log logger.Logge
 
 	log.Debug("creating proxy server", "port", cfg.LLMGateway.Port)
 
+	cfg.LLMGateway.ApplyDefaults()
 	p := &ProxyServer{
 		cfg:    cfg,
 		vault:  vs,

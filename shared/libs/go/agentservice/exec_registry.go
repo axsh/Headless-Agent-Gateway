@@ -19,6 +19,8 @@ type activeExecution struct {
 	relay         *eventRelay
 	status        string
 	streamOffset  int
+	sseStarted    bool
+	turnMetaSent  bool
 }
 
 type execRegistry struct {

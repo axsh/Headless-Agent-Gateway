@@ -8,6 +8,36 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent/codex"
 )
 
+func TestParseExecEvent_RetryableErrorIgnored(t *testing.T) {
+	line := `{"type":"error","message":"Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"}`
+	ev := codex.ParseExecEvent(line)
+	if ev != nil {
+		t.Fatalf("expected nil for retryable error, got %+v", ev)
+	}
+}
+
+func TestParseExecEvent_RetryableTurnFailedIgnored(t *testing.T) {
+	line := `{"type":"turn.failed","error":{"message":"We're currently experiencing high demand"}}`
+	ev := codex.ParseExecEvent(line)
+	if ev != nil {
+		t.Fatalf("expected nil for retryable turn.failed, got %+v", ev)
+	}
+}
+
+func TestParseExecEvent_NonRetryableErrorStillEventError(t *testing.T) {
+	line := `{"type":"error","message":"unauthorized"}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected EventError")
+	}
+	if ev.Type != codingagent.EventError {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventError)
+	}
+	if ev.Content != "unauthorized" {
+		t.Errorf("content = %q, want unauthorized", ev.Content)
+	}
+}
+
 func TestParseExecEvent_Error(t *testing.T) {
 	line := `{"type":"error","message":"connection failed"}`
 	ev := codex.ParseExecEvent(line)

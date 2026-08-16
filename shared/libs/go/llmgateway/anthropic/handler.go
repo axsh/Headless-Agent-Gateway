@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
 	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
@@ -210,16 +212,40 @@ func handleMessagesViaBifrost(
 
 	// Dispatch stream / non-stream
 	if fullReq.Stream != nil && *fullReq.Stream {
-		handleMessagesBifrostStream(ctx, w, bifrostCtx, bifrostReq, routed.Model)
+		handleMessagesBifrostStream(ctx, w, r.Context(), bifrostCtx, bifrostReq, routed.Model)
 	} else {
-		handleMessagesBifrostNonStream(ctx, w, bifrostCtx, bifrostReq, routed)
+		handleMessagesBifrostNonStream(ctx, w, r.Context(), bifrostCtx, bifrostReq, routed)
 	}
+}
+
+func bifrostErrorMessage(berr *bifrostSchemas.BifrostError, fallback string) string {
+	if berr != nil && berr.Error != nil && berr.Error.Message != "" {
+		return berr.Error.Message
+	}
+	return fallback
+}
+
+func openResponsesStream(
+	reqCtx context.Context,
+	hctx handlerctx.HandlerContext,
+	budget *llmgateway.RetryBudget,
+	bCtx *bifrostSchemas.BifrostContext,
+	req *bifrostSchemas.BifrostResponsesRequest,
+) (chan *bifrostSchemas.BifrostStreamChunk, error) {
+	return llmgateway.OpenWithBudget(budget, reqCtx, hctx.Logger(), func() (chan *bifrostSchemas.BifrostStreamChunk, error) {
+		ch, berr := hctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
+		if berr != nil {
+			return nil, llmgateway.StreamErr(bifrostErrorMessage(berr, "upstream stream request failed"))
+		}
+		return ch, nil
+	})
 }
 
 // handleMessagesBifrostNonStream handles non-streaming /v1/messages via Bifrost SDK.
 func handleMessagesBifrostNonStream(
 	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
+	reqCtx context.Context,
 	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
 	routed *handlerctx.RoutedModel,
@@ -227,24 +253,24 @@ func handleMessagesBifrostNonStream(
 	log := ctx.Logger()
 	log.Debug("executing bifrost non-stream anthropic request", "model", req.Model)
 
-	resp, bifrostErr := ctx.BifrostSDK().ResponsesRequest(bCtx, req)
-	if bifrostErr != nil {
-		status := http.StatusBadGateway
-		if bifrostErr.StatusCode != nil {
-			status = *bifrostErr.StatusCode
+	var resp *bifrostSchemas.BifrostResponsesResponse
+	err := llmgateway.DoWithRetry(reqCtx, ctx.Config().LLMGateway.Retry, log, func() error {
+		var berr *bifrostSchemas.BifrostError
+		resp, berr = ctx.BifrostSDK().ResponsesRequest(bCtx, req)
+		if berr != nil {
+			return llmgateway.StreamErr(bifrostErrorMessage(berr, "upstream request failed"))
 		}
-		msg := "upstream request failed"
-		if bifrostErr.Error != nil {
-			msg = bifrostErr.Error.Message
-		}
+		return nil
+	})
+	if err != nil {
 		log.Error("bifrost anthropic request failed",
-			"status", status, "message", msg,
+			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
 		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
-			Message: msg,
+			Message: err.Error(),
 			Code:    "upstream_error",
-			Status:  status,
+			Status:  http.StatusBadGateway,
 		})
 		return
 	}
@@ -288,6 +314,7 @@ func handleMessagesBifrostNonStream(
 func handleMessagesBifrostStream(
 	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
+	reqCtx context.Context,
 	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
 	model string,
@@ -296,24 +323,17 @@ func handleMessagesBifrostStream(
 	streamStartTime := time.Now()
 	log.Debug("executing bifrost stream anthropic request", "model", req.Model)
 
-	ch, bifrostErr := ctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
-	if bifrostErr != nil {
-		status := http.StatusBadGateway
-		if bifrostErr.StatusCode != nil {
-			status = *bifrostErr.StatusCode
-		}
-		msg := "upstream stream request failed"
-		if bifrostErr.Error != nil {
-			msg = bifrostErr.Error.Message
-		}
+	budget := llmgateway.NewRetryBudget(ctx.Config().LLMGateway.Retry)
+	ch, err := openResponsesStream(reqCtx, ctx, budget, bCtx, req)
+	if err != nil {
 		log.Error("bifrost stream anthropic request failed",
-			"status", status, "message", msg,
+			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
 		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
-			Message: msg,
+			Message: err.Error(),
 			Code:    "upstream_error",
-			Status:  status,
+			Status:  http.StatusBadGateway,
 		})
 		return
 	}
@@ -351,109 +371,128 @@ func handleMessagesBifrostStream(
 	stopReason := "end_turn"
 	var totalOutputTokens int
 
-	for chunk := range ch {
-		if chunk == nil {
-			continue
-		}
+	for {
+		ended := true
+		for chunk := range ch {
+			if chunk == nil {
+				continue
+			}
 
-		// Handle BifrostError chunks
-		if chunk.BifrostError != nil {
-			errJSON, _ := json.Marshal(chunk.BifrostError)
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
-			flusher.Flush()
-			log.Debug("bifrost stream error chunk sent", "model", model)
-			continue
-		}
+			if chunk.BifrostError != nil {
+				msg := bifrostErrorMessage(chunk.BifrostError, "upstream stream error")
+				if budget.RetryLeadingChunk(reqCtx, log, msg, chunkCount > 0) {
+					llmgateway.DiscardStream(ch)
+					var openErr error
+					ch, openErr = openResponsesStream(reqCtx, ctx, budget, bCtx, req)
+					if openErr != nil {
+						errJSON, _ := json.Marshal(map[string]string{"message": openErr.Error()})
+						fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+						flusher.Flush()
+						return
+					}
+					ended = false
+					break
+				}
+				errJSON, _ := json.Marshal(chunk.BifrostError)
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+				flusher.Flush()
+				log.Debug("bifrost stream error chunk sent", "model", model)
+				return
+			}
 
-		// Handle BifrostResponsesStreamResponse chunks
-		if chunk.BifrostResponsesStreamResponse != nil {
-			streamResp := chunk.BifrostResponsesStreamResponse
-			chunkCount++
+			// Handle BifrostResponsesStreamResponse chunks
+			if chunk.BifrostResponsesStreamResponse != nil {
+				streamResp := chunk.BifrostResponsesStreamResponse
+				chunkCount++
 
-			switch streamResp.Type {
-			case bifrostSchemas.ResponsesStreamResponseTypeOutputTextDelta:
-				// Text delta -> content_block_delta
-				if streamResp.Delta != nil {
-					if !textStarted {
-						textStarted = true
-						// First text chunk: emit content_block_start
-						emitSSEJSON(w, flusher, "content_block_start", map[string]any{
-							"type":          "content_block_start",
-							"index":         blockIndex,
-							"content_block": map[string]any{"type": "text", "text": ""},
+				switch streamResp.Type {
+				case bifrostSchemas.ResponsesStreamResponseTypeOutputTextDelta:
+					// Text delta -> content_block_delta
+					if streamResp.Delta != nil {
+						if !textStarted {
+							textStarted = true
+							// First text chunk: emit content_block_start
+							emitSSEJSON(w, flusher, "content_block_start", map[string]any{
+								"type":          "content_block_start",
+								"index":         blockIndex,
+								"content_block": map[string]any{"type": "text", "text": ""},
+							})
+						}
+						emitSSEJSON(w, flusher, "content_block_delta", map[string]any{
+							"type":  "content_block_delta",
+							"index": blockIndex,
+							"delta": map[string]any{"type": "text_delta", "text": *streamResp.Delta},
 						})
 					}
-					emitSSEJSON(w, flusher, "content_block_delta", map[string]any{
-						"type":  "content_block_delta",
+
+				case bifrostSchemas.ResponsesStreamResponseTypeOutputTextDone:
+					// Text done -> content_block_stop
+					emitSSEJSON(w, flusher, "content_block_stop", map[string]any{
+						"type":  "content_block_stop",
 						"index": blockIndex,
-						"delta": map[string]any{"type": "text_delta", "text": *streamResp.Delta},
 					})
-				}
+					blockIndex++
+					textStarted = false
 
-			case bifrostSchemas.ResponsesStreamResponseTypeOutputTextDone:
-				// Text done -> content_block_stop
-				emitSSEJSON(w, flusher, "content_block_stop", map[string]any{
-					"type":  "content_block_stop",
-					"index": blockIndex,
-				})
-				blockIndex++
-				textStarted = false
-
-			case bifrostSchemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta:
-				// Function call arguments delta (tool_use in Anthropic stream)
-				if streamResp.Delta != nil {
-					emitSSEJSON(w, flusher, "content_block_delta", map[string]any{
-						"type":  "content_block_delta",
-						"index": blockIndex,
-						"delta": map[string]any{"type": "input_json_delta", "partial_json": *streamResp.Delta},
-					})
-				}
-
-			case bifrostSchemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone:
-				// Function call done
-				stopReason = "tool_use"
-				emitSSEJSON(w, flusher, "content_block_stop", map[string]any{
-					"type":  "content_block_stop",
-					"index": blockIndex,
-				})
-				blockIndex++
-
-			case bifrostSchemas.ResponsesStreamResponseTypeOutputItemAdded:
-				// New output item -> may need content_block_start for tool_use
-				if streamResp.Item != nil && streamResp.Item.Type != nil &&
-					*streamResp.Item.Type == bifrostSchemas.ResponsesMessageTypeFunctionCall {
-					stopReason = "tool_use"
-					toolName := ""
-					toolID := ""
-					if streamResp.Item.ResponsesToolMessage != nil {
-						if streamResp.Item.ResponsesToolMessage.Name != nil {
-							toolName = *streamResp.Item.ResponsesToolMessage.Name
-						}
-						if streamResp.Item.ResponsesToolMessage.CallID != nil {
-							toolID = *streamResp.Item.ResponsesToolMessage.CallID
-						}
+				case bifrostSchemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta:
+					// Function call arguments delta (tool_use in Anthropic stream)
+					if streamResp.Delta != nil {
+						emitSSEJSON(w, flusher, "content_block_delta", map[string]any{
+							"type":  "content_block_delta",
+							"index": blockIndex,
+							"delta": map[string]any{"type": "input_json_delta", "partial_json": *streamResp.Delta},
+						})
 					}
-					emitSSEJSON(w, flusher, "content_block_start", map[string]any{
-						"type":  "content_block_start",
+
+				case bifrostSchemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone:
+					// Function call done
+					stopReason = "tool_use"
+					emitSSEJSON(w, flusher, "content_block_stop", map[string]any{
+						"type":  "content_block_stop",
 						"index": blockIndex,
-						"content_block": map[string]any{
-							"type":  "tool_use",
-							"id":    toolID,
-							"name":  toolName,
-							"input": map[string]any{},
-						},
 					})
-				}
+					blockIndex++
 
-			case bifrostSchemas.ResponsesStreamResponseTypeCompleted:
-				// Extract usage from completed response
-				if streamResp.Response != nil && streamResp.Response.Usage != nil {
-					totalOutputTokens = streamResp.Response.Usage.OutputTokens
-				}
+				case bifrostSchemas.ResponsesStreamResponseTypeOutputItemAdded:
+					// New output item -> may need content_block_start for tool_use
+					if streamResp.Item != nil && streamResp.Item.Type != nil &&
+						*streamResp.Item.Type == bifrostSchemas.ResponsesMessageTypeFunctionCall {
+						stopReason = "tool_use"
+						toolName := ""
+						toolID := ""
+						if streamResp.Item.ResponsesToolMessage != nil {
+							if streamResp.Item.ResponsesToolMessage.Name != nil {
+								toolName = *streamResp.Item.ResponsesToolMessage.Name
+							}
+							if streamResp.Item.ResponsesToolMessage.CallID != nil {
+								toolID = *streamResp.Item.ResponsesToolMessage.CallID
+							}
+						}
+						emitSSEJSON(w, flusher, "content_block_start", map[string]any{
+							"type":  "content_block_start",
+							"index": blockIndex,
+							"content_block": map[string]any{
+								"type":  "tool_use",
+								"id":    toolID,
+								"name":  toolName,
+								"input": map[string]any{},
+							},
+						})
+					}
 
-			default:
-				// Skip other event types
+				case bifrostSchemas.ResponsesStreamResponseTypeCompleted:
+					// Extract usage from completed response
+					if streamResp.Response != nil && streamResp.Response.Usage != nil {
+						totalOutputTokens = streamResp.Response.Usage.OutputTokens
+					}
+
+				default:
+					// Skip other event types
+				}
 			}
+		}
+		if ended {
+			break
 		}
 	}
 

@@ -391,9 +391,6 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		codingagent.WithIdleTimeout(agentCfg.IdleTimeoutSeconds),
 		codingagent.WithMaxExecution(agentCfg.MaxExecutionSeconds),
 	}
-	if resumeID != "" {
-		opts = append(opts, codingagent.WithAgentSessionID(resumeID))
-	}
 	if record.SessionDir != "" {
 		opts = append(opts, codingagent.WithSessionDir(NativeSessionDir(record.SessionDir)))
 	}
@@ -407,83 +404,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, codingagent.WithMaxToolResultBytes(agentCfg.MaxToolResultBytes))
 	}
 
-	// Context separation: create an independent execution context
-	// so agent continues running even if the HTTP client disconnects.
 	execCtx, execCancel := context.WithCancel(context.Background())
 	s.RegisterExecCancel(sessionID, execCancel)
-
-	agentSess, err := agent.CreateSession(execCtx, opts...)
-	if err != nil {
-		execCancel()
-		s.UnregisterExecCancel(sessionID)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.RegisterActiveSession(sessionID, agentSess)
-
-	finishExecution := false
-	defer func() {
-		if !finishExecution {
-			return
-		}
-		s.finishActiveExecution(sessionID, agentSess, savedFiles)
-	}()
-
-	ch, err := agentSess.Send(execCtx, promptText)
-	if err != nil {
-		finishExecution = true
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	relay := newEventRelay(ch)
-	stdin, _ := agentSess.(codingagent.StdinWriter)
-	active := &activeExecution{
-		sessionID:     sessionID,
-		turnID:        turnID,
-		correlationID: req.CorrelationID,
-		agentSess:     agentSess,
-		stdin:         stdin,
-		relay:         relay,
-		status:        codingagent.StatusActive,
-	}
-	if err := s.execRegistry.Register(sessionID, active); err != nil {
-		finishExecution = true
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]any{
-			"error":  "session busy",
-			"status": codingagent.StatusActive,
-			"hint":   "respond or terminate",
-		})
-		return
-	}
-
-	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		_, suspended := s.streamSSERelay(r.Context(), w, active, true)
-		if suspended {
-			// User-input suspend: keep exec registered; [DONE] already sent.
-			return
-		}
-		// Unregister before [DONE] so clients that start the next message
-		// immediately after [DONE] do not hit session busy.
-		s.finishActiveExecution(sessionID, agentSess, savedFiles)
-		finishExecution = false
-		if s.logger != nil {
-			s.logger.Debug("unregistered before done", "session_id", sessionID, "suspended", false)
-		}
-		fmt.Fprintf(w, "data: [DONE]\n\n")
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
-		}
-		return
-	}
-
-	suspended := s.respondJSONRelay(r.Context(), w, active, true)
-	if suspended {
-		return
-	}
-	finishExecution = true
+	s.runTurn(r, w, execCtx, execCancel, record, sessionID, turnID, req.CorrelationID, promptText, resumeID, opts, savedFiles)
 }
 
 // finishActiveExecution closes the agent session and clears busy-state registries.
@@ -534,6 +457,9 @@ func (s *Server) writeSSEWireEvents(w http.ResponseWriter, flusher http.Flusher,
 
 func (s *Server) updateSessionStatusOnTerminal(sessionID string, ev codingagent.StreamEvent, hasError bool, errorMsg string) {
 	if ev.Type != codingagent.EventResult && ev.Type != codingagent.EventError {
+		return
+	}
+	if ev.Type == codingagent.EventError && ev.Retryable {
 		return
 	}
 	record, err := s.sessions.Get(sessionID)
@@ -655,196 +581,6 @@ func (s *Server) handleRespond(w http.ResponseWriter, r *http.Request) {
 	if flusher, ok := w.(http.Flusher); ok {
 		flusher.Flush()
 	}
-}
-
-// streamSSERelay streams events from a relay. Returns next offset and whether execution suspended.
-func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec *activeExecution, stopOnUserInput bool) (int, bool) {
-	sessionID := exec.sessionID
-	if s.logger != nil {
-		s.logger.Debug("starting SSE stream", "session_id", sessionID)
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return exec.streamOffset, false
-	}
-
-	ch := exec.relay.stream(exec.streamOffset, stopOnUserInput)
-
-	if exec.streamOffset == 0 {
-		meta := codingagent.StreamEvent{
-			Type:          codingagent.EventSystem,
-			Content:       "turn context",
-			TurnID:        exec.turnID,
-			CorrelationID: exec.correlationID,
-		}
-		if err := s.writeSSEWireEvents(w, flusher, meta); err != nil {
-			if s.logger != nil {
-				s.logger.Warn("failed to write turn context", "session_id", sessionID, "error", err.Error())
-			}
-			return exec.streamOffset, false
-		}
-		if s.taskLog != nil {
-			s.taskLog.Add(toAgentLogEntry(meta, sessionID, exec.turnID, exec.correlationID))
-		}
-	}
-
-	eventCount := 0
-	var hasError bool
-	var errorMsg string
-	suspended := false
-
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			if s.logger != nil {
-				s.logger.Warn("client disconnected during SSE stream",
-					"session_id", sessionID,
-					"events_sent", eventCount)
-			}
-			s.finalizeSessionStatusOnDisconnect(sessionID, exec)
-			return exec.streamOffset, suspended
-		case <-ticker.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
-			flusher.Flush()
-		case ev, ok := <-ch:
-			if !ok {
-				goto done
-			}
-			ev.TurnID = exec.turnID
-			ev.CorrelationID = exec.correlationID
-			eventCount++
-			exec.streamOffset++
-			if ev.Type == codingagent.EventError {
-				hasError = true
-				errorMsg = ev.Content
-			}
-			if ev.Type == codingagent.EventUserInputRequired {
-				suspended = true
-				if rec, err := s.sessions.Get(sessionID); err == nil {
-					rec.Status = codingagent.StatusSuspended
-					s.sessions.Update(rec)
-				}
-				s.execRegistry.SetStatus(sessionID, codingagent.StatusSuspended)
-				exec.status = codingagent.StatusSuspended
-			}
-
-			if err := s.writeSSEWireEvents(w, flusher, ev); err != nil {
-				if s.logger != nil {
-					s.logger.Warn("failed to write SSE wire events", "session_id", sessionID, "error", err.Error())
-				}
-				return exec.streamOffset, suspended
-			}
-
-			if s.taskLog != nil {
-				s.taskLog.Add(toAgentLogEntry(ev, sessionID, exec.turnID, exec.correlationID))
-			}
-
-			if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
-				if record, err := s.sessions.Get(sessionID); err == nil {
-					record.AgentSessionID = ev.SessionID
-					s.sessions.Update(record)
-				}
-			}
-
-			s.updateSessionStatusOnTerminal(sessionID, ev, hasError, errorMsg)
-
-			if suspended && stopOnUserInput {
-				fmt.Fprintf(w, "data: [DONE]\n\n")
-				flusher.Flush()
-				return exec.streamOffset, true
-			}
-		}
-	}
-done:
-	// Status update only; caller emits [DONE] after unregistering so clients
-	// that reconnect immediately after [DONE] do not see session busy.
-	if record, err := s.sessions.Get(sessionID); err == nil {
-		if hasError {
-			record.Status = codingagent.StatusError
-			if errorMsg != "" {
-				record.Error = errorMsg
-			} else {
-				record.Error = "unknown error occurred during execution"
-			}
-		} else {
-			record.Status = codingagent.StatusCompleted
-		}
-		s.sessions.Update(record)
-		s.reconcileSessionArtifacts(context.Background(), sessionID, exec.turnID, exec.correlationID)
-	}
-	return exec.streamOffset, suspended
-}
-
-func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, exec *activeExecution, stopOnUserInput bool) bool {
-	sessionID := exec.sessionID
-	ch := exec.relay.stream(exec.streamOffset, stopOnUserInput)
-	var events []codingagent.StreamEvent
-	var hasError bool
-	var errorMsg string
-	suspended := false
-
-	for {
-		select {
-		case <-ctx.Done():
-			return suspended
-		case ev, ok := <-ch:
-			if !ok {
-				goto done
-			}
-			ev.TurnID = exec.turnID
-			ev.CorrelationID = exec.correlationID
-			exec.streamOffset++
-			events = append(events, ev)
-			if ev.Type == codingagent.EventError {
-				hasError = true
-				errorMsg = ev.Content
-			}
-			if ev.Type == codingagent.EventUserInputRequired {
-				suspended = true
-				if rec, err := s.sessions.Get(sessionID); err == nil {
-					rec.Status = codingagent.StatusSuspended
-					s.sessions.Update(rec)
-				}
-				s.execRegistry.SetStatus(sessionID, codingagent.StatusSuspended)
-				exec.status = codingagent.StatusSuspended
-				if stopOnUserInput {
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(events)
-					return true
-				}
-			}
-			s.updateSessionStatusOnTerminal(sessionID, ev, hasError, errorMsg)
-			if s.taskLog != nil {
-				s.taskLog.Add(toAgentLogEntry(ev, sessionID, exec.turnID, exec.correlationID))
-			}
-		}
-	}
-done:
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(events)
-
-	if record, err := s.sessions.Get(sessionID); err == nil {
-		if hasError {
-			record.Status = codingagent.StatusError
-			if errorMsg != "" {
-				record.Error = errorMsg
-			}
-		} else {
-			record.Status = codingagent.StatusCompleted
-		}
-		s.sessions.Update(record)
-		s.reconcileSessionArtifacts(context.Background(), sessionID, exec.turnID, exec.correlationID)
-	}
-	return suspended
 }
 
 // streamSSE sends streaming events in SSE format.

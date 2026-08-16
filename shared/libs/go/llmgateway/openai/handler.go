@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	bifrostOpenAI "github.com/maximhq/bifrost/core/providers/openai"
 	bifrostSchemas "github.com/maximhq/bifrost/core/schemas"
 
+	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway/handlerctx"
 	"github.com/axsh/arctic-tern/shared/libs/go/vault"
 )
@@ -163,40 +165,64 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 
 	// Dispatch to stream or non-stream handler.
 	if isStreamRequest(body) {
-		handleResponsesStream(ctx, w, bifrostCtx, bifrostReq)
+		handleResponsesStream(ctx, w, r.Context(), bifrostCtx, bifrostReq)
 	} else {
-		handleResponsesNonStream(ctx, w, bifrostCtx, bifrostReq)
+		handleResponsesNonStream(ctx, w, r.Context(), bifrostCtx, bifrostReq)
 	}
+}
+
+func bifrostErrorMessage(berr *bifrostSchemas.BifrostError, fallback string) string {
+	if berr != nil && berr.Error != nil && berr.Error.Message != "" {
+		return berr.Error.Message
+	}
+	return fallback
+}
+
+func openResponsesStream(
+	reqCtx context.Context,
+	hctx handlerctx.HandlerContext,
+	budget *llmgateway.RetryBudget,
+	bCtx *bifrostSchemas.BifrostContext,
+	req *bifrostSchemas.BifrostResponsesRequest,
+) (chan *bifrostSchemas.BifrostStreamChunk, error) {
+	return llmgateway.OpenWithBudget(budget, reqCtx, hctx.Logger(), func() (chan *bifrostSchemas.BifrostStreamChunk, error) {
+		ch, berr := hctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
+		if berr != nil {
+			return nil, llmgateway.StreamErr(bifrostErrorMessage(berr, "upstream stream request failed"))
+		}
+		return ch, nil
+	})
 }
 
 // handleResponsesNonStream handles non-streaming Responses API requests via Bifrost SDK.
 func handleResponsesNonStream(
 	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
+	reqCtx context.Context,
 	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
 ) {
 	log := ctx.Logger()
 	log.Debug("executing bifrost non-stream responses request", "model", req.Model)
 
-	resp, bifrostErr := ctx.BifrostSDK().ResponsesRequest(bCtx, req)
-	if bifrostErr != nil {
-		status := http.StatusBadGateway
-		if bifrostErr.StatusCode != nil {
-			status = *bifrostErr.StatusCode
+	var resp *bifrostSchemas.BifrostResponsesResponse
+	err := llmgateway.DoWithRetry(reqCtx, ctx.Config().LLMGateway.Retry, log, func() error {
+		var berr *bifrostSchemas.BifrostError
+		resp, berr = ctx.BifrostSDK().ResponsesRequest(bCtx, req)
+		if berr != nil {
+			return llmgateway.StreamErr(bifrostErrorMessage(berr, "upstream request failed"))
 		}
-		msg := "upstream request failed"
-		if bifrostErr.Error != nil {
-			msg = bifrostErr.Error.Message
-		}
+		return nil
+	})
+	if err != nil {
 		log.Error("bifrost responses request failed",
-			"status", status, "message", msg,
+			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
 		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
-			Message: msg,
+			Message: err.Error(),
 			Code:    "upstream_error",
-			Status:  status,
+			Status:  http.StatusBadGateway,
 		})
 		return
 	}
@@ -213,35 +239,29 @@ func handleResponsesNonStream(
 func handleResponsesStream(
 	ctx handlerctx.HandlerContext,
 	w http.ResponseWriter,
+	reqCtx context.Context,
 	bCtx *bifrostSchemas.BifrostContext,
 	req *bifrostSchemas.BifrostResponsesRequest,
 ) {
 	log := ctx.Logger()
 	log.Debug("executing bifrost stream responses request", "model", req.Model)
 
-	ch, bifrostErr := ctx.BifrostSDK().ResponsesStreamRequest(bCtx, req)
-	if bifrostErr != nil {
-		status := http.StatusBadGateway
-		if bifrostErr.StatusCode != nil {
-			status = *bifrostErr.StatusCode
-		}
-		msg := "upstream stream request failed"
-		if bifrostErr.Error != nil {
-			msg = bifrostErr.Error.Message
-		}
+	budget := llmgateway.NewRetryBudget(ctx.Config().LLMGateway.Retry)
+	ch, err := openResponsesStream(reqCtx, ctx, budget, bCtx, req)
+	if err != nil {
 		log.Error("bifrost stream responses request failed",
-			"status", status, "message", msg,
+			"message", err.Error(),
 			"model", req.Model, "provider", req.Provider)
 		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type:    "api_error",
-			Message: msg,
+			Message: err.Error(),
 			Code:    "upstream_error",
-			Status:  status,
+			Status:  http.StatusBadGateway,
 		})
 		return
 	}
 
-	// Set SSE response headers.
+	// Set SSE response headers after the first successful open.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -254,31 +274,46 @@ func handleResponsesStream(
 	}
 
 	chunkCount := 0
-	for chunk := range ch {
-		if chunk == nil {
-			continue
-		}
-
-		// Handle BifrostError chunks.
-		if chunk.BifrostError != nil {
-			errJSON, _ := json.Marshal(chunk.BifrostError)
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
-			flusher.Flush()
-			log.Debug("bifrost stream error chunk sent", "model", req.Model)
-			continue
-		}
-
-		// Handle BifrostResponsesStreamResponse chunks.
-		if chunk.BifrostResponsesStreamResponse != nil {
-			data, err := json.Marshal(chunk.BifrostResponsesStreamResponse)
-			if err != nil {
-				log.Error("failed to marshal stream chunk", "error", err)
+	for {
+		ended := true
+		for chunk := range ch {
+			if chunk == nil {
 				continue
 			}
-			eventType := string(chunk.BifrostResponsesStreamResponse.Type)
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)
-			flusher.Flush()
-			chunkCount++
+			if chunk.BifrostError != nil {
+				msg := bifrostErrorMessage(chunk.BifrostError, "upstream stream error")
+				if budget.RetryLeadingChunk(reqCtx, log, msg, chunkCount > 0) {
+					llmgateway.DiscardStream(ch)
+					var openErr error
+					ch, openErr = openResponsesStream(reqCtx, ctx, budget, bCtx, req)
+					if openErr != nil {
+						fmt.Fprintf(w, "event: error\ndata: {\"message\":%q}\n\n", openErr.Error())
+						flusher.Flush()
+						return
+					}
+					ended = false
+					break
+				}
+				errJSON, _ := json.Marshal(chunk.BifrostError)
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", errJSON)
+				flusher.Flush()
+				log.Debug("bifrost stream error chunk sent", "model", req.Model)
+				return
+			}
+			if chunk.BifrostResponsesStreamResponse != nil {
+				data, err := json.Marshal(chunk.BifrostResponsesStreamResponse)
+				if err != nil {
+					log.Error("failed to marshal stream chunk", "error", err)
+					continue
+				}
+				eventType := string(chunk.BifrostResponsesStreamResponse.Type)
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)
+				flusher.Flush()
+				chunkCount++
+			}
+		}
+		if ended {
+			break
 		}
 	}
 
