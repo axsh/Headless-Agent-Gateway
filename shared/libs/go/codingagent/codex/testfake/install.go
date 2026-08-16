@@ -17,15 +17,19 @@ const DefaultFailStderr = "Reconnecting... 1/5 (We're currently experiencing hig
 
 // Options configures the fake codex executable behavior.
 type Options struct {
-	Lines         []string      `json:"lines,omitempty"`
-	Stderr        string        `json:"stderr,omitempty"`
-	ExitCode      int           `json:"exit_code,omitempty"`
-	LineDelay     time.Duration `json:"line_delay,omitempty"`
-	LaunchLogPath string        `json:"launch_log_path,omitempty"`
-	PIDFile       string        `json:"pid_file,omitempty"`
-	HeartbeatPath string        `json:"heartbeat_path,omitempty"`
-	FailLaunches  []int         `json:"fail_launches,omitempty"` // 1-origin launch numbers that fail with exit 1
-	FailStderr    string        `json:"fail_stderr,omitempty"`
+	Lines            []string       `json:"lines,omitempty"`
+	Stderr           string         `json:"stderr,omitempty"`
+	ExitCode         int            `json:"exit_code,omitempty"`
+	LineDelay        time.Duration  `json:"line_delay,omitempty"`
+	LaunchLogPath    string         `json:"launch_log_path,omitempty"`
+	PIDFile          string         `json:"pid_file,omitempty"`
+	HeartbeatPath    string         `json:"heartbeat_path,omitempty"`
+	FailLaunches     []int          `json:"fail_launches,omitempty"` // 1-origin launch numbers that fail with exit 1
+	FailStderr       string         `json:"fail_stderr,omitempty"`
+	SilentFail       bool           `json:"silent_fail,omitempty"`
+	FailResumeIDs    []string       `json:"fail_resume_ids,omitempty"`
+	HangForever      bool           `json:"hang_forever,omitempty"`
+	ThreadIDByLaunch map[int]string `json:"thread_id_by_launch,omitempty"`
 }
 
 // Install builds a fake codex executable in dir and prepends dir to PATH for the test.
@@ -60,8 +64,12 @@ type config struct {
 	LaunchLogPath string        ` + "`json:\"launch_log_path,omitempty\"`" + `
 	PIDFile       string        ` + "`json:\"pid_file,omitempty\"`" + `
 	HeartbeatPath string        ` + "`json:\"heartbeat_path,omitempty\"`" + `
-	FailLaunches  []int         ` + "`json:\"fail_launches,omitempty\"`" + `
-	FailStderr    string        ` + "`json:\"fail_stderr,omitempty\"`" + `
+	FailLaunches     []int             ` + "`json:\"fail_launches,omitempty\"`" + `
+	FailStderr       string            ` + "`json:\"fail_stderr,omitempty\"`" + `
+	SilentFail       bool              ` + "`json:\"silent_fail,omitempty\"`" + `
+	FailResumeIDs    []string          ` + "`json:\"fail_resume_ids,omitempty\"`" + `
+	HangForever      bool              ` + "`json:\"hang_forever,omitempty\"`" + `
+	ThreadIDByLaunch map[string]string ` + "`json:\"thread_id_by_launch,omitempty\"`" + `
 }
 
 func main() {
@@ -121,19 +129,40 @@ func main() {
 	}
 
 	shouldFail := false
+	silentFail := cfg.SilentFail
 	for _, failIdx := range cfg.FailLaunches {
 		if failIdx == launchNum {
 			shouldFail = true
 			break
 		}
 	}
+	args := os.Args[1:]
+	hasResume := false
+	for _, arg := range args {
+		if arg == "resume" {
+			hasResume = true
+			break
+		}
+	}
+	if hasResume {
+		for _, arg := range args {
+			for _, id := range cfg.FailResumeIDs {
+				if arg == id {
+					shouldFail = true
+					silentFail = true
+				}
+			}
+		}
+	}
 
 	if shouldFail {
-		failMsg := cfg.FailStderr
-		if failMsg == "" {
-			failMsg = "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"
+		if !silentFail {
+			failMsg := cfg.FailStderr
+			if failMsg == "" {
+				failMsg = "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"
+			}
+			fmt.Fprintln(os.Stderr, failMsg)
 		}
-		fmt.Fprintln(os.Stderr, failMsg)
 		os.Exit(1)
 	}
 
@@ -152,14 +181,25 @@ func main() {
 		}
 	}
 
+	overrideID := cfg.ThreadIDByLaunch[strconv.Itoa(launchNum)]
+	if overrideID != "" {
+		fmt.Printf("{\"type\":\"thread.started\",\"thread_id\":%q}\n", overrideID)
+	}
 	for i, line := range lines {
 		if line == "" {
+			continue
+		}
+		if overrideID != "" && strings.Contains(line, "thread.started") {
 			continue
 		}
 		if i > 0 && cfg.LineDelay > 0 {
 			time.Sleep(cfg.LineDelay)
 		}
 		fmt.Println(line)
+	}
+
+	if cfg.HangForever {
+		select {}
 	}
 
 	code := cfg.ExitCode
