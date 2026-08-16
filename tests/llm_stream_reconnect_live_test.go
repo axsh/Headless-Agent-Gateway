@@ -19,6 +19,17 @@ func TestStreamReconnectLiveResumeSend(t *testing.T) {
 	liveReconnectTurn(t, baseURL, sessionID, "Reply with a short ack that this is still the same session.")
 }
 
+func TestStreamReconnectLiveClaudeResumeSend(t *testing.T) {
+	requireCLI(t, "claude")
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	workDir := t.TempDir()
+	sessionID := createE2ESessionWithModel(t, baseURL, "claudecode", e2eDefaultModel, workDir)
+	liveReconnectTurn(t, baseURL, sessionID, "Reply with exactly: reconnect-live-ok")
+	liveReconnectTurn(t, baseURL, sessionID, "Reply with a short ack that this is still the same session.")
+}
+
 func liveReconnectTurn(t *testing.T, baseURL, sessionID, prompt string) {
 	t.Helper()
 	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 4*time.Minute)
