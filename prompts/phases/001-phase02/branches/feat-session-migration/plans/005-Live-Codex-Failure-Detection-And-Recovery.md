@@ -424,23 +424,46 @@ func TestLiveCodex_ResumeAfterInProcessRestart(t *testing.T) {
 
 ## Progress
 
-- [ ] 枯渇 ERROR ログ（単体 + 実装）
-- [ ] 締切切り分けログ（AgentService / Gateway）
-- [ ] LIVE E2E `TestLiveCodex_*`
-- [ ] ドキュメント
-- [ ] 検証 `build.sh` + 必須 `--specify`
+- [x] 枯渇 ERROR ログ（単体 + 実装）
+- [x] 締切切り分けログ（AgentService / Gateway）
+- [x] LIVE E2E `TestLiveCodex_*`
+- [x] ドキュメント
+- [x] 検証 `build.sh` + 必須 `--specify`
 
 ## Step-by-Step Implementation Guide
 
-1.  **[/] TDD 枯渇ログ**: `captureLogger` と `TestHandleSendMessage_GenericExit1ExhaustedLogsCause` を `handler_retry_test.go` に追加。既存実装のまま `./scripts/process/build.sh` で失敗することを確認。
-2.  **実装 枯渇ログ**: `handler_retry.go` に定数、`truncateStderrTail`、`parseExitStatus`、`logProcessRetryExhausted` を追加。SSE/JSON の枯渇分岐から呼ぶ。単体が通るまで直す。`TestHandleSendMessage_EmptyStderrExhaustedLogsEmptyNote` と resume モードテストを追加して実装を追従。
-3.  **TDD / 実装 R4 AgentService**: 切断・ドレイン既存テストにログ断言を追加。`handler_retry_unexported_test.go` で `defaultSSEClientDrainTimeout == 15*time.Second`。実装は既存 Warn 本文を定数化するだけでもよい（文言変更禁止）。
-4.  **TDD Gateway deadline**: `TestIsStreamDeadlineExceeded` を先に書く。`stream_retry.go` に判定と定数。openai / anthropic handler で error 書き込み直前に `log.Error`。handler テストを Failed First。
-5.  **コミット単位**: (a) 枯渇ログ単体+実装 (b) 締切ログ (c) ドキュメント。LIVE テスト追加は次ステップ。
-6.  **TDD LIVE**: `tests/llm_live_codex_test.go` に 3 テストを書く。この環境に実 Codex が無ければ `mustStartCodexE2EServer` が Fatal し、必須ゲートは赤のまま（仕様承知）。実装側の追加復旧（retry 回数変更）は本計画に含めない。落ちた場合は ERROR ログ（R2）を証拠として残し、回数変更は別仕様。
-7.  **再起動 LIVE**: `createLiveCodexSession`（`session_dir` なし）と `listLiveSessionsByWorkDir`。`cleanup1` 後に第二 `Launch`。409 と 404 を Fatal。
-8.  **ドキュメント**: ReferenceManual と README。
-9.  **検証**: 下記 Verification Plan。成功後のみ push。
+1.  **[x] TDD 枯渇ログ**
+2.  **[x] 実装 枯渇ログ**
+3.  **[x] TDD / 実装 R4 AgentService**
+4.  **[x] TDD Gateway deadline**
+5.  **[x] コミット単位**
+6.  **[x] TDD LIVE**
+7.  **[x] 再起動 LIVE**
+8.  **[x] ドキュメント**
+9.  **[x] 検証**
+
+### 総合判定結果
+
+**判定**: ✅ 動作確認完了
+
+#### テスト結果サマリ
+- 必須ゲート: `./scripts/process/build.sh` 成功。`TestStreamReconnectRegression` 成功。`TestLiveCodex_` 3 件すべて `EventResult` で成功（SingleCardReady 7.59s、ResumeSameSession 22.19s、ResumeAfterInProcessRestart 13.02s）。分類エラー単独での合格は無し。
+- 失敗: 0
+- 事実上スキップ: 0（`t.Skip` なし。実 Codex CLI + vault で完走）
+
+#### チェック項目の結果
+| # | チェック項目 | 結果 | 備考 |
+|---|------------|------|------|
+| 1 | スキップされたテスト | ✅ | LIVE は Fatal 前提。本環境では CLI ありで実行された |
+| 2 | 部分的なエラー | ⚠️ | fake `DrainTimeoutUnregistersBusy` でハング CLI を殺したあとの `codex process retry exhausted` ERROR が出る。ドレイン解除の副作用でありテストは PASS |
+| 3 | 迂回処理による偽成功 | ✅ | LIVE 3 件とも SSE `"type":"result"`。`[upstream_error]` 経路ではない |
+| 4 | アダプタ・コンフィグ | ✅ | 実 `codex.exe exec` / `exec resume`、モデル `gpt-4o`、Gateway bifrost openai |
+| 5 | テスト間の依存 | ✅ | 各 LIVE が独立サーバ。再起動テストは同一 work_dir のディスクストア |
+| 6 | カバレッジ | ✅ | R1 3 シナリオ、R2/R4 単体、R8 定数テスト |
+| 7 | 外部システム | ✅ | 本マシンの Codex + keyring vault + OpenAI。報告側 `gpt-5.6-terra` / kanban-gui は対象外 |
+
+#### 判定理由
+本リポジトリの必須ゲート（fake 回帰 + `TestLiveCodex_`）は実 Codex で緑になった。報告側 kanban-gui の 3 テストは別リポジトリのためここでは実行していない。本番 `process_retry` 既定は変更していない。
 
 ## Verification Plan
 
