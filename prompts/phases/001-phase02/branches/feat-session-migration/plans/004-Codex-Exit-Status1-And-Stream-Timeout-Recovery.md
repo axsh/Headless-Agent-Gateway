@@ -453,7 +453,7 @@ Codex CLI が stderr に既知の混雑文言を残さず `exit status 1` で落
 6. [x] **service.go / handler.go / handler_retry.go**: `WithSSEDrainTimeout`、`rawUserPrompt`、`healFresh`、ドレイン timer、枯渇タグ分岐。
 7. [x] **統合 3 本**: `tests/llm_stream_reconnect_regression_test.go` にシナリオ A/B/C。
 8. [x] **ドキュメント**: `docs/ReferenceManual-WebAPIs.md`。
-9. [/] **検証**: Verification Plan を実行。
+9. [x] **検証**: `build.sh` と `integration_test.sh --specify TestStreamReconnectRegression` を成功。
 
 ## Verification Plan
 
