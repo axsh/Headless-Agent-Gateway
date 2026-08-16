@@ -264,6 +264,51 @@ func TestStartProcess_GenericExit1IsRetryable(t *testing.T) {
 	}
 }
 
+func TestStartProcess_EmptyStderrUsesStdoutError(t *testing.T) {
+	dir := t.TempDir()
+	stdoutErr := "unexpected status 404 Not Found: model not found: gpt-4o"
+	testfake.Install(t, dir, testfake.Options{
+		Lines: []string{
+			`{"type":"error","message":"unexpected status 404 Not Found: model not found: gpt-4o"}`,
+		},
+		ExitCode: 1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var last codingagent.StreamEvent
+	var saw bool
+	for ev := range ch {
+		if ev.Type == codingagent.EventError {
+			last = ev
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatal("expected EventError from empty-stderr exit 1")
+	}
+	if last.Retryable {
+		t.Fatal("Retryable = true, want false")
+	}
+	if !strings.Contains(last.Content, stdoutErr) {
+		t.Errorf("Content = %q, want to contain %q", last.Content, stdoutErr)
+	}
+	if last.Content == "exit status 1" || strings.TrimSpace(last.Content) == "exit status 1" {
+		t.Errorf("Content fell back to Wait() only: %q", last.Content)
+	}
+}
+
 func TestStartProcess_RetryableExitSetsRetryableFlag(t *testing.T) {
 	dir := t.TempDir()
 	stderr := "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"

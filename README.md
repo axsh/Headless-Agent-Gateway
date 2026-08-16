@@ -450,6 +450,8 @@ $ ./bin/tern --config settings/demo/config.yaml
 
 The mapping rule is: `vault://providers/{provider}/{key}` becomes `TERN_VAULT_{PROVIDER}_{KEY}` (uppercased, hyphens replaced with underscores).
 
+`OPENAI_API_KEY` does not satisfy the env backend for `vault://providers/openai/default`. That reference resolves to `TERN_VAULT_OPENAI_DEFAULT` only. Gateway Debug `openai responses request received` means the handler accepted the HTTP body. Info `openai responses request via bifrost` is emitted only after model routing and vault resolve both succeed. Failures emit ERROR `llm gateway error response` with `code` (`vault_error`, `model_not_found`, and so on). Missing that Info line after `received` is a vault or routing failure, not proof the upstream LLM ran.
+
 ### 2. Configure the server
 
 Configuration files are located in the `settings/` directory:

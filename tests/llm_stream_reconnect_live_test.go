@@ -12,9 +12,14 @@ import (
 
 	"github.com/axsh/arctic-tern/server"
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
+	"github.com/axsh/arctic-tern/shared/libs/go/logger"
 )
 
 func mustStartCodexE2EServer(t *testing.T) (string, func()) {
+	return mustStartCodexE2EServerWithLogger(t, nil)
+}
+
+func mustStartCodexE2EServerWithLogger(t *testing.T, log logger.Logger) (string, func()) {
 	t.Helper()
 
 	if _, err := exec.LookPath("codex"); err != nil {
@@ -48,18 +53,20 @@ agent_service:
 		t.Fatalf("write temp config: %v", err)
 	}
 
-	srv, err := server.New(server.WithConfigPath(tmpConfig))
+	opts := []server.Option{server.WithConfigPath(tmpConfig)}
+	if log != nil {
+		opts = append(opts, server.WithLogger(log))
+	}
+	srv, err := server.New(opts...)
 	if err != nil {
 		t.Fatalf("server.New failed: %v", err)
 	}
 
-	ctx := context.Background()
-	if err := srv.Launch(ctx); err != nil {
+	if err := srv.Launch(context.Background()); err != nil {
 		t.Fatalf("Launch failed: %v", err)
 	}
 
-	port := srv.AgentService().Port()
-	baseURL := fmt.Sprintf("http://localhost:%d", port)
+	baseURL := fmt.Sprintf("http://localhost:%d", srv.AgentService().Port())
 
 	cleanup := func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

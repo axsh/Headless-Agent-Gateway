@@ -70,6 +70,11 @@ func IsNonRetryableError(msg string) bool {
 		"unknown model",
 		"invalid argument",
 		"flag provided but not defined",
+		"failed to resolve api key from vault",
+		"vault_error",
+		"unexpected status 404",
+		"unexpected status 401",
+		"unexpected status 403",
 	}
 	for _, n := range needles {
 		if strings.Contains(lower, n) {

@@ -57,7 +57,7 @@ func handleTestRequest(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	}
 
-	body, err := readBodyForTest(w, r)
+	body, err := readBodyForTest(ctx, w, r)
 	if err != nil {
 		return
 	}
@@ -72,7 +72,7 @@ func handleTestRequest(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *
 			Message: "invalid JSON in request body",
 			Code:    "invalid_json",
 			Status:  http.StatusBadRequest,
-		})
+		}, ctx.Logger(), "path", r.URL.Path, "method", r.Method, "model", req.Model)
 		return
 	}
 
@@ -83,7 +83,7 @@ func handleTestRequest(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *
 			Message: "LLM gateway backend not configured",
 			Code:    "not_configured",
 			Status:  http.StatusServiceUnavailable,
-		})
+		}, ctx.Logger(), "path", r.URL.Path, "method", r.Method, "model", req.Model)
 		return
 	}
 
@@ -99,7 +99,7 @@ func handleTestRequest(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *
 			Message: "model not found: " + req.Model,
 			Code:    "model_not_found",
 			Status:  http.StatusNotFound,
-		})
+		}, ctx.Logger(), "path", r.URL.Path, "method", r.Method, "model", req.Model)
 		return
 	}
 
@@ -107,7 +107,7 @@ func handleTestRequest(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *
 	if bifrostSDK == nil {
 		handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 			Type: "api_error", Message: "Bifrost SDK not initialized", Code: "not_configured", Status: http.StatusServiceUnavailable,
-		})
+		}, ctx.Logger(), "path", r.URL.Path, "method", r.Method, "model", req.Model)
 		return
 	}
 
@@ -117,7 +117,7 @@ func handleTestRequest(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *
 	w.Write([]byte(`{"stub": true}`))
 }
 
-func readBodyForTest(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func readBodyForTest(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	body := make([]byte, 0)
 	buf := make([]byte, 1024)
 	for {
@@ -131,7 +131,7 @@ func readBodyForTest(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 			if errors.As(err, &maxBytesErr) {
 				handlerctx.WriteErrorResponse(w, &handlerctx.GatewayError{
 					Type: "invalid_request_error", Message: "request body too large", Code: "request_too_large", Status: http.StatusRequestEntityTooLarge,
-				})
+				}, ctx.Logger(), "path", r.URL.Path, "method", r.Method, "model", "")
 				return nil, err
 			}
 			break

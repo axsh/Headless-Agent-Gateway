@@ -18,5 +18,5 @@ var (
 
 // WriteErrorResponse writes a JSON error response to w.
 func WriteErrorResponse(w http.ResponseWriter, err *GatewayError) {
-	handlerctx.WriteErrorResponse(w, err)
+	handlerctx.WriteErrorResponse(w, err, nil)
 }
