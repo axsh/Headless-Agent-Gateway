@@ -405,10 +405,11 @@ func StartProcess(
 				errMsg = err.Error()
 			}
 			log.Warn("codex CLI process exited with error", "error", err.Error(), "stderr", errMsg)
-			retryable := codingagent.IsRetryableUpstream(errMsg) || codingagent.IsRetryableError(err)
+			retryable := !codingagent.IsNonRetryableError(errMsg)
 			content := errMsg
 			if retryable {
-				content = codingagent.ClassifiedErrorContent(errMsg, true)
+				overloaded := codingagent.IsRetryableUpstream(errMsg)
+				content = codingagent.ClassifiedErrorContent(errMsg, overloaded)
 			}
 			log.Debug("classified process exit error", "retryable", retryable)
 			select {

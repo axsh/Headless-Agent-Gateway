@@ -226,6 +226,44 @@ func TestStartProcess_ReconnectStderrDoesNotEmitEventErrorOnSuccess(t *testing.T
 	}
 }
 
+func TestStartProcess_GenericExit1IsRetryable(t *testing.T) {
+	dir := t.TempDir()
+	testfake.Install(t, dir, testfake.Options{
+		ExitCode: 1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var last codingagent.StreamEvent
+	var saw bool
+	for ev := range ch {
+		if ev.Type == codingagent.EventError {
+			last = ev
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatal("expected EventError on generic exit 1")
+	}
+	if !last.Retryable {
+		t.Fatal("Retryable = false, want true")
+	}
+	if !strings.Contains(last.Content, "exit status 1") {
+		t.Errorf("Content = %q, want exit status 1", last.Content)
+	}
+}
+
 func TestStartProcess_RetryableExitSetsRetryableFlag(t *testing.T) {
 	dir := t.TempDir()
 	stderr := "Reconnecting... 1/5 (We're currently experiencing high demand, which may cause temporary errors.)"
