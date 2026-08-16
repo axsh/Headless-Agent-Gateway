@@ -1099,12 +1099,12 @@ func TestAgentService_ConfigDir_SameConfigDir_ReappliedOnSecondMessage(t *testin
 	resp.Body.Close()
 
 	postSessionMessage(t, ts.URL, created["session_id"], "first")
-	overlaid := filepath.Join(sessionDir, "skills")
+	overlaid := filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills")
 	if err := os.RemoveAll(overlaid); err != nil {
 		t.Fatal(err)
 	}
 	postSessionMessage(t, ts.URL, created["session_id"], "second")
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "demo", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "demo", "SKILL.md")); err != nil {
 		t.Fatalf("overlay should be re-applied: %v", err)
 	}
 }
@@ -1171,7 +1171,7 @@ func TestAgentService_ConfigDir_SwitchSameSession_Claude(t *testing.T) {
 	sessionID := created["session_id"]
 
 	postSessionMessage(t, ts.URL, sessionID, "with-alpha")
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); err != nil {
 		t.Fatalf("alpha skill missing after first message: %v", err)
 	}
 
@@ -1210,10 +1210,10 @@ func TestAgentService_ConfigDir_SwitchSameSession_Claude(t *testing.T) {
 	agentSID1 := after.AgentSessionID
 
 	postSessionMessage(t, ts.URL, sessionID, "with-beta")
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "beta", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "beta", "SKILL.md")); err != nil {
 		t.Fatalf("beta skill missing after switch: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("alpha skill should be replaced after switch to beta")
 	}
 
@@ -1290,7 +1290,7 @@ func TestAgentService_ConfigDir_SwitchSameSession_Codex(t *testing.T) {
 	sessionID := created["session_id"]
 
 	postSessionMessage(t, ts.URL, sessionID, "with-alpha")
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); err != nil {
 		t.Fatalf("alpha skill missing: %v", err)
 	}
 
@@ -1312,13 +1312,13 @@ func TestAgentService_ConfigDir_SwitchSameSession_Codex(t *testing.T) {
 	patchResp.Body.Close()
 
 	postSessionMessage(t, ts.URL, sessionID, "with-beta")
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "beta", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "beta", "SKILL.md")); err != nil {
 		t.Fatalf("beta skill missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "AGENTS.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "AGENTS.md")); err != nil {
 		t.Fatalf("beta AGENTS.md missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(sessionDir, "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("alpha skill should be replaced after switch")
 	}
 

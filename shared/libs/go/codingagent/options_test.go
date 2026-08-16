@@ -184,19 +184,7 @@ func TestApplyDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("session dir falls back to work dir when no agent name", func(t *testing.T) {
-		cfg := codingagent.NewSessionConfig(
-			codingagent.WithWorkDir("/workspace/project"),
-		)
-		ac := &codingagent.AdapterConfig{}
-		codingagent.ApplyDefaults(cfg, ac)
-		wantDir, _ := filepath.Abs("/workspace/project")
-		if cfg.SessionDir != wantDir {
-			t.Errorf("SessionDir = %v, want %v", cfg.SessionDir, wantDir)
-		}
-	})
-
-	t.Run("session dir includes agent name when set", func(t *testing.T) {
+	t.Run("session dir stays empty when unset", func(t *testing.T) {
 		cfg := codingagent.NewSessionConfig(
 			codingagent.WithWorkDir("/workspace/project"),
 		)
@@ -204,10 +192,8 @@ func TestApplyDefaults(t *testing.T) {
 			AgentName: "claudecode",
 		}
 		codingagent.ApplyDefaults(cfg, ac)
-		absWorkDir, _ := filepath.Abs("/workspace/project")
-		want := filepath.Join(absWorkDir, ".claudecode")
-		if cfg.SessionDir != want {
-			t.Errorf("SessionDir = %v, want %v", cfg.SessionDir, want)
+		if cfg.SessionDir != "" {
+			t.Errorf("SessionDir = %q, want empty (native dir is assigned by agentservice)", cfg.SessionDir)
 		}
 	})
 
@@ -273,7 +259,7 @@ func TestApplyDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("SessionDir fallback with relative WorkDir produces absolute path", func(t *testing.T) {
+	t.Run("SessionDir stays empty with relative WorkDir when DefaultSessionDir unset", func(t *testing.T) {
 		cfg := codingagent.NewSessionConfig(
 			codingagent.WithWorkDir("tmp"),
 		)
@@ -282,17 +268,11 @@ func TestApplyDefaults(t *testing.T) {
 		}
 		codingagent.ApplyDefaults(cfg, ac)
 
-		// Both WorkDir and SessionDir should be absolute.
 		if !filepath.IsAbs(cfg.WorkDir) {
 			t.Errorf("WorkDir should be absolute, got %q", cfg.WorkDir)
 		}
-		if !filepath.IsAbs(cfg.SessionDir) {
-			t.Errorf("SessionDir should be absolute, got %q", cfg.SessionDir)
-		}
-		absWorkDir, _ := filepath.Abs("tmp")
-		wantSessionDir := filepath.Join(absWorkDir, ".claudecode")
-		if cfg.SessionDir != wantSessionDir {
-			t.Errorf("SessionDir = %q, want %q", cfg.SessionDir, wantSessionDir)
+		if cfg.SessionDir != "" {
+			t.Errorf("SessionDir = %q, want empty", cfg.SessionDir)
 		}
 	})
 

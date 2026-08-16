@@ -124,6 +124,9 @@ func (s *Store) Save(state *SessionState) error {
 		WBSTreeJSON:      state.WBSTreeJSON,
 		CreatedFiles:     state.CreatedFiles,
 		RunningProcesses: state.RunningProcesses,
+		ActiveAgent:      state.ActiveAgent,
+		AgentBindings:    state.AgentBindings,
+		Supplement:       state.Supplement,
 	}
 	metaData, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -185,6 +188,9 @@ func (s *Store) loadFromFolder(sessionID string) (*SessionState, error) {
 		WBSTreeJSON:      meta.WBSTreeJSON,
 		CreatedAt:        meta.CreatedAt,
 		LastActivityAt:   meta.UpdatedAt,
+		ActiveAgent:      meta.ActiveAgent,
+		AgentBindings:    meta.AgentBindings,
+		Supplement:       meta.Supplement,
 	}
 	return state, nil
 }
@@ -215,6 +221,9 @@ func (s *Store) migrateToFolder(state *SessionState) error {
 		WBSTreeJSON:      state.WBSTreeJSON,
 		CreatedFiles:     state.CreatedFiles,
 		RunningProcesses: state.RunningProcesses,
+		ActiveAgent:      state.ActiveAgent,
+		AgentBindings:    state.AgentBindings,
+		Supplement:       state.Supplement,
 	}
 	metaData, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -290,6 +299,7 @@ func atomicWrite(targetPath string, data []byte) error {
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
+	_ = os.Remove(targetPath)
 	if err := os.Rename(tmpPath, targetPath); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename temp file: %w", err)

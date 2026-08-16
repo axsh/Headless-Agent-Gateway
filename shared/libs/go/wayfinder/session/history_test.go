@@ -257,6 +257,73 @@ func TestStore_SaveAfterCompaction_NoOverwrite(t *testing.T) {
 	}
 }
 
+func TestAppendHistory_WritesOrigin(t *testing.T) {
+	histDir := t.TempDir()
+	err := AppendHistory(histDir, []Message{
+		{Role: "user", Content: "hi", Seq: 1, Origin: OriginClaudeCode, Timestamp: time.Now()},
+	})
+	if err != nil {
+		t.Fatalf("AppendHistory: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(histDir, "0000001.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry HistoryEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Origin != OriginClaudeCode {
+		t.Errorf("origin = %q, want %q", entry.Origin, OriginClaudeCode)
+	}
+}
+
+func TestLoadHistory_MissingOriginDefaultsWayfinder(t *testing.T) {
+	histDir := t.TempDir()
+	path := filepath.Join(histDir, "0000001.json")
+	if err := os.WriteFile(path, []byte(`{"seq":1,"role":"user","content":"old"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := LoadHistory(histDir, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("len = %d, want 1", len(msgs))
+	}
+	if msgs[0].Origin != OriginWayfinder {
+		t.Errorf("Origin = %q, want %q", msgs[0].Origin, OriginWayfinder)
+	}
+}
+
+func TestAppendHistory_DoesNotOverwriteExisting(t *testing.T) {
+	histDir := t.TempDir()
+	existing := `{"seq":1,"role":"user","content":"keep","origin":"claudecode"}`
+	if err := os.WriteFile(filepath.Join(histDir, "0000001.json"), []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := AppendHistory(histDir, []Message{
+		{Role: "user", Content: "changed", Seq: 1, Origin: OriginCodex, Timestamp: time.Now()},
+	})
+	if err != nil {
+		t.Fatalf("AppendHistory: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(histDir, "0000001.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry HistoryEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Origin != OriginClaudeCode {
+		t.Errorf("origin changed to %q", entry.Origin)
+	}
+	if entry.Content != "keep" {
+		t.Errorf("content = %q, want keep", entry.Content)
+	}
+}
+
 func TestStore_WithSubDir(t *testing.T) {
 	rootDir := t.TempDir()
 	store := NewStore(rootDir)

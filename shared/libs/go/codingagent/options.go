@@ -157,15 +157,11 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 			cfg.EnvVars[k] = v
 		}
 	}
-	// SessionDir fallback: explicit > AdapterConfig > WorkDir/.AgentName > WorkDir
-	if cfg.SessionDir == "" {
-		if ac.DefaultSessionDir != "" {
-			cfg.SessionDir = ac.DefaultSessionDir
-		} else if cfg.WorkDir != "" && ac.AgentName != "" {
-			cfg.SessionDir = filepath.Join(cfg.WorkDir, "."+ac.AgentName)
-		} else if cfg.WorkDir != "" {
-			cfg.SessionDir = cfg.WorkDir
-		}
+	// SessionDir fallback: explicit > AdapterConfig.DefaultSessionDir.
+	// Do not synthesize WorkDir/.AgentName; Tern assigns {work_dir}/.tern/{session_id}
+	// and passes NativeSessionDir to adapters.
+	if cfg.SessionDir == "" && ac.DefaultSessionDir != "" {
+		cfg.SessionDir = ac.DefaultSessionDir
 	}
 	// R1: Resolve SessionDir to absolute path.
 	// CLI tools (claude, codex) resolve CLAUDE_CONFIG_DIR / CODEX_HOME

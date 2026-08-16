@@ -76,34 +76,19 @@ func BuildMultimodalPrompt(sessionID string, parts []codingagent.ContentPart) (s
 	return sb.String(), savedFiles, nil
 }
 
-// AppendSessionMessage appends a message to the session history,
-// automatically determining the next sequence number.
+// AppendSessionMessage appends a message to the canonical session history.
 func AppendSessionMessage(sessionDir string, msg session.Message) error {
-	histDir := filepath.Join(sessionDir, "history")
-	if err := os.MkdirAll(histDir, 0755); err != nil {
-		return fmt.Errorf("create history dir: %w", err)
+	if sessionDir == "" {
+		return nil
 	}
-
-	// Find the next sequence number by looking at existing files.
-	files, err := os.ReadDir(histDir)
-	if err != nil {
-		return fmt.Errorf("read history dir: %w", err)
+	c := session.OpenCanonical(sessionDir)
+	if err := c.Init("", msg.Origin); err != nil {
+		return err
 	}
-
-	maxSeq := 0
-	for _, f := range files {
-		if !f.IsDir() && strings.HasSuffix(f.Name(), ".json") {
-			var seq int
-			if _, err := fmt.Sscanf(f.Name(), "%x.json", &seq); err == nil {
-				if seq > maxSeq {
-					maxSeq = seq
-				}
-			}
-		}
+	if msg.Origin == "" {
+		msg.Origin = session.OriginWayfinder
 	}
-
-	msg.Seq = maxSeq + 1
-	return session.AppendHistory(histDir, []session.Message{msg})
+	return c.Append([]session.Message{msg})
 }
 
 // CleanupMultimodalFiles removes all temp files created for a session.

@@ -690,7 +690,7 @@ func TestE2E_SessionContinuation(t *testing.T) {
 }
 
 // TestE2E_SessionDirFallback verifies that when session_dir is not specified,
-// it falls back to work_dir/.claudecode in the session record (absolute path).
+// it falls back to work_dir/.tern/{session_id} in the session record.
 func TestE2E_SessionDirFallback(t *testing.T) {
 	baseURL, cleanup := startE2EServer(t)
 	defer cleanup()
@@ -718,7 +718,7 @@ func TestE2E_SessionDirFallback(t *testing.T) {
 	sessionWorkDir, _ := session["work_dir"].(string)
 
 	// After fix: session_dir should be work_dir/.claudecode (absolute)
-	wantSessionDir := filepath.Join(sessionWorkDir, ".claudecode")
+	wantSessionDir := filepath.Join(sessionWorkDir, ".tern", sessionID)
 	if sessionDir != wantSessionDir {
 		t.Errorf("session_dir = %q, want %q", sessionDir, wantSessionDir)
 	}
@@ -902,7 +902,7 @@ func TestE2E_ConfigDirOmitted_Compatible(t *testing.T) {
 		t.Errorf("config_dir should be empty when omitted, got %#v", v)
 	}
 	sessionDir, _ := session["session_dir"].(string)
-	want := filepath.Join(workDir, ".claudecode")
+	want := filepath.Join(workDir, ".tern", result["session_id"])
 	if abs, err := filepath.Abs(want); err == nil {
 		want = abs
 	}
@@ -1175,7 +1175,7 @@ func TestE2E_ConfigDir_Live_Claude_SwitchSameSession(t *testing.T) {
 	if !strings.Contains(text2, memToken) {
 		t.Fatalf("conversation continuity failed: mem token missing in turn2 reply: %q", text2)
 	}
-	data, err := os.ReadFile(filepath.Join(sessionDir, "CLAUDE.md"))
+	data, err := os.ReadFile(filepath.Join(sessionDir, "native", "CLAUDE.md"))
 	if err != nil {
 		t.Fatalf("beta CLAUDE.md overlay: %v", err)
 	}
@@ -1289,7 +1289,7 @@ func TestE2E_ConfigDir_Live_Codex_SwitchSameSession(t *testing.T) {
 	if !strings.Contains(text2, memToken) {
 		t.Fatalf("conversation continuity failed: mem token missing in turn2 reply: %q", text2)
 	}
-	data, err := os.ReadFile(filepath.Join(sessionDir, "AGENTS.md"))
+	data, err := os.ReadFile(filepath.Join(sessionDir, "native", "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

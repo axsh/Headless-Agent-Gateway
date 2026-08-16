@@ -17,6 +17,7 @@ type HistoryEntry struct {
 	Timestamp    time.Time        `json:"timestamp"`
 	ToolCalls    []ToolCallRecord `json:"tool_calls,omitempty"`
 	ToolCallID   string           `json:"tool_call_id,omitempty"`
+	Origin       string           `json:"origin,omitempty"`
 }
 
 // AppendHistory writes new messages to histDir as individual JSON files.
@@ -35,6 +36,7 @@ func AppendHistory(histDir string, msgs []Message) error {
 			Timestamp:    msg.Timestamp,
 			ToolCalls:    msg.ToolCalls,
 			ToolCallID:   msg.ToolCallID,
+			Origin:       NormalizeOrigin(msg.Origin),
 		}
 		data, err := json.MarshalIndent(entry, "", "  ")
 		if err != nil {
@@ -84,5 +86,6 @@ func entryToMessage(entry HistoryEntry) Message {
 		Seq:          entry.Seq,
 		ToolCalls:    entry.ToolCalls,
 		ToolCallID:   entry.ToolCallID,
+		Origin:       NormalizeOrigin(entry.Origin),
 	}
 }
