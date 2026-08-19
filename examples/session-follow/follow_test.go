@@ -35,6 +35,13 @@ func (c *stubCounters) addEvent(rawQuery string) {
 	c.mu.Unlock()
 }
 
+type stubOpts struct {
+	writeMessageID0   bool
+	burstAfterID0     bool
+	sessionStatus     string
+	sessionFollowable bool
+}
+
 func writeSSE(w http.ResponseWriter, id, payload string) {
 	if id != "" {
 		fmt.Fprintf(w, "id: %s\n", id)
@@ -45,7 +52,7 @@ func writeSSE(w http.ResponseWriter, id, payload string) {
 	}
 }
 
-func newFollowStub(t *testing.T, c *stubCounters, writeMessageID0 bool) *httptest.Server {
+func newFollowStub(t *testing.T, c *stubCounters, opts stubOpts) *httptest.Server {
 	t.Helper()
 	relay := []struct {
 		id      string
@@ -69,8 +76,12 @@ func newFollowStub(t *testing.T, c *stubCounters, writeMessageID0 bool) *httptes
 			w.Header().Set("Cache-Control", "no-cache")
 			w.WriteHeader(http.StatusOK)
 			writeSSE(w, "", `{"type":"system","content":"turn context"}`)
-			if writeMessageID0 {
+			if opts.writeMessageID0 {
 				writeSSE(w, "0", `{"type":"text","content":"one"}`)
+			}
+			if opts.burstAfterID0 {
+				writeSSE(w, "1", `{"type":"text","content":"two"}`)
+				writeSSE(w, "2", `{"type":"result"}`)
 			}
 			<-r.Context().Done()
 
@@ -101,11 +112,19 @@ func newFollowStub(t *testing.T, c *stubCounters, writeMessageID0 bool) *httptes
 			}
 
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/sessions/"):
+			status := opts.sessionStatus
+			if status == "" {
+				status = "active"
+			}
+			followable := true
+			if opts.sessionStatus == "completed" {
+				followable = opts.sessionFollowable
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":          "sess-stub-001",
-				"status":      "active",
-				"followable":  true,
+				"status":      status,
+				"followable":  followable,
 				"turn_id":     "turn-stub",
 				"agent_name":  "claudecode",
 				"work_dir":    ".",
@@ -133,7 +152,7 @@ func testFlags(dropAfter int) *runFlags {
 
 func TestRunFollowDemo_DropThenFollowFrom(t *testing.T) {
 	counters := &stubCounters{}
-	srv := newFollowStub(t, counters, true)
+	srv := newFollowStub(t, counters, stubOpts{writeMessageID0: true})
 	defer srv.Close()
 
 	c := client.New(srv.URL, client.WithNoTimeout())
@@ -173,7 +192,7 @@ func TestRunFollowDemo_DropThenFollowFrom(t *testing.T) {
 
 func TestRunFollowDemo_FollowWithoutFrom(t *testing.T) {
 	counters := &stubCounters{}
-	srv := newFollowStub(t, counters, false)
+	srv := newFollowStub(t, counters, stubOpts{writeMessageID0: false})
 	defer srv.Close()
 
 	c := client.New(srv.URL, client.WithNoTimeout())
@@ -205,7 +224,7 @@ func TestRunFollowDemo_FollowWithoutFrom(t *testing.T) {
 
 func TestRunFollowDemo_NoSendOnFollow(t *testing.T) {
 	counters := &stubCounters{}
-	srv := newFollowStub(t, counters, true)
+	srv := newFollowStub(t, counters, stubOpts{writeMessageID0: true})
 	defer srv.Close()
 
 	c := client.New(srv.URL, client.WithNoTimeout())
@@ -220,5 +239,69 @@ func TestRunFollowDemo_NoSendOnFollow(t *testing.T) {
 	defer counters.mu.Unlock()
 	if counters.messagePOSTs != 1 {
 		t.Fatalf("POST /messages = %d, want 1", counters.messagePOSTs)
+	}
+}
+
+func TestRunFollowDemo_DropLastIDFrozen(t *testing.T) {
+	counters := &stubCounters{}
+	srv := newFollowStub(t, counters, stubOpts{writeMessageID0: true, burstAfterID0: true})
+	defer srv.Close()
+
+	c := client.New(srv.URL, client.WithNoTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := runFollowDemo(ctx, testFlags(1), c, t.Logf)
+	if err != nil {
+		t.Fatalf("runFollowDemo: %v", err)
+	}
+	if out.DropLastID != "0" {
+		t.Fatalf("DropLastID = %q, want 0", out.DropLastID)
+	}
+	if out.FollowMode != "FollowFrom" {
+		t.Fatalf("FollowMode = %q, want FollowFrom", out.FollowMode)
+	}
+
+	counters.mu.Lock()
+	defer counters.mu.Unlock()
+	foundFrom0 := false
+	for _, q := range counters.eventFrom {
+		if strings.Contains(q, "from=0") {
+			foundFrom0 = true
+		}
+		if strings.Contains(q, "from=1") && !strings.Contains(q, "from=0") {
+			t.Fatalf("FollowFrom used from=1, want from=0, queries=%v", counters.eventFrom)
+		}
+	}
+	if !foundFrom0 {
+		t.Fatalf("expected events query with from=0, got %v", counters.eventFrom)
+	}
+}
+
+func TestRunFollowDemo_CompletedAfterDropIsError(t *testing.T) {
+	counters := &stubCounters{}
+	srv := newFollowStub(t, counters, stubOpts{
+		writeMessageID0:   true,
+		sessionStatus:     "completed",
+		sessionFollowable: true,
+	})
+	defer srv.Close()
+
+	c := client.New(srv.URL, client.WithNoTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	out, err := runFollowDemo(ctx, testFlags(1), c, t.Logf)
+	if err == nil {
+		t.Fatal("expected error when session is completed after drop")
+	}
+	if !strings.Contains(err.Error(), "completed") {
+		t.Fatalf("error = %v, want completed", err)
+	}
+	if out.FollowMode != "" {
+		t.Fatalf("FollowMode = %q, want empty", out.FollowMode)
+	}
+	if out.SawResult {
+		t.Fatal("SawResult should be false")
 	}
 }

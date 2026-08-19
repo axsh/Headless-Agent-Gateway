@@ -16,7 +16,9 @@ import (
 	client "github.com/axsh/arctic-tern/client/v1"
 )
 
-const defaultPrompt = "Write a long, multi-paragraph explanation of TCP congestion control, then list three takeaways."
+const defaultEssayPrompt = "Write a long, multi-paragraph explanation of TCP congestion control, then list three takeaways."
+
+const holdPromptTemplate = "Run a shell command that sleeps for %d seconds (python -c with time.sleep(%d) or POSIX sleep %d). Do not answer before the sleep finishes. After it finishes, reply with exactly one short sentence. Do not ask questions. Do not write a long essay before the tool call."
 
 const (
 	followMaxAttempts = 10
@@ -24,14 +26,15 @@ const (
 )
 
 type runFlags struct {
-	Server     string
-	Agent      string
-	Model      string
-	WorkDir    string
-	SessionDir string
-	Prompt     string
-	DropAfter  int
-	Respond    string
+	Server      string
+	Agent       string
+	Model       string
+	WorkDir     string
+	SessionDir  string
+	Prompt      string
+	DropAfter   int
+	Respond     string
+	HoldSeconds int
 }
 
 type demoOutcome struct {
@@ -44,6 +47,21 @@ type demoOutcome struct {
 	SawResult  bool
 }
 
+func holdPrompt(n int) string {
+	return fmt.Sprintf(holdPromptTemplate, n, n, n)
+}
+
+func applyPromptDefaults(f *runFlags) {
+	if f.Prompt != "" {
+		return
+	}
+	if f.HoldSeconds <= 0 {
+		f.Prompt = defaultEssayPrompt
+		return
+	}
+	f.Prompt = holdPrompt(f.HoldSeconds)
+}
+
 func parseFlags(args []string) (*runFlags, error) {
 	fs := flag.NewFlagSet("session-follow", flag.ContinueOnError)
 	f := &runFlags{}
@@ -52,9 +70,10 @@ func parseFlags(args []string) (*runFlags, error) {
 	fs.StringVar(&f.Model, "model", "", "Optional model name")
 	fs.StringVar(&f.WorkDir, "work-dir", ".", "Work directory")
 	fs.StringVar(&f.SessionDir, "session-dir", "", "Session directory (default: temp)")
-	fs.StringVar(&f.Prompt, "prompt", defaultPrompt, "First SendText prompt")
+	fs.StringVar(&f.Prompt, "prompt", "", "First SendText prompt (default: sleep hold-seconds then one sentence)")
+	fs.IntVar(&f.HoldSeconds, "hold-seconds", 60, "Seconds to sleep in the default prompt; 0 uses the essay prompt")
 	fs.IntVar(&f.DropAfter, "drop-after", 1, "Drop SSE after this many logical events (id: lines); 0 drops immediately")
-	fs.StringVar(&f.Respond, "respond", "", "Fixed answer for user_input_required (empty: exit with error)")
+	fs.StringVar(&f.Respond, "respond", "yes", "Fixed answer for user_input_required (empty: exit with error)")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -66,6 +85,7 @@ func main() {
 	if err != nil {
 		os.Exit(2)
 	}
+	applyPromptDefaults(f)
 	c := client.New(f.Server, client.WithNoTimeout())
 	if _, err := runFollowDemo(context.Background(), f, c, log.Printf); err != nil {
 		log.Fatalf("%v", err)
@@ -129,8 +149,7 @@ func runFollowDemo(ctx context.Context, f *runFlags, c *client.Client, logf func
 	logf("GetSession status=%s followable=%v turn_id=%s", info.Status, info.Followable, info.TurnID)
 
 	if info.Status == "completed" {
-		logf("session completed after drop; skip follow")
-		return out, nil
+		return out, fmt.Errorf("session completed after drop; follow not attempted")
 	}
 	if info.Status == "error" {
 		return out, fmt.Errorf("session error, skip follow: %s", info.Error)
@@ -160,8 +179,7 @@ func runFollowDemo(ctx context.Context, f *runFlags, c *client.Client, logf func
 					return out, fmt.Errorf("get session after 409: %w", err)
 				}
 				if info.Status == "completed" {
-					logf("session completed during follow retry")
-					return out, nil
+					return out, fmt.Errorf("session completed during follow retry without result")
 				}
 				if info.Followable || info.Status == "active" || info.Status == "suspended" {
 					continue
@@ -175,10 +193,11 @@ func runFollowDemo(ctx context.Context, f *runFlags, c *client.Client, logf func
 		if err != nil {
 			return out, err
 		}
-		out.SawResult = saw
-		if saw {
-			logf("follow saw result=true")
+		if !saw {
+			return out, fmt.Errorf("follow finished without result")
 		}
+		out.SawResult = true
+		logf("follow saw result=true")
 		return out, nil
 	}
 	return out, fmt.Errorf("follow retries exhausted")
@@ -186,6 +205,7 @@ func runFollowDemo(ctx context.Context, f *runFlags, c *client.Client, logf func
 
 func consumeUntilDrop(cancel context.CancelFunc, stream *client.Stream, dropAfter int) (lastID string, finishedBeforeDrop bool, err error) {
 	dropped := false
+	recordedID := ""
 	if dropAfter <= 0 {
 		cancel()
 		dropped = true
@@ -208,12 +228,13 @@ func consumeUntilDrop(cancel context.CancelFunc, stream *client.Stream, dropAfte
 		if ev.ID != "" && !dropped {
 			logical++
 			if logical >= dropAfter {
+				recordedID = ev.ID
 				cancel()
 				dropped = true
 			}
 		}
 	}
-	return stream.LastEventID(), finishedBeforeDrop, nil
+	return recordedID, finishedBeforeDrop, nil
 }
 
 func consumeThroughResult(ctx context.Context, sess *client.Session, stream *client.Stream, respond string, logf func(string, ...any)) (bool, error) {
