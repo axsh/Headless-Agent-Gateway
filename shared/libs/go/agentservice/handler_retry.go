@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	defaultSSEClientDrainTimeout  = 15 * time.Second
+	defaultSSEClientDrainTimeout  = 90 * time.Second
 	maxLoggedStderrBytes          = 8 * 1024
 	logCodexProcessRetryExhausted = "codex process retry exhausted"
 	logClientDisconnectedSSE      = "client disconnected during SSE stream"
@@ -58,8 +58,16 @@ func (s *Server) stopExecOnDrainTimeout(sessionID string, exec *activeExecution)
 			"session_id", sessionID,
 			"timeout", s.clientDrainTimeout().String())
 	}
-	if exec != nil && exec.agentSess != nil {
-		_ = exec.agentSess.Close()
+	if exec != nil {
+		exec.subMu.Lock()
+		if exec.reattachTimer != nil {
+			exec.reattachTimer.Stop()
+			exec.reattachTimer = nil
+		}
+		exec.subMu.Unlock()
+		if exec.agentSess != nil {
+			_ = exec.agentSess.Close()
+		}
 	}
 	s.execRegistry.Unregister(sessionID)
 	s.UnregisterActiveSession(sessionID)
@@ -216,21 +224,19 @@ func (s *Server) runTurn(
 			}
 			if err := s.execRegistry.Register(sessionID, active); err != nil {
 				finish()
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusConflict)
-				json.NewEncoder(w).Encode(map[string]any{
-					"error":  "session busy",
-					"status": codingagent.StatusActive,
-					"hint":   "respond or terminate",
-				})
+				writeSessionBusy(w, codingagent.StatusActive)
 				return
 			}
 			registered = true
+			if wantSSE {
+				s.startSideEffectPump(active)
+			}
 		} else {
 			active.agentSess = sess
 			active.stdin = stdin
 			active.relay = relay
 			active.streamOffset = 0
+			active.sideEffectOffset = 0
 		}
 
 		if wantSSE {
@@ -363,78 +369,138 @@ func (s *Server) handleRelaySideEffects(sessionID string, exec *activeExecution,
 	return suspended, nil
 }
 
-// streamSSERelay streams events from a relay. Retryable errors are not written to SSE.
-func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec *activeExecution, stopOnUserInput bool) (streamTerminal, bool) {
+func (s *Server) startSideEffectPump(exec *activeExecution) {
+	go s.pumpExecSideEffects(exec)
+}
+
+func (s *Server) pumpExecSideEffects(exec *activeExecution) {
+	sessionID := exec.sessionID
+	for {
+		if _, ok := s.execRegistry.Get(sessionID); !ok {
+			return
+		}
+		relay := exec.relay
+		if relay == nil {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		ch := relay.stream(exec.sideEffectOffset, false)
+		for ev := range ch {
+			if exec.relay != relay {
+				break
+			}
+			ev.TurnID = exec.turnID
+			ev.CorrelationID = exec.correlationID
+			_, _ = s.handleRelaySideEffects(sessionID, exec, ev, false, nil, nil)
+			exec.sideEffectOffset++
+		}
+		if exec.relay != relay {
+			exec.sideEffectOffset = 0
+			continue
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (s *Server) armReattachTimer(exec *activeExecution) {
+	exec.subMu.Lock()
+	defer exec.subMu.Unlock()
+	if exec.subCancel != nil || exec.status == codingagent.StatusSuspended {
+		return
+	}
+	if exec.reattachTimer != nil {
+		return
+	}
+	sessionID := exec.sessionID
+	d := s.clientDrainTimeout()
+	if s.logger != nil {
+		s.logger.Debug("arming SSE reattach timer", "session_id", sessionID, "timeout", d.String())
+	}
+	exec.reattachTimer = time.AfterFunc(d, func() {
+		s.stopExecOnDrainTimeout(sessionID, exec)
+	})
+}
+
+func (s *Server) waitDetached(ctx context.Context, exec *activeExecution) (streamTerminal, bool) {
+	sessionID := exec.sessionID
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if !exec.hasSubscriber() {
+			s.armReattachTimer(exec)
+		}
+		if _, ok := s.execRegistry.Get(sessionID); !ok {
+			return streamTerminal{kind: codingagent.EventError, content: drainTimeoutTerminalContent}, false
+		}
+		rec, err := s.sessions.Get(sessionID)
+		if err == nil {
+			switch rec.Status {
+			case codingagent.StatusCompleted:
+				return streamTerminal{kind: codingagent.EventResult}, false
+			case codingagent.StatusError:
+				return streamTerminal{kind: codingagent.EventError, content: rec.Error}, false
+			case codingagent.StatusSuspended:
+				return streamTerminal{}, true
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return streamTerminal{}, false
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *activeExecution, from int, stopOnUserInput bool) (term streamTerminal, suspended bool, detached bool) {
 	sessionID := exec.sessionID
 	if s.logger != nil {
-		s.logger.Debug("starting SSE stream", "session_id", sessionID)
+		s.logger.Debug("attaching SSE subscriber", "session_id", sessionID, "from", from)
 	}
+	gen, subCtx := exec.stealSubscriber()
+	defer func() {
+		if exec.clearSubscriber(gen) {
+			s.armReattachTimer(exec)
+		}
+	}()
 
-	if !exec.sseStarted {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		exec.sseStarted = true
-	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return streamTerminal{}, false
+		return streamTerminal{}, false, false
 	}
 
-	ch := exec.relay.stream(exec.streamOffset, stopOnUserInput)
-
-	if !exec.turnMetaSent {
-		meta := codingagent.StreamEvent{
-			Type:          codingagent.EventSystem,
-			Content:       "turn context",
-			TurnID:        exec.turnID,
-			CorrelationID: exec.correlationID,
+	meta := codingagent.StreamEvent{
+		Type:          codingagent.EventSystem,
+		Content:       "turn context",
+		TurnID:        exec.turnID,
+		CorrelationID: exec.correlationID,
+	}
+	if err := s.writeSSEWireEvents(w, flusher, meta); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("failed to write turn context", "session_id", sessionID, "error", err.Error())
 		}
-		if err := s.writeSSEWireEvents(w, flusher, meta); err != nil {
-			if s.logger != nil {
-				s.logger.Warn("failed to write turn context", "session_id", sessionID, "error", err.Error())
-			}
-			return streamTerminal{}, false
-		}
-		if s.taskLog != nil {
-			s.taskLog.Add(toAgentLogEntry(meta, sessionID, exec.turnID, exec.correlationID))
-		}
-		exec.turnMetaSent = true
+		return streamTerminal{}, false, true
 	}
 
+	ch := exec.relay.stream(from, stopOnUserInput)
+	idx := from
 	eventCount := 0
-	var term streamTerminal
-	suspended := false
-	clientGone := false
-
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
-	var drainTimer *time.Timer
-	defer func() {
-		if drainTimer != nil {
-			drainTimer.Stop()
-		}
-	}()
-	drainCh := func() <-chan time.Time {
-		if drainTimer == nil {
-			drainTimer = time.NewTimer(s.clientDrainTimeout())
-		}
-		return drainTimer.C
-	}
 
-	handleEvent := func(ev codingagent.StreamEvent) bool {
+	writeEvent := func(ev codingagent.StreamEvent) bool {
 		ev.TurnID = exec.turnID
 		ev.CorrelationID = exec.correlationID
+		logicalID := idx
+		idx++
+		exec.streamOffset = idx
 		eventCount++
-		exec.streamOffset++
 		if ev.Type == codingagent.EventError && ev.Retryable {
 			term = streamTerminal{kind: codingagent.EventError, retryable: true, content: ev.Content}
-			if s.logger != nil {
-				s.logger.Debug("retryable process error swallowed", "session_id", sessionID)
-			}
-			_, _ = s.handleRelaySideEffects(sessionID, exec, ev, false, w, flusher)
 			return false
 		}
 		if ev.Type == codingagent.EventResult {
@@ -443,67 +509,62 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 		if ev.Type == codingagent.EventError {
 			term = streamTerminal{kind: codingagent.EventError, retryable: false, content: ev.Content}
 		}
-		write := !clientGone
-		sus, err := s.handleRelaySideEffects(sessionID, exec, ev, write, w, flusher)
-		if sus {
+		if ev.Type == codingagent.EventUserInputRequired {
 			suspended = true
 		}
-		if err != nil {
-			clientGone = true
+		id := logicalID
+		if err := s.writeSSEWireEventsID(w, flusher, ev, &id); err != nil {
 			if s.logger != nil {
 				s.logger.Warn("failed to write SSE wire events", "session_id", sessionID, "error", err.Error())
 			}
+			detached = true
+			return true
 		}
 		return suspended && stopOnUserInput
 	}
 
 	for {
-		if clientGone {
-			select {
-			case ev, ok := <-ch:
-				if !ok {
-					goto done
-				}
-				if handleEvent(ev) {
-					return term, true
-				}
-			case <-drainCh():
-				term = s.stopExecOnDrainTimeout(sessionID, exec)
-				goto done
-			}
-			continue
-		}
 		select {
 		case <-ctx.Done():
-			if !clientGone {
-				clientGone = true
-				if s.logger != nil {
-					s.logger.Warn(logClientDisconnectedSSE,
-						"session_id", sessionID,
-						"events_sent", eventCount)
-				}
+			if s.logger != nil {
+				s.logger.Warn(logClientDisconnectedSSE,
+					"session_id", sessionID,
+					"events_sent", eventCount)
 			}
+			return term, suspended, true
+		case <-subCtx.Done():
+			if s.logger != nil {
+				s.logger.Debug("SSE subscriber stolen", "session_id", sessionID)
+			}
+			return term, suspended, true
 		case <-ticker.C:
-			if !clientGone {
-				fmt.Fprintf(w, ": keepalive\n\n")
-				flusher.Flush()
-			}
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
 		case ev, ok := <-ch:
 			if !ok {
-				goto done
+				return term, suspended, false
 			}
-			if handleEvent(ev) {
+			if writeEvent(ev) {
+				if detached {
+					return term, suspended, true
+				}
 				fmt.Fprintf(w, "data: [DONE]\n\n")
 				flusher.Flush()
-				return term, true
+				return term, true, false
 			}
 		}
 	}
-done:
-	if record, err := s.sessions.Get(sessionID); err == nil {
+}
+
+// streamSSERelay streams events from a relay. Retryable errors are not written to SSE.
+func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec *activeExecution, stopOnUserInput bool) (streamTerminal, bool) {
+	term, suspended, detached := s.attachSSE(ctx, w, exec, exec.streamOffset, stopOnUserInput)
+	if detached && !suspended {
+		return s.waitDetached(context.Background(), exec)
+	}
+	if record, err := s.sessions.Get(exec.sessionID); err == nil {
 		switch {
 		case term.kind == codingagent.EventError && term.retryable:
-			// Intermediate retryable failure: leave status unchanged.
 		case term.kind == codingagent.EventError:
 			record.Status = codingagent.StatusError
 			if term.content != "" {
@@ -512,13 +573,13 @@ done:
 				record.Error = "unknown error occurred during execution"
 			}
 			s.sessions.Update(record)
-		default:
+		case term.kind == codingagent.EventResult:
 			record.Status = codingagent.StatusCompleted
 			record.Error = ""
 			s.sessions.Update(record)
 		}
-		if term.kind != codingagent.EventError || !term.retryable {
-			s.reconcileSessionArtifacts(context.Background(), sessionID, exec.turnID, exec.correlationID)
+		if term.kind == codingagent.EventResult || (term.kind == codingagent.EventError && !term.retryable) {
+			s.reconcileSessionArtifacts(context.Background(), exec.sessionID, exec.turnID, exec.correlationID)
 		}
 	}
 	return term, suspended

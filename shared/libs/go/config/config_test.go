@@ -275,6 +275,23 @@ func TestAgentServiceProcessRetry_ZeroBecomesThree(t *testing.T) {
 	}
 }
 
+func TestAgentServiceSSEReattachTimeout_ZeroBecomesNinety(t *testing.T) {
+	cfg := &AppConfig{}
+	cfg.AgentService.ApplyDefaults()
+	if cfg.AgentService.SSEReattachTimeoutSeconds != 90 {
+		t.Fatalf("SSEReattachTimeoutSeconds = %d, want 90", cfg.AgentService.SSEReattachTimeoutSeconds)
+	}
+}
+
+func TestAgentServiceSSEReattachTimeout_NoOverwrite(t *testing.T) {
+	cfg := &AppConfig{}
+	cfg.AgentService.SSEReattachTimeoutSeconds = 30
+	cfg.AgentService.ApplyDefaults()
+	if cfg.AgentService.SSEReattachTimeoutSeconds != 30 {
+		t.Fatalf("SSEReattachTimeoutSeconds = %d, want 30", cfg.AgentService.SSEReattachTimeoutSeconds)
+	}
+}
+
 func TestLLMGatewayConfig_ApplyDefaults(t *testing.T) {
 	cfg := &AppConfig{}
 	cfg.LLMGateway.ApplyDefaults()

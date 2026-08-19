@@ -255,16 +255,10 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if exec, ok := s.execRegistry.Get(sessionID); ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]any{
-			"error":  "session busy",
-			"status": exec.status,
-			"hint":   "respond or terminate",
-		})
-		return
-	}
+		if exec, ok := s.execRegistry.Get(sessionID); ok {
+			writeSessionBusy(w, exec.status)
+			return
+		}
 
 	var req SendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -443,13 +437,30 @@ func generateLogID() string {
 	return hex.EncodeToString(b)
 }
 
+func writeSessionBusy(w http.ResponseWriter, status string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusConflict)
+	json.NewEncoder(w).Encode(map[string]any{
+		"error":  "session busy",
+		"status": status,
+		"hint":   hintSessionBusy,
+	})
+}
+
 func (s *Server) writeSSEWireEvents(w http.ResponseWriter, flusher http.Flusher, ev codingagent.StreamEvent) error {
+	return s.writeSSEWireEventsID(w, flusher, ev, nil)
+}
+
+func (s *Server) writeSSEWireEventsID(w http.ResponseWriter, flusher http.Flusher, ev codingagent.StreamEvent, logicalID *int) error {
 	wireEvents, err := codingagent.SplitStreamEventForSSE(ev, codingagent.DefaultMaxSSEDataLineBytes)
 	if err != nil {
 		return err
 	}
 	for _, wireEv := range wireEvents {
 		data, _ := json.Marshal(wireEv)
+		if logicalID != nil {
+			fmt.Fprintf(w, "id: %d\n", *logicalID)
+		}
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 	}

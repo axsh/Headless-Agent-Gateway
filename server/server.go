@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
 	artifactstorage "github.com/axsh/arctic-tern/shared/libs/go/artifact/storage"
@@ -516,6 +517,8 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 		cfg.AgentService.ApplyDefaults()
 		asOpts = append(asOpts, agentservice.WithSupplementConfig(cfg.AgentService.Supplement))
 		asOpts = append(asOpts, agentservice.WithProcessRetry(cfg.AgentService.ProcessRetry))
+		asOpts = append(asOpts, agentservice.WithSSEDrainTimeout(
+			time.Duration(cfg.AgentService.SSEReattachTimeoutSeconds)*time.Second))
 	}
 	if artifactSt != nil {
 		asOpts = append(asOpts, agentservice.WithArtifactStore(artifactSt, artifactWorkDir))

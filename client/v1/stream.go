@@ -56,6 +56,7 @@ type Event struct {
 	CorrelationID     string
 	Error             string
 	UserInputRequired UserInputRequiredEvent
+	ID                string
 }
 
 // Stream processes SSE events from a session message.
@@ -66,6 +67,7 @@ type Stream struct {
 	onError   func(err string)
 	onToolUse func(toolName string, toolInput map[string]any)
 	turnID    string
+	lastID    string
 }
 
 // newStream creates a Stream from an HTTP response body.
@@ -249,6 +251,11 @@ func (s *Stream) TurnID() string {
 	return s.turnID
 }
 
+// LastEventID returns the last fully assembled logical SSE id.
+func (s *Stream) LastEventID() string {
+	return s.lastID
+}
+
 // events is the internal event iterator using iter pattern.
 func (s *Stream) events() <-chan Event {
 	ch := make(chan Event, 8)
@@ -257,13 +264,26 @@ func (s *Stream) events() <-chan Event {
 		scanner := bufio.NewScanner(s.body)
 		assembler := ssechunk.NewAssembler()
 		receivedDone := false
+		pendingID := ""
 
 		emitError := func(msg string) {
 			ch <- Event{Type: EventError, Error: msg}
 		}
 
+		adoptID := func(ev *Event) {
+			if pendingID == "" {
+				return
+			}
+			ev.ID = pendingID
+			s.lastID = pendingID
+		}
+
 		for scanner.Scan() {
 			line := scanner.Text()
+			if strings.HasPrefix(line, "id: ") {
+				pendingID = strings.TrimSpace(strings.TrimPrefix(line, "id: "))
+				continue
+			}
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}
@@ -302,20 +322,17 @@ func (s *Stream) events() <-chan Event {
 				}
 				continue
 			case EventToolResult:
-				if raw.Content != "" {
-					ch <- Event{Type: EventToolResult, Text: raw.Content, ToolName: raw.ToolName}
-					continue
-				}
-				if raw.ChunkID != "" {
+				ev := Event{Type: EventToolResult, Text: raw.Content, ToolName: raw.ToolName}
+				if raw.Content == "" && raw.ChunkID != "" {
 					content, err := assembler.Complete(raw.ChunkID)
 					if err != nil {
 						emitError(err.Error())
 						return
 					}
-					ch <- Event{Type: EventToolResult, Text: content, ToolName: raw.ToolName}
-					continue
+					ev.Text = content
 				}
-				ch <- Event{Type: EventToolResult, Text: raw.Content, ToolName: raw.ToolName}
+				adoptID(&ev)
+				ch <- ev
 				continue
 			}
 
@@ -340,6 +357,7 @@ func (s *Stream) events() <-chan Event {
 					Choices:  raw.Choices,
 				}
 			}
+			adoptID(&ev)
 			ch <- ev
 		}
 

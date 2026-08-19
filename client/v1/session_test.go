@@ -3,9 +3,11 @@ package v1_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -240,5 +242,38 @@ func TestUpdateSession_WithSupplement(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFollow_UsesEventsPath(t *testing.T) {
+	var gotPath, gotQuery, gotAccept string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		gotAccept = r.Header.Get("Accept")
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"type\":\"result\"}\n\n")
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := v1.New(srv.URL, v1.WithNoTimeout())
+	sess := v1.ResumeSession(c, "sess-follow")
+	if _, err := sess.Follow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/v1/sessions/sess-follow/events" {
+		t.Fatalf("path = %s", gotPath)
+	}
+	if gotQuery != "" {
+		t.Fatalf("query = %s, want empty", gotQuery)
+	}
+	if !strings.Contains(gotAccept, "text/event-stream") {
+		t.Fatalf("accept = %s", gotAccept)
+	}
+	if _, err := sess.FollowFrom(context.Background(), "3"); err != nil {
+		t.Fatal(err)
+	}
+	if gotQuery != "from=3" {
+		t.Fatalf("from query = %s", gotQuery)
 	}
 }
