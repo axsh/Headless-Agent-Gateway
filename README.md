@@ -84,6 +84,8 @@ Tern client libraries ([examples/minimal-client](examples/minimal-client/main.go
 
 You can switch `config_dir` on an existing session without changing `session_id` or terminating. Conversation continues on the next `SendText` / `SendMessage`; the overlay applies then. Do not call `Terminate` merely to switch config. Full walkthrough: [examples/config-dir-switch/README.md](examples/config-dir-switch/README.md) and [examples/config-dir-switch/main.go](examples/config-dir-switch/main.go). HTTP details: [docs/ReferenceManual-WebAPIs.md](docs/ReferenceManual-WebAPIs.md) (PATCH `/api/v1/sessions/:id`).
 
+If an in-flight turn SSE drops, do not send another user message. Call `GetSession`, and when `followable` (or status `active` / `suspended`) reattach with `Follow` / `FollowFrom`. Walkthrough: [examples/session-follow/README.md](examples/session-follow/README.md) and [examples/session-follow/main.go](examples/session-follow/main.go). HTTP: [docs/ReferenceManual-WebAPIs.md](docs/ReferenceManual-WebAPIs.md) (`GET /api/v1/sessions/:id/events`).
+
 ```go
 session, _ := c.CreateSession(ctx, client.SessionRequest{
     Agent: "claudecode", WorkDir: workDir, SessionDir: sessionDir, ConfigDir: alphaDir,

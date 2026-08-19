@@ -27,6 +27,8 @@ type SessionInfo struct {
 	AgentBindings  map[string]AgentBinding `json:"agent_bindings,omitempty"`
 	ActiveAgent    string                  `json:"active_agent,omitempty"`
 	Supplement     SupplementStrategy      `json:"supplement,omitempty"`
+	Followable     bool                    `json:"followable,omitempty"`
+	TurnID         string                  `json:"turn_id,omitempty"`
 }
 
 // AgentBinding is a native session id and ingest watermark for one coding agent.
@@ -164,6 +166,39 @@ func (s *Session) SendMessageWithOpts(ctx context.Context, content []ContentPart
 	}
 
 	return newStream(resp.Body), nil
+}
+
+func (s *Session) follow(ctx context.Context, from string) (*Stream, error) {
+	u := s.client.baseURL + "/api/v1/sessions/" + s.ID + "/events"
+	if from != "" {
+		u += "?from=" + url.QueryEscape(from)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create follow request: %w", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := s.client.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("follow session: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("follow failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	return newStream(resp.Body), nil
+}
+
+// Follow attaches to the in-flight turn SSE from the start of the relay buffer.
+func (s *Session) Follow(ctx context.Context) (*Stream, error) {
+	return s.follow(ctx, "")
+}
+
+// FollowFrom attaches to the in-flight turn SSE after lastEventID (logical index).
+func (s *Session) FollowFrom(ctx context.Context, lastEventID string) (*Stream, error) {
+	return s.follow(ctx, lastEventID)
 }
 
 // SendText is a convenience method for sending text-only messages.

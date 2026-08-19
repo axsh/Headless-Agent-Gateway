@@ -18,6 +18,8 @@ type sessionAPIResponse struct {
 	AgentBindings map[string]session.AgentBinding `json:"agent_bindings,omitempty"`
 	ActiveAgent   string                          `json:"active_agent,omitempty"`
 	Supplement    portable.Strategy               `json:"supplement,omitempty"`
+	Followable    bool                            `json:"followable,omitempty"`
+	TurnID        string                          `json:"turn_id,omitempty"`
 }
 
 type wrapResult struct {
@@ -62,23 +64,11 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if exec, ok := s.execRegistry.Get(id); ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]any{
-			"error":  "session busy",
-			"status": exec.status,
-			"hint":   "respond or terminate",
-		})
+		writeSessionBusy(w, exec.status)
 		return
 	}
 	if record.Status == codingagent.StatusSuspended {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]any{
-			"error":  "session busy",
-			"status": record.Status,
-			"hint":   "respond or terminate",
-		})
+		writeSessionBusy(w, record.Status)
 		return
 	}
 
@@ -184,6 +174,10 @@ func (s *Server) writeSessionJSON(w http.ResponseWriter, record *codingagent.Ses
 
 func (s *Server) sessionResponse(record *codingagent.SessionRecord) sessionAPIResponse {
 	resp := sessionAPIResponse{SessionRecord: *record}
+	if exec, ok := s.execRegistry.Get(record.ID); ok {
+		resp.Followable = true
+		resp.TurnID = exec.turnID
+	}
 	if record.SessionDir == "" {
 		resp.Supplement = portable.WithDefaults(s.serverSupplement())
 		return resp

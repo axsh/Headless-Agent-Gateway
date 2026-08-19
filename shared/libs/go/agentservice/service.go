@@ -139,15 +139,20 @@ func WithProcessRetry(cfg config.ProcessRetryConfig) ServerOption {
 	}
 }
 
-// WithSSEDrainTimeout overrides the post-disconnect drain bound for tests.
-// Production zero value uses defaultSSEClientDrainTimeout (15s).
+// WithSSEDrainTimeout overrides the post-disconnect reattach bound for tests.
+// Production zero value uses defaultSSEClientDrainTimeout (90s).
 func WithSSEDrainTimeout(d time.Duration) ServerOption {
 	return func(s *Server) { s.sseDrainTimeout = d }
 }
 
 // MarkSessionBusy registers a dummy execution so PATCH/SendMessage return 409 (tests).
 func (s *Server) MarkSessionBusy(sessionID, status string) error {
-	return s.execRegistry.Register(sessionID, &activeExecution{sessionID: sessionID, status: status})
+	return s.execRegistry.Register(sessionID, &activeExecution{
+		sessionID: sessionID,
+		status:    status,
+		turnID:    "busy-turn",
+		relay:     &eventRelay{notify: make(chan struct{}, 1), sourceDone: true},
+	})
 }
 
 func applyProcessRetryDefaults(s *Server) {
@@ -458,6 +463,8 @@ func (s *Server) routeSessionByID(w http.ResponseWriter, r *http.Request) {
 		s.handleTerminate(w, r)
 	} else if strings.HasSuffix(path, "/logs") {
 		s.handleLogStream(w, r)
+	} else if strings.HasSuffix(path, "/events") {
+		s.handleFollow(w, r)
 	} else {
 		switch r.Method {
 		case http.MethodGet:

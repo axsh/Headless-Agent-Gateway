@@ -13,7 +13,6 @@ AgentService SSE `data:` lines for `tool_use` may include:
 ## Official Go client
 
 - `client/v1.Event.ToolInput` (`map[string]any`) is populated from JSON `tool_input`.
-- Legacy package `github.com/axsh/arctic-tern/client` behaves the same.
 - The client does **not** truncate or chunk `tool_input`. Oversized SSE lines remain a separate concern (see Issue #26 / `docs/sse-chunk-protocol.md` for `tool_result` chunking).
 
 ## Breaking change

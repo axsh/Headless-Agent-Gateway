@@ -289,7 +289,16 @@ func TestHandlePatchSession_BusyRejected(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "session busy") {
 		t.Errorf("body = %s", w.Body.String())
 	}
+	if !strings.Contains(w.Body.String(), "follow, respond or terminate") {
+		t.Errorf("hint missing follow: %s", w.Body.String())
+	}
 	got := getSessionMap(t, handler, id)
+	if got["followable"] != true {
+		t.Errorf("followable = %v", got["followable"])
+	}
+	if got["turn_id"] != "busy-turn" {
+		t.Errorf("turn_id = %v", got["turn_id"])
+	}
 	if got["agent_name"] != "claudecode" {
 		t.Errorf("agent changed while busy: %v", got["agent_name"])
 	}

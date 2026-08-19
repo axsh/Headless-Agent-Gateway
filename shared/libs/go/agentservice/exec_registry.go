@@ -1,8 +1,10 @@
 package agentservice
 
 import (
+	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
@@ -10,17 +12,24 @@ import (
 // ErrSessionBusy is returned when a session already has an active execution.
 var ErrSessionBusy = errors.New("session busy")
 
+const hintSessionBusy = "follow, respond or terminate"
+
 type activeExecution struct {
-	sessionID     string
-	turnID        string
-	correlationID string
-	agentSess     codingagent.Session
-	stdin         codingagent.StdinWriter
-	relay         *eventRelay
-	status        string
-	streamOffset  int
-	sseStarted    bool
-	turnMetaSent  bool
+	sessionID        string
+	turnID           string
+	correlationID    string
+	agentSess        codingagent.Session
+	stdin            codingagent.StdinWriter
+	relay            *eventRelay
+	status           string
+	streamOffset     int
+	sideEffectOffset int
+	savedFiles       []string
+
+	subMu         sync.Mutex
+	subCancel     context.CancelFunc
+	subscriberGen int
+	reattachTimer *time.Timer
 }
 
 type execRegistry struct {
@@ -61,6 +70,38 @@ func (r *execRegistry) Unregister(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.exec, id)
+}
+
+func (e *activeExecution) stealSubscriber() (gen int, subCtx context.Context) {
+	e.subMu.Lock()
+	defer e.subMu.Unlock()
+	if e.reattachTimer != nil {
+		e.reattachTimer.Stop()
+		e.reattachTimer = nil
+	}
+	if e.subCancel != nil {
+		e.subCancel()
+		e.subCancel = nil
+	}
+	subCtx, e.subCancel = context.WithCancel(context.Background())
+	e.subscriberGen++
+	return e.subscriberGen, subCtx
+}
+
+func (e *activeExecution) clearSubscriber(gen int) bool {
+	e.subMu.Lock()
+	defer e.subMu.Unlock()
+	if gen != e.subscriberGen {
+		return false
+	}
+	e.subCancel = nil
+	return true
+}
+
+func (e *activeExecution) hasSubscriber() bool {
+	e.subMu.Lock()
+	defer e.subMu.Unlock()
+	return e.subCancel != nil
 }
 
 // eventRelay buffers events from a single agent channel for sequential SSE consumers.

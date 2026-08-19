@@ -193,6 +193,9 @@ type AgentServiceConfig struct {
 	Supplement SupplementConfig `yaml:"supplement"`
 	// ProcessRetry bounds Codex process re-exec after retryable upstream failures.
 	ProcessRetry ProcessRetryConfig `yaml:"process_retry"`
+	// SSEReattachTimeoutSeconds is the idle-subscriber bound before the in-flight
+	// agent process is stopped. Zero or negative is treated as unset (default 90).
+	SSEReattachTimeoutSeconds int `yaml:"sse_reattach_timeout_seconds"`
 }
 
 // ProcessRetryConfig bounds Codex CLI re-exec after retryable process exits.
@@ -210,6 +213,9 @@ func (c *AgentServiceConfig) ApplyDefaults() {
 	}
 	if c.ProcessRetry.IntervalSeconds == 0 {
 		c.ProcessRetry.IntervalSeconds = 3
+	}
+	if c.SSEReattachTimeoutSeconds <= 0 {
+		c.SSEReattachTimeoutSeconds = 90
 	}
 }
 

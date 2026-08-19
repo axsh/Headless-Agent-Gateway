@@ -23,6 +23,7 @@ By default, all API endpoints are exposed at `http://localhost:3100` (customizab
 | `PATCH` | `/api/v1/sessions/:id` | Update `config_dir`, `agent`, `model`, and/or `supplement`. |
 | `DELETE` | `/api/v1/sessions/:id` | Delete session data. |
 | `POST` | `/api/v1/sessions/:id/messages` | Send a message (text/image) to a session. |
+| `GET` | `/api/v1/sessions/:id/events` | Reattach to the in-flight turn SSE (no new message). |
 | `POST` | `/api/v1/sessions/:id/terminate` | Force terminate an active session process. |
 | `GET` | `/api/v1/sessions/:id/logs` | Stream detailed task logs generated during session execution. |
 
@@ -343,7 +344,7 @@ Sends prompt text and image data to an active session, initiating agent executio
     ```
   - Transient Codex process exits (`exit status 1`) and upstream stream failures (`Reconnecting...`, high demand, HTTP 429) are retried on the server within bounded limits. Intermediate failures are not written to SSE. Clients wait for a final `result` or a single `error`.
   - When retries are exhausted, `error.content` ends with `[upstream_overloaded]` for classified overload messages, or `[upstream_error]` for generic process failures such as `exit status 1`. Permanent failures (`unauthorized`, invalid API key, unknown model, invalid arguments) are not retried and end with `[upstream_error]`.
-  - Closing the SSE connection does not immediately kill the coding-agent CLI. The server drains the in-flight process for up to 15 seconds, then stops it (`ProcessManager.Stop`) and clears the session busy state. A follow-up `POST` on the same `session_id` is accepted (it is `409` only while an execution is still active and the drain deadline has not elapsed). If `codex exec resume` fails retryably, Tern drops the native thread id, injects canonical history into a fresh `codex exec`, and keeps the HTTP `session_id`.
+  - Closing the SSE connection does not immediately kill the coding-agent CLI. While no SSE subscriber is attached, the server keeps the in-flight turn for **90 seconds** (`agent_service.sse_reattach_timeout_seconds`; tests may override). After that bound it stops the process (`SSE drain timed out; stopping agent process`) and clears busy state. Reattach with `GET /api/v1/sessions/:id/events` inside the window. A follow-up `POST` on the same `session_id` is accepted after the turn ends or the reattach bound elapses (`409` only while execution is still active). If `codex exec resume` fails retryably, Tern drops the native thread id, injects canonical history into a fresh `codex exec`, and keeps the HTTP `session_id`.
   - When Codex process retries are exhausted, SSE still ends with a single classified `error` (`[upstream_error]` or `[upstream_overloaded]`). Operators inspect process logs for `codex process retry exhausted` (`session_id`, `attempt`, `max_attempts`, `resume_mode`, `agent_session_id`, stderr tail up to 8KiB, `exit_status`). Client SSE disconnect logs as `client disconnected during SSE stream`. Drain stop logs as `SSE drain timed out; stopping agent process` with terminal content `client drain timeout`. Gateway upstream deadlines log as `upstream stream read deadline exceeded`. Closing the SSE body can still surface as `stream read error: context deadline exceeded` on the HTTP client.
 
 ### 8.1 Turn-Scoped Artifact Correlation
@@ -371,6 +372,29 @@ For each `POST /api/v1/sessions/:id/messages` execution, Tern assigns a `turn_id
   - `400 Bad Request`: Invalid request data (e.g., sending invalid image data).
   - `404 Not Found`: Session not found.
   - `501 Not Implemented`: Returned if an image is sent to an agent that does not support multi-modal input (e.g., `wayfinder`).
+
+- **409** session busy: JSON `error` is `session busy`, `hint` is `follow, respond or terminate`.
+- When an execution is in `execRegistry`, Get Session includes `followable: true` and `turn_id` of that turn.
+
+---
+
+### 8.2 Follow in-flight turn SSE
+
+Reattach to the current turn without enqueueing a user message. This is not a substitute for `GET .../logs` (task log).
+
+- **Method**: `GET`
+- **Path**: `/api/v1/sessions/:id/events`
+- **Headers**: `Accept: text/event-stream` (required; otherwise `406`)
+- **Query**: `from` (optional) — last fully received **logical** event index (0-based). The server sends the next event. Omit to replay from the start of the current turn buffer.
+- **Header** `Last-Event-ID`: same meaning as `from` when the query is absent. Query wins if both are set.
+- **Wire**: each logical relay event is prefixed with `id: <index>`. Chunked `tool_result` lines share the same id. The synthetic `turn context` system event has no `id`.
+- **Concurrency**: one SSE writer per turn. A new Follow (or Respond) **steals** the previous subscriber.
+- **Errors**:
+  - `404` session not found
+  - `409` with `{"error":"no active turn"}` when the session exists but no in-flight execution
+  - `400` invalid or out-of-range `from`
+
+`client/v1`: `Session.Follow(ctx)` and `Session.FollowFrom(ctx, lastEventID)`; `Stream.LastEventID()` tracks assembled logical ids.
 
 ---
 

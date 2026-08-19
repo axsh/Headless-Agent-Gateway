@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-func TestDefaultSSEClientDrainTimeoutIs15s(t *testing.T) {
-	if defaultSSEClientDrainTimeout != 15*time.Second {
-		t.Fatalf("defaultSSEClientDrainTimeout = %s, want 15s", defaultSSEClientDrainTimeout)
+func TestDefaultSSEClientDrainTimeoutIs90s(t *testing.T) {
+	if defaultSSEClientDrainTimeout != 90*time.Second {
+		t.Fatalf("defaultSSEClientDrainTimeout = %s, want 90s", defaultSSEClientDrainTimeout)
 	}
 }
 
