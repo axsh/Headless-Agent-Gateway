@@ -982,11 +982,13 @@ func TestAgentService_ConfigDir_SharedAcrossSessions(t *testing.T) {
 
 	var sessionDirs []string
 	var configDirs []string
+	var workDirs []string
 	for i := 0; i < 2; i++ {
 		sessionDir := t.TempDir()
+		workDir := t.TempDir()
 		body, _ := json.Marshal(map[string]string{
 			"agent":       "claudecode",
-			"work_dir":    t.TempDir(),
+			"work_dir":    workDir,
 			"session_dir": sessionDir,
 			"config_dir":  configDir,
 		})
@@ -1005,13 +1007,21 @@ func TestAgentService_ConfigDir_SharedAcrossSessions(t *testing.T) {
 		getResp.Body.Close()
 		sessionDirs = append(sessionDirs, record.SessionDir)
 		configDirs = append(configDirs, record.ConfigDir)
+		workDirs = append(workDirs, record.WorkDir)
 
-		if _, err := os.Stat(filepath.Join(record.SessionDir, "skills", "shared", "SKILL.md")); err != nil {
-			t.Fatalf("session %d missing overlaid skill: %v", i, err)
+		vendorHome := filepath.Join(record.WorkDir, ".claude")
+		if _, err := os.Stat(filepath.Join(vendorHome, "skills", "shared", "SKILL.md")); err != nil {
+			t.Fatalf("session %d missing overlaid skill under vendor home: %v", i, err)
+		}
+		if _, err := os.Stat(filepath.Join(record.SessionDir, "skills", "shared", "SKILL.md")); !os.IsNotExist(err) {
+			t.Fatalf("session %d: skills must not overlay into tern session_dir", i)
 		}
 	}
 	if sessionDirs[0] == sessionDirs[1] {
 		t.Fatal("session_dir values should differ")
+	}
+	if workDirs[0] == workDirs[1] {
+		t.Fatal("work_dir values should differ")
 	}
 	if configDirs[0] != configDirs[1] {
 		t.Fatalf("config_dir should be shared, got %q vs %q", configDirs[0], configDirs[1])
@@ -1034,11 +1044,12 @@ func TestAgentService_ConfigDir_LaneIsolation(t *testing.T) {
 	alpha := mkLane("alpha")
 	beta := mkLane("beta")
 
-	createAndRun := func(configDir string) string {
-		sessionDir := t.TempDir()
+	createAndRun := func(configDir string) (sessionDir, workDir string) {
+		sessionDir = t.TempDir()
+		workDir = t.TempDir()
 		body, _ := json.Marshal(map[string]string{
 			"agent":       "claudecode",
-			"work_dir":    t.TempDir(),
+			"work_dir":    workDir,
 			"session_dir": sessionDir,
 			"config_dir":  configDir,
 		})
@@ -1054,18 +1065,20 @@ func TestAgentService_ConfigDir_LaneIsolation(t *testing.T) {
 		var record codingagent.SessionRecord
 		json.NewDecoder(getResp.Body).Decode(&record)
 		getResp.Body.Close()
-		return record.SessionDir
+		return record.SessionDir, record.WorkDir
 	}
 
-	alphaSession := createAndRun(alpha)
-	betaSession := createAndRun(beta)
-	if _, err := os.Stat(filepath.Join(alphaSession, "skills", "alpha", "SKILL.md")); err != nil {
+	_, alphaWork := createAndRun(alpha)
+	_, betaWork := createAndRun(beta)
+	alphaVendor := filepath.Join(alphaWork, ".claude")
+	betaVendor := filepath.Join(betaWork, ".claude")
+	if _, err := os.Stat(filepath.Join(alphaVendor, "skills", "alpha", "SKILL.md")); err != nil {
 		t.Fatalf("alpha skill missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(alphaSession, "skills", "beta", "SKILL.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(alphaVendor, "skills", "beta", "SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("alpha session should not have beta skill")
 	}
-	if _, err := os.Stat(filepath.Join(betaSession, "skills", "beta", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(betaVendor, "skills", "beta", "SKILL.md")); err != nil {
 		t.Fatalf("beta skill missing: %v", err)
 	}
 }
@@ -1084,9 +1097,10 @@ func TestAgentService_ConfigDir_SameConfigDir_ReappliedOnSecondMessage(t *testin
 		t.Fatal(err)
 	}
 	sessionDir := t.TempDir()
+	workDir := t.TempDir()
 	body, _ := json.Marshal(map[string]string{
 		"agent":       "claudecode",
-		"work_dir":    t.TempDir(),
+		"work_dir":    workDir,
 		"session_dir": sessionDir,
 		"config_dir":  configDir,
 	})
@@ -1098,14 +1112,18 @@ func TestAgentService_ConfigDir_SameConfigDir_ReappliedOnSecondMessage(t *testin
 	json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
 
+	vendorHome := filepath.Join(workDir, ".claude")
 	postSessionMessage(t, ts.URL, created["session_id"], "first")
-	overlaid := filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills")
+	overlaid := filepath.Join(vendorHome, "skills")
 	if err := os.RemoveAll(overlaid); err != nil {
 		t.Fatal(err)
 	}
 	postSessionMessage(t, ts.URL, created["session_id"], "second")
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "demo", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(vendorHome, "skills", "demo", "SKILL.md")); err != nil {
 		t.Fatalf("overlay should be re-applied: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sessionDir, "native")); !os.IsNotExist(err) {
+		t.Fatalf("tern session must not grow native/, err=%v", err)
 	}
 }
 
@@ -1154,10 +1172,12 @@ func TestAgentService_ConfigDir_SwitchSameSession_Claude(t *testing.T) {
 	alpha := mkLane("alpha")
 	beta := mkLane("beta")
 	sessionDir := t.TempDir()
+	workDir := t.TempDir()
+	vendorHome := filepath.Join(workDir, ".claude")
 
 	body, _ := json.Marshal(map[string]string{
 		"agent":       "claudecode",
-		"work_dir":    t.TempDir(),
+		"work_dir":    workDir,
 		"session_dir": sessionDir,
 		"config_dir":  alpha,
 	})
@@ -1171,7 +1191,7 @@ func TestAgentService_ConfigDir_SwitchSameSession_Claude(t *testing.T) {
 	sessionID := created["session_id"]
 
 	postSessionMessage(t, ts.URL, sessionID, "with-alpha")
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(vendorHome, "skills", "alpha", "SKILL.md")); err != nil {
 		t.Fatalf("alpha skill missing after first message: %v", err)
 	}
 
@@ -1210,10 +1230,10 @@ func TestAgentService_ConfigDir_SwitchSameSession_Claude(t *testing.T) {
 	agentSID1 := after.AgentSessionID
 
 	postSessionMessage(t, ts.URL, sessionID, "with-beta")
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "beta", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(vendorHome, "skills", "beta", "SKILL.md")); err != nil {
 		t.Fatalf("beta skill missing after switch: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(vendorHome, "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("alpha skill should be replaced after switch to beta")
 	}
 
@@ -1273,10 +1293,12 @@ func TestAgentService_ConfigDir_SwitchSameSession_Codex(t *testing.T) {
 	alpha := mkLane("alpha")
 	beta := mkLane("beta")
 	sessionDir := t.TempDir()
+	workDir := t.TempDir()
+	vendorHome := filepath.Join(workDir, ".codex")
 
 	body, _ := json.Marshal(map[string]string{
 		"agent":       "codex",
-		"work_dir":    t.TempDir(),
+		"work_dir":    workDir,
 		"session_dir": sessionDir,
 		"config_dir":  alpha,
 	})
@@ -1290,7 +1312,7 @@ func TestAgentService_ConfigDir_SwitchSameSession_Codex(t *testing.T) {
 	sessionID := created["session_id"]
 
 	postSessionMessage(t, ts.URL, sessionID, "with-alpha")
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(vendorHome, "skills", "alpha", "SKILL.md")); err != nil {
 		t.Fatalf("alpha skill missing: %v", err)
 	}
 
@@ -1312,13 +1334,13 @@ func TestAgentService_ConfigDir_SwitchSameSession_Codex(t *testing.T) {
 	patchResp.Body.Close()
 
 	postSessionMessage(t, ts.URL, sessionID, "with-beta")
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "beta", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(vendorHome, "skills", "beta", "SKILL.md")); err != nil {
 		t.Fatalf("beta skill missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "AGENTS.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(vendorHome, "AGENTS.md")); err != nil {
 		t.Fatalf("beta AGENTS.md missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(agentservice.NativeSessionDir(sessionDir), "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(vendorHome, "skills", "alpha", "SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("alpha skill should be replaced after switch")
 	}
 

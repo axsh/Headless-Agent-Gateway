@@ -222,6 +222,10 @@ func TestSessionPortabilityAgentSwitchSupplement(t *testing.T) {
 	if !strings.Contains(cfg.Prompt, portable.TransferHeader) || !strings.Contains(cfg.Prompt, portabilityToken) {
 		t.Errorf("prompt = %s", cfg.Prompt)
 	}
+	// workDir was t.TempDir() in portCreate — recover from cfg via VendorHome contract
+	if filepath.Base(cfg.SessionDir) != ".codex" {
+		t.Errorf("codex vendor home = %q, want .../.codex", cfg.SessionDir)
+	}
 }
 
 func TestSessionPortabilitySwitchBackResumesOwn(t *testing.T) {
