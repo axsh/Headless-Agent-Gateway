@@ -1,5 +1,10 @@
 # 000: Wayfinder 形式を正本とするセッション可搬性
 
+> **改訂 (fix-bug-exproding-session-size)**: CLI ホームを `{session_dir}/native` に置く方針は撤回。
+> Tern 正本は `.tern/{id}/`（`record.json` / `metadata.json` / `history/`）。Codex は `{work_dir}/.codex`、Claude は `{work_dir}/.claude`。
+> Wayfinder のベンダーホームは `.tern/{id}/` 自体（`native/` サブディレクトリは使わない）。
+> 詳細: `prompts/phases/001-phase02/branches/fix-bug-exproding-session-size/ideas/000-Restore-Vendor-Homes-Outside-Tern.md`
+
 ## 背景 (Background)
 
 Tern の製品目標は、Coding Agent を切り替えても作業の文脈を失わないことである（README の Session portability / Agent switching / Context-preserving agent migration）。しかし現状、Tern セッションが保持しているのは薄いメタデータであり、会話の実体は各 Coding Agent の内部実装に委ねられている。
