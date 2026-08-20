@@ -30,8 +30,8 @@ func TestCanonical_InitWritesMetadata(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "history")); err != nil {
 		t.Errorf("history dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "native")); err != nil {
-		t.Errorf("native dir: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "native")); !os.IsNotExist(err) {
+		t.Errorf("native dir must not be created, err=%v", err)
 	}
 }
 

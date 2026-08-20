@@ -29,14 +29,6 @@ func NewWorkspaceSessionStore() *WorkspaceSessionStore {
 var _ codingagent.SessionStore = (*WorkspaceSessionStore)(nil)
 var _ WorkDirSessionLister = (*WorkspaceSessionStore)(nil)
 
-// NativeSessionDir returns the adapter config root ({session_dir}/native).
-func NativeSessionDir(sessionDir string) string {
-	if sessionDir == "" {
-		return ""
-	}
-	return filepath.Join(sessionDir, "native")
-}
-
 // Create writes record.json, initializes Canonical folders, and caches the record.
 func (s *WorkspaceSessionStore) Create(rec *codingagent.SessionRecord) error {
 	if rec.SessionDir == "" && rec.WorkDir != "" && rec.ID != "" {
@@ -123,9 +115,6 @@ func (s *WorkspaceSessionStore) ListByWorkDir(workDir string) ([]*codingagent.Se
 func persistSessionRecord(rec *codingagent.SessionRecord) error {
 	if err := os.MkdirAll(rec.SessionDir, 0755); err != nil {
 		return fmt.Errorf("mkdir session_dir: %w", err)
-	}
-	if err := os.MkdirAll(NativeSessionDir(rec.SessionDir), 0755); err != nil {
-		return fmt.Errorf("mkdir native: %w", err)
 	}
 	path := filepath.Join(rec.SessionDir, "record.json")
 	data, err := json.MarshalIndent(rec, "", "  ")

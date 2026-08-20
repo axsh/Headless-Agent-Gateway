@@ -386,8 +386,15 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		codingagent.WithIdleTimeout(agentCfg.IdleTimeoutSeconds),
 		codingagent.WithMaxExecution(agentCfg.MaxExecutionSeconds),
 	}
-	if record.SessionDir != "" {
-		opts = append(opts, codingagent.WithSessionDir(NativeSessionDir(record.SessionDir)))
+	if vh := VendorHomeDir(record.WorkDir, record.AgentName, record.SessionDir); vh != "" {
+		opts = append(opts, codingagent.WithSessionDir(vh))
+		if s.logger != nil {
+			s.logger.Debug("vendor home resolved for agent launch",
+				"session_id", sessionID,
+				"agent", record.AgentName,
+				"vendor_home", vh,
+				"tern_session_dir", record.SessionDir)
+		}
 	}
 	if record.ConfigDir != "" {
 		opts = append(opts, codingagent.WithConfigDir(record.ConfigDir))
