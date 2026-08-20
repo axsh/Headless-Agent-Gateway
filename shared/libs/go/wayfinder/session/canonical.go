@@ -27,6 +27,7 @@ func (c *Canonical) HistoryDir() string {
 }
 
 // NativeDir returns {session_dir}/native.
+// Legacy path helper only; Init does not create this directory.
 func (c *Canonical) NativeDir() string {
 	return filepath.Join(c.Dir, "native")
 }
@@ -39,9 +40,6 @@ func (c *Canonical) Init(sessionID, activeAgent string) error {
 	}
 	if err := os.MkdirAll(c.HistoryDir(), 0755); err != nil {
 		return fmt.Errorf("canonical init history: %w", err)
-	}
-	if err := os.MkdirAll(c.NativeDir(), 0755); err != nil {
-		return fmt.Errorf("canonical init native: %w", err)
 	}
 
 	if meta, err := c.LoadMetadata(); err == nil {

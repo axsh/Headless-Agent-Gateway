@@ -712,12 +712,12 @@ func TestE2E_SessionDirFallback(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	sessionID := result["session_id"]
 
-	// Get session and verify session_dir == work_dir/.claudecode (absolute path)
+	// Get session and verify session_dir == work_dir/.tern/{id} (absolute path)
 	session := getE2ESession(t, baseURL, sessionID)
 	sessionDir, _ := session["session_dir"].(string)
 	sessionWorkDir, _ := session["work_dir"].(string)
 
-	// After fix: session_dir should be work_dir/.claudecode (absolute)
+	// Tern canonical session_dir (not vendor home .claude / .codex)
 	wantSessionDir := filepath.Join(sessionWorkDir, ".tern", sessionID)
 	if sessionDir != wantSessionDir {
 		t.Errorf("session_dir = %q, want %q", sessionDir, wantSessionDir)

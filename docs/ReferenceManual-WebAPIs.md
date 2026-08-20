@@ -147,8 +147,8 @@ Initializes a new coding session.
   - `agent` (string, Required): The name of the agent to use (`claudecode`, `wayfinder`, etc.).
   - `model` (string, Optional): The LLM model to use. If not specified, the default model is applied.
   - `work_dir` (string, Required): The absolute workspace directory path where the agent will operate.
-  - `session_dir` (string, Optional): The directory path to store session data. Defaults to `work_dir/.tern/{session_id}`. Agent native files (Claude `CLAUDE_CONFIG_DIR`, Codex `CODEX_HOME`) are stored under `{session_dir}/native`.
-  - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into `{session_dir}/native` before launching the agent. When omitted, behavior is unchanged from previous versions (no overlay).
+  - `session_dir` (string, Optional): The directory path for the Tern canonical session store (`record.json`, `metadata.json`, `history/`). Defaults to `work_dir/.tern/{session_id}`. This is not the Codex/Claude CLI home; do not place CLI homes under `{session_dir}/native`.
+  - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into the agent vendor home before launching the agent (`work_dir/.claude` for Claude Code, `work_dir/.codex` for Codex, or `session_dir` for Wayfinder). When omitted, behavior is unchanged from previous versions (no overlay).
   - Paths (`work_dir`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
   ```json
   {
@@ -159,11 +159,15 @@ Initializes a new coding session.
     "config_dir": "/path/to/config-sets/alpha"
   }
   ```
-  - Persistence env mapping: Claude Code uses `CLAUDE_CONFIG_DIR={session_dir}/native`; Codex uses `CODEX_HOME={session_dir}/native`.
+  - Persistence env mapping:
+    - Claude Code: `CLAUDE_CONFIG_DIR={work_dir}/.claude`
+    - Codex: `CODEX_HOME={work_dir}/.codex`
+    - Wayfinder: agent `SessionDir` is the Tern `session_dir` (default `{work_dir}/.tern/{session_id}`); same root as the canonical store (no `native/` subdirectory).
   - Precedence:
     - Claude Code: CLI flags > project `.claude` under `work_dir` > user config under `CLAUDE_CONFIG_DIR` (after overlay). Project `.claude` nesting of `config_dir` is not supported.
     - Codex: CLI `-c` > (when `config_dir` is set) `$CODEX_HOME` user config/skills > project `.codex`; when `config_dir` is omitted, `--ignore-user-config` + `-c` as today.
-  - Overlay is re-applied on each agent process start; session-only data (`projects/`, `sessions/`, …) is preserved.
+  - Overlay is re-applied on each agent process start; session-only data under the vendor home (`projects/`, `sessions/`, …) is preserved.
+  - Leftover `{session_dir}/native` trees from older Tern versions are unused and may be deleted manually (do not delete `history/`).
 - **Response (201 Created)**:
   ```json
   {

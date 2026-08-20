@@ -33,6 +33,10 @@ func TestWorkspaceSessionStore_CreateWritesRecordJSON(t *testing.T) {
 	if rec.SessionDir != filepath.Join(workDir, ".tern", "sess-abc") {
 		t.Errorf("SessionDir = %q", rec.SessionDir)
 	}
+	native := filepath.Join(workDir, ".tern", "sess-abc", "native")
+	if _, err := os.Stat(native); !os.IsNotExist(err) {
+		t.Fatalf("native/ must not be created, err=%v", err)
+	}
 }
 
 func TestWorkspaceSessionStore_ListByWorkDirReloads(t *testing.T) {
@@ -64,16 +68,5 @@ func TestWorkspaceSessionStore_ListByWorkDirReloads(t *testing.T) {
 	wantDir := filepath.Join(workDir, ".tern", "sess-reload")
 	if loaded.SessionDir != wantDir {
 		t.Errorf("SessionDir = %q, want %q", loaded.SessionDir, wantDir)
-	}
-}
-
-func TestNativeSessionDir(t *testing.T) {
-	got := NativeSessionDir("/tmp/sess")
-	want := filepath.Join("/tmp/sess", "native")
-	if got != want {
-		t.Errorf("NativeSessionDir = %q, want %q", got, want)
-	}
-	if NativeSessionDir("") != "" {
-		t.Error("empty session dir should yield empty native dir")
 	}
 }
