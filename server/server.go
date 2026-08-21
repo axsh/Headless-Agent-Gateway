@@ -526,7 +526,12 @@ func resolveAgentService(o *options, log logger.Logger, tl *tasklog.TaskLog, gat
 	if userArtSt != nil {
 		asOpts = append(asOpts, agentservice.WithArtifactStorage(userArtSt))
 	}
-	as := agentservice.New(asOpts...)
+	var as *agentservice.Server
+	if o.sessionStore != nil {
+		as = agentservice.NewWithStore(o.sessionStore, asOpts...)
+	} else {
+		as = agentservice.New(asOpts...)
+	}
 
 	if cfg != nil && cfg.LLMGateway.ModelProfilesPath != "" {
 		profilesPath := cfg.LLMGateway.ModelProfilesPath
