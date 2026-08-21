@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/axsh/arctic-tern/shared/libs/go/agentservice"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 	"github.com/axsh/arctic-tern/shared/libs/go/config"
 	"github.com/axsh/arctic-tern/shared/libs/go/llmgateway"
 	"github.com/axsh/arctic-tern/shared/libs/go/logger"
@@ -18,6 +19,7 @@ type options struct {
 	vault          vault.VaultStore
 	gateway        llmgateway.LLMGatewayBackend
 	agentService   *agentservice.Server
+	sessionStore   codingagent.SessionStore
 	enableVersions []int
 }
 
@@ -75,6 +77,15 @@ func WithKeyringVault(tenantID ...string) Option {
 func WithAgentService(as *agentservice.Server) Option {
 	return func(o *options) {
 		o.agentService = as
+	}
+}
+
+// WithSessionStore injects a durable SessionStore (for example a file registry on EBS).
+// When set, resolveAgentService uses agentservice.NewWithStore instead of New.
+// Ignored when WithAgentService is also set.
+func WithSessionStore(store codingagent.SessionStore) Option {
+	return func(o *options) {
+		o.sessionStore = store
 	}
 }
 
