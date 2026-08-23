@@ -388,3 +388,121 @@ func TestStartProcess_NonRetryableExitNoRetryableFlag(t *testing.T) {
 		t.Errorf("Content = %q, want unauthorized", last.Content)
 	}
 }
+
+func TestStartProcess_SandboxRejectionSynthesizesToolResult(t *testing.T) {
+	dir := t.TempDir()
+	stderr := "ERROR codex_core::tools::router: exec_command failed: Rejected(\"rm -f style commands are not permitted\")"
+	testfake.Install(t, dir, testfake.Options{
+		Lines: []string{
+			`{"type":"item.started","item":{"type":"command_execution","command":"rm -f /tmp/check.html"}}`,
+		},
+		Stderr:   stderr,
+		ExitCode: 1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var toolResults int
+	var retryableErrors int
+	for ev := range ch {
+		if ev.Type == codingagent.EventToolResult {
+			toolResults++
+			if !strings.Contains(ev.Content, "Rejected") && !strings.Contains(ev.Content, "rm -f") {
+				t.Errorf("tool result content = %q, want rejection text", ev.Content)
+			}
+		}
+		if ev.Type == codingagent.EventError && ev.Retryable {
+			retryableErrors++
+		}
+	}
+	if toolResults != 1 {
+		t.Fatalf("expected 1 EventToolResult, got %d", toolResults)
+	}
+	if retryableErrors != 0 {
+		t.Fatalf("expected 0 retryable EventError, got %d", retryableErrors)
+	}
+}
+
+func TestStartProcess_SandboxRejectionNoDuplicateToolResult(t *testing.T) {
+	dir := t.TempDir()
+	stderr := "ERROR Rejected(\"rm -f style commands are not permitted\")"
+	testfake.Install(t, dir, testfake.Options{
+		Lines: []string{
+			`{"type":"item.started","item":{"type":"command_execution","command":"rm -f /tmp/x"}}`,
+			`{"type":"item.completed","item":{"type":"command_execution","command":"rm -f /tmp/x","aggregated_output":"already rejected"}}`,
+		},
+		Stderr:   stderr,
+		ExitCode: 1,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var toolResults int
+	for ev := range ch {
+		if ev.Type == codingagent.EventToolResult {
+			toolResults++
+		}
+	}
+	if toolResults != 1 {
+		t.Fatalf("expected 1 EventToolResult from stdout, got %d", toolResults)
+	}
+}
+
+func TestStartProcess_PolicyTextRejectionSynthesizesToolResult(t *testing.T) {
+	dir := t.TempDir()
+	testfake.Install(t, dir, testfake.Options{
+		Lines: []string{
+			`{"type":"item.started","item":{"type":"command_execution","command":"rm -f /tmp/x"}}`,
+			`{"type":"item.completed","item":{"type":"agent_message","text":"It was rejected by the environment policy (blocked by policy)."}}`,
+		},
+		ExitCode: 0,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ch, pm, err := codex.StartProcess(ctx, &codingagent.AdapterConfig{
+		Logger: logger.NewDefault(logger.LevelInfo),
+	}, &codingagent.SessionConfig{
+		WorkDir:       t.TempDir(),
+		ExecutionMode: codingagent.ExecutionModeSingleShot,
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	defer pm.Stop()
+
+	var toolResults int
+	for ev := range ch {
+		if ev.Type == codingagent.EventToolResult {
+			toolResults++
+			if !strings.Contains(strings.ToLower(ev.Content), "blocked by policy") {
+				t.Errorf("tool result content = %q, want policy rejection text", ev.Content)
+			}
+		}
+	}
+	if toolResults != 1 {
+		t.Fatalf("expected 1 EventToolResult, got %d", toolResults)
+	}
+}

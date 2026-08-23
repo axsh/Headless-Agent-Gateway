@@ -71,10 +71,12 @@ func resolveTimeouts(cfg *codingagent.SessionConfig) (idleSec, maxSec int) {
 // and skills under CODEX_HOME can load; -c overrides still win for Tern keys.
 // When resumeSessionID != "", uses "codex exec resume <id>" to continue a thread.
 // When prompt is non-empty, "-" is appended to instruct codex to read from stdin.
-func BuildArgs(prompt string, configOverrides []string, ignoreUserConfig bool, resumeSessionID string) []string {
+func BuildArgs(prompt string, configOverrides []string, ignoreUserConfig bool, resumeSessionID string, disableSandbox bool) []string {
 	common := []string{
 		"--json",
-		"--dangerously-bypass-approvals-and-sandbox",
+	}
+	if disableSandbox {
+		common = append(common, "--dangerously-bypass-approvals-and-sandbox")
 	}
 	if ignoreUserConfig {
 		common = append(common, "--ignore-user-config")
@@ -159,7 +161,7 @@ func StartProcess(
 	log = log.WithComponent("codex")
 
 	ignoreUserConfig := cfg.ConfigDir == ""
-	args := BuildArgs(cfg.Prompt, configOverrides, ignoreUserConfig, cfg.AgentSessionID)
+	args := BuildArgs(cfg.Prompt, configOverrides, ignoreUserConfig, cfg.AgentSessionID, ac.DisableSandbox)
 	log.Debug("building CLI arguments", "args", args, "ignore_user_config", ignoreUserConfig, "config_dir", cfg.ConfigDir, "resume_session_id", cfg.AgentSessionID)
 
 	env := BuildEnv(ac, cfg)
@@ -259,6 +261,10 @@ func StartProcess(
 	lastActivity.Store(now)
 	touchActivity := func() { lastActivity.Store(time.Now().UnixNano()) }
 
+	var tracker commandExecTracker
+	var stopAfterSandbox func()
+	var stopAfterSandboxMu sync.Mutex
+
 	go func() {
 		defer close(stderrDone)
 		scanner := codingagent.NewLargeLineScanner(stderrPipe, cfg.ScannerMaxTokenBytes)
@@ -280,6 +286,17 @@ func StartProcess(
 				}:
 				case <-procCtx.Done():
 					return
+				}
+			}
+			if tracker.trySynthesizeFromStderrLine(ch, procCtx, line, cfg.MaxToolResultBytes) {
+				log.Debug("synthesized sandbox tool_result from stderr line")
+				if cfg.ExecutionMode != codingagent.ExecutionModeSingleShot {
+					stopAfterSandboxMu.Lock()
+					stop := stopAfterSandbox
+					stopAfterSandboxMu.Unlock()
+					if stop != nil {
+						go stop()
+					}
 				}
 			}
 		}
@@ -315,6 +332,9 @@ func StartProcess(
 		logger:      log,
 		stdinWriter: stdinWriter,
 	}
+	stopAfterSandboxMu.Lock()
+	stopAfterSandbox = func() { pm.Stop() }
+	stopAfterSandboxMu.Unlock()
 
 	idleSec, maxSec := resolveTimeouts(cfg)
 	startedAt := time.Now()
@@ -366,14 +386,36 @@ func StartProcess(
 
 			ev := ParseExecEvent(line)
 			if ev != nil {
+				if ev.Type == codingagent.EventToolUse && ev.ToolName == "command_execution" {
+					tracker.markToolUse()
+					if tracker.tryFlushPendingRejection(ch, procCtx, cfg.MaxToolResultBytes) {
+						log.Debug("synthesized sandbox tool_result from buffered stderr rejection")
+						if cfg.ExecutionMode != codingagent.ExecutionModeSingleShot {
+							stopAfterSandboxMu.Lock()
+							stop := stopAfterSandbox
+							stopAfterSandboxMu.Unlock()
+							if stop != nil {
+								go stop()
+							}
+						}
+					}
+				}
 				if ev.Type == codingagent.EventToolResult {
+					if tracker.synthesizedSandboxReject() {
+						tracker.markToolResult()
+						continue
+					}
 					ev.Content = codingagent.TruncateToolResult(ev.Content, cfg.MaxToolResultBytes)
+					tracker.markToolResult()
 				}
 				if ev.Type == codingagent.EventResult {
 					resultEmitted = true
 				}
 				if ev.Type == codingagent.EventError && ev.Content != "" {
 					lastErrContent = ev.Content
+				}
+				if ev.Type == codingagent.EventText {
+					tracker.trySynthesizeFromRejectionText(ch, procCtx, ev.Content, cfg.MaxToolResultBytes)
 				}
 				select {
 				case ch <- *ev:
@@ -402,8 +444,13 @@ func StartProcess(
 		// Close stdin before cmd.Wait() so the stdin copy goroutine can exit.
 		pm.closeStdin()
 
+		tracker.synthesizeIfNeeded(ch, procCtx, stderrBuf.String(), cfg.MaxToolResultBytes)
+
 		// R3: Check exit code and report stderr on failure.
 		if err := cmd.Wait(); err != nil {
+			if tracker.synthesizedSandboxReject() {
+				log.Debug("skipping process exit EventError after synthesized sandbox tool_result")
+			} else {
 			errMsg := strings.TrimSpace(stderrBuf.String())
 			if errMsg == "" {
 				errMsg = lastErrContent
@@ -430,6 +477,7 @@ func StartProcess(
 			}:
 			case <-procCtx.Done():
 			}
+			}
 		} else {
 			exitCode := cmd.ProcessState.ExitCode()
 			log.Debug("codex CLI process exited", "exit_code", exitCode)
@@ -444,6 +492,153 @@ func StartProcess(
 	}()
 
 	return ch, pm, nil
+}
+
+// commandExecTracker tracks pending command_execution tool calls for sandbox synthesis.
+type commandExecTracker struct {
+	mu                sync.Mutex
+	pending           bool
+	toolResultSent    bool
+	synthesizedReject bool
+	pendingRejection  string // stderr rejection seen before matching tool_use
+}
+
+func (t *commandExecTracker) markToolUse() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.synthesizedReject {
+		return
+	}
+	t.pending = true
+	t.toolResultSent = false
+}
+
+func (t *commandExecTracker) markToolResult() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.pending = false
+	t.toolResultSent = true
+	t.pendingRejection = ""
+}
+
+func (t *commandExecTracker) trySynthesizeFromStderrLine(
+	ch chan<- codingagent.StreamEvent,
+	ctx context.Context,
+	line string,
+	maxBytes int,
+) bool {
+	return t.trySynthesizeFromRejectionText(ch, ctx, line, maxBytes)
+}
+
+func (t *commandExecTracker) trySynthesizeFromRejectionText(
+	ch chan<- codingagent.StreamEvent,
+	ctx context.Context,
+	text string,
+	maxBytes int,
+) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || !codingagent.IsSandboxRejection(text) {
+		return false
+	}
+	content := ExtractSandboxRejectionContent(text)
+	if content == "" {
+		content = text
+	}
+
+	t.mu.Lock()
+	pending := t.pending
+	already := t.toolResultSent
+	t.mu.Unlock()
+
+	if !pending || already {
+		t.mu.Lock()
+		if !already && content != "" {
+			t.pendingRejection = content
+		}
+		t.mu.Unlock()
+		return false
+	}
+	return t.emitSandboxToolResult(ch, ctx, content, maxBytes)
+}
+
+func (t *commandExecTracker) tryFlushPendingRejection(
+	ch chan<- codingagent.StreamEvent,
+	ctx context.Context,
+	maxBytes int,
+) bool {
+	t.mu.Lock()
+	content := t.pendingRejection
+	pending := t.pending
+	already := t.toolResultSent
+	t.mu.Unlock()
+
+	if content == "" || !pending || already {
+		return false
+	}
+
+	if !t.emitSandboxToolResult(ch, ctx, content, maxBytes) {
+		return false
+	}
+
+	t.mu.Lock()
+	t.pendingRejection = ""
+	t.mu.Unlock()
+	return true
+}
+
+func (t *commandExecTracker) synthesizeIfNeeded(
+	ch chan<- codingagent.StreamEvent,
+	ctx context.Context,
+	stderr string,
+	maxBytes int,
+) {
+	if t.tryFlushPendingRejection(ch, ctx, maxBytes) {
+		return
+	}
+	stderr = strings.TrimSpace(stderr)
+	if stderr == "" || !codingagent.IsSandboxRejection(stderr) {
+		return
+	}
+	t.emitSandboxToolResult(ch, ctx, ExtractSandboxRejectionContent(stderr), maxBytes)
+}
+
+func (t *commandExecTracker) emitSandboxToolResult(
+	ch chan<- codingagent.StreamEvent,
+	ctx context.Context,
+	content string,
+	maxBytes int,
+) bool {
+	t.mu.Lock()
+	pending := t.pending
+	already := t.toolResultSent
+	t.mu.Unlock()
+
+	if !pending || already {
+		return false
+	}
+
+	content = codingagent.TruncateToolResult(content, maxBytes)
+	select {
+	case ch <- codingagent.StreamEvent{
+		Type:    codingagent.EventToolResult,
+		Content: content,
+	}:
+	case <-ctx.Done():
+		return false
+	}
+
+	t.mu.Lock()
+	t.pending = false
+	t.toolResultSent = true
+	t.synthesizedReject = true
+	t.mu.Unlock()
+	return true
+}
+
+func (t *commandExecTracker) synthesizedSandboxReject() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.synthesizedReject
 }
 
 func (pm *ProcessManager) emitTimeout(ch chan<- codingagent.StreamEvent, ctx context.Context, msg string) {

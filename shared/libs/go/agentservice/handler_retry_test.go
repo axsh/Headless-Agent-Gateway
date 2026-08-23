@@ -783,3 +783,59 @@ func TestHandleSendMessage_ClientDisconnectDoesNotFinishUntilTerminal(t *testing
 		t.Fatal("session still busy after drain")
 	}
 }
+
+type toolResultOnlyAgent struct {
+	name  string
+	delay time.Duration
+}
+
+func (a *toolResultOnlyAgent) Name() string { return a.name }
+func (a *toolResultOnlyAgent) Close() error { return nil }
+func (a *toolResultOnlyAgent) CreateSession(_ context.Context, _ ...codingagent.SessionOption) (codingagent.Session, error) {
+	return &toolResultOnlySession{delay: a.delay}, nil
+}
+
+type toolResultOnlySession struct {
+	delay time.Duration
+}
+
+func (s *toolResultOnlySession) ID() string { return "recover-native" }
+func (s *toolResultOnlySession) Close() error { return nil }
+func (s *toolResultOnlySession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
+	ch := make(chan codingagent.StreamEvent, 4)
+	go func() {
+		defer close(ch)
+		ch <- codingagent.StreamEvent{
+			Type:     codingagent.EventToolUse,
+			ToolName: "command_execution",
+		}
+		if s.delay > 0 {
+			time.Sleep(s.delay)
+		}
+		ch <- codingagent.StreamEvent{
+			Type:    codingagent.EventToolResult,
+			Content: "Rejected(\"rm -f style commands are not permitted\")",
+		}
+	}()
+	return ch, nil
+}
+
+func TestSessionRecoverTerminal_PostMessagesGetsSyntheticError(t *testing.T) {
+	agent := &toolResultOnlyAgent{name: "codex"}
+	srv := agentservice.New()
+	srv.RegisterAgent(agent)
+	handler := srv.HTTPHandler()
+	sessionID := createCodexSessionHTTP(t, handler)
+	w := postSSE(t, handler, sessionID, "run")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "[DONE]") {
+		t.Fatalf("missing DONE in body: %s", body)
+	}
+	_, errCount := sseEvents(t, body)
+	if errCount == 0 {
+		t.Fatalf("expected synthetic terminal error on SSE, body: %s", body)
+	}
+}
