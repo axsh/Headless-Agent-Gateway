@@ -84,6 +84,30 @@ func IsNonRetryableError(msg string) bool {
 	return false
 }
 
+// IsSandboxRejection reports Codex sandbox/policy rejection in stderr or log text.
+func IsSandboxRejection(msg string) bool {
+	if msg == "" {
+		return false
+	}
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "rejected(") {
+		return true
+	}
+	if strings.Contains(lower, "rm -f style commands are not permitted") {
+		return true
+	}
+	if strings.Contains(lower, "exec_command failed") && strings.Contains(lower, "rejected") {
+		return true
+	}
+	if strings.Contains(lower, "blocked by policy") {
+		return true
+	}
+	if strings.Contains(lower, "rejected by the environment policy") {
+		return true
+	}
+	return false
+}
+
 // ClassifiedErrorContent appends a stable error code tag for SSE EventError content.
 func ClassifiedErrorContent(msg string, retryable bool) string {
 	code := ErrorCodeUpstreamError

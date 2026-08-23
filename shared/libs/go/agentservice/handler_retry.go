@@ -18,12 +18,57 @@ const (
 	logClientDisconnectedSSE      = "client disconnected during SSE stream"
 	logSSEDrainTimedOut           = "SSE drain timed out; stopping agent process"
 	drainTimeoutTerminalContent   = "client drain timeout"
+	streamEndedWithoutTerminalContent = "stream ended without terminal event"
 )
 
 type streamTerminal struct {
 	kind      codingagent.EventType
 	retryable bool
 	content   string
+}
+
+func resolveTerminalFromRelayEvents(events []codingagent.StreamEvent) streamTerminal {
+	for _, ev := range events {
+		if ev.Type == codingagent.EventResult {
+			return streamTerminal{kind: codingagent.EventResult}
+		}
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Type == codingagent.EventError && !ev.Retryable {
+			return streamTerminal{kind: codingagent.EventError, content: ev.Content}
+		}
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Type == codingagent.EventError && ev.Retryable {
+			return streamTerminal{kind: codingagent.EventError, retryable: true, content: ev.Content}
+		}
+	}
+	return streamTerminal{kind: codingagent.EventError, content: streamEndedWithoutTerminalContent}
+}
+
+func ensureRelayTerminal(term streamTerminal, relay *eventRelay) streamTerminal {
+	if term.kind == codingagent.EventResult {
+		return term
+	}
+	if term.kind == codingagent.EventError && !term.retryable {
+		return term
+	}
+	resolved := resolveTerminalFromRelayEvents(nil)
+	if relay != nil {
+		resolved = resolveTerminalFromRelayEvents(relay.snapshot())
+	}
+	if resolved.kind == codingagent.EventResult {
+		return resolved
+	}
+	if resolved.kind == codingagent.EventError && !resolved.retryable {
+		return resolved
+	}
+	if term.kind == codingagent.EventError && term.retryable {
+		return term
+	}
+	return resolved
 }
 
 func (s *Server) processRetryLimits(agentName string) (maxAttempts int, interval time.Duration) {
@@ -489,6 +534,7 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 	ch := exec.relay.stream(from, stopOnUserInput)
 	idx := from
 	eventCount := 0
+	terminalWritten := false
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -520,7 +566,41 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 			detached = true
 			return true
 		}
+		if ev.Type == codingagent.EventResult || (ev.Type == codingagent.EventError && !ev.Retryable) {
+			terminalWritten = true
+		}
 		return suspended && stopOnUserInput
+	}
+
+	writeSyntheticTerminal := func() {
+		if terminalWritten || term.kind == "" {
+			return
+		}
+		if term.kind == codingagent.EventError && term.retryable {
+			return
+		}
+		ev := codingagent.StreamEvent{
+			Type:    term.kind,
+			Content: term.content,
+			TurnID:  exec.turnID,
+			CorrelationID: exec.correlationID,
+		}
+		if term.kind == codingagent.EventError {
+			ev.Retryable = term.retryable
+		}
+		logicalID := idx
+		idx++
+		exec.streamOffset = idx
+		eventCount++
+		if err := s.writeSSEWireEventsID(w, flusher, ev, &logicalID); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("failed to write synthetic terminal SSE", "session_id", sessionID, "error", err.Error())
+			}
+			detached = true
+			return
+		}
+		terminalWritten = true
+		s.updateSessionStatusOnTerminal(sessionID, ev, ev.Type == codingagent.EventError, ev.Content)
 	}
 
 	for {
@@ -542,6 +622,8 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 			flusher.Flush()
 		case ev, ok := <-ch:
 			if !ok {
+				term = ensureRelayTerminal(term, exec.relay)
+				writeSyntheticTerminal()
 				return term, suspended, false
 			}
 			if writeEvent(ev) {

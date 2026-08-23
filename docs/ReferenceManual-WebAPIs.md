@@ -400,6 +400,10 @@ Reattach to the current turn without enqueueing a user message. This is not a su
 
 `client/v1`: `Session.Follow(ctx)` and `Session.FollowFrom(ctx, lastEventID)`; `Stream.LastEventID()` tracks assembled logical ids.
 
+**Tool rejection and turn termination**
+
+When a coding agent's sandbox or policy layer rejects a shell command (for example Codex `Rejected(...)` for `rm -f`), Tern surfaces the rejection to subscribers as a **`tool_result`** event when possible (including synthesizing output from stderr if the agent CLI exits without stdout `item.completed`). A turn must not end with a silent HTTP stream close alone: subscribers receive an explicit terminal **`result`** or non-retryable **`error`**, then `data: [DONE]` on `POST /messages` and on Follow (`GET .../events`). Follow clients observe the same event types and termination contract as the original message SSE.
+
 ---
 
 ### 9. Terminate Session

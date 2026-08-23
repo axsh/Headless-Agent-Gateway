@@ -9,6 +9,34 @@ import (
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
+func TestIsSandboxRejection(t *testing.T) {
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{"Rejected(\"rm -f style commands are not permitted\")", true},
+		{"ERROR exec_command failed: Rejected(\"bad\")", true},
+		{"rm -f style commands are not permitted", true},
+		{"blocked by policy", true},
+		{"rejected by the environment policy", true},
+		{"exit status 1", false},
+		{"unexpected status 500 Internal Server Error", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		name := tt.in
+		if name == "" {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			got := codingagent.IsSandboxRejection(tt.in)
+			if got != tt.want {
+				t.Errorf("IsSandboxRejection(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsNonRetryableError(t *testing.T) {
 	tests := []struct {
 		in   string
