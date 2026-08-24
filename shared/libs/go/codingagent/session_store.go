@@ -19,6 +19,7 @@ type SessionRecord struct {
 	Status         string    `json:"status"`
 	Error          string    `json:"error,omitempty"`
 	WorkDir        string    `json:"work_dir"`
+	StorageRoot    string    `json:"storage_root,omitempty"`
 	AgentSessionID string    `json:"agent_session_id"`
 	SessionDir     string    `json:"session_dir"`
 	ConfigDir      string    `json:"config_dir,omitempty"`

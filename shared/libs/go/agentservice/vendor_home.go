@@ -5,31 +5,31 @@ import "path/filepath"
 // VendorHomeDir returns the Coding Agent home directory for launch/overlay.
 // Mapping:
 //
-//	codex       → {workDir}/.codex
-//	claudecode  → {workDir}/.claude   // never {workDir}/.claudecode
-//	wayfinder   → sessionDir          // Tern canonical root (.tern/{id}); NOT .wayfinder, NOT .../native
+//	codex       → {storageRoot}/.codex
+//	claudecode  → {storageRoot}/.claude   // never {storageRoot}/.claudecode
+//	wayfinder   → sessionDir              // Tern canonical leaf (.tern/{id}); NOT .wayfinder, NOT .../native
 //
 // Empty inputs that are required for the agent return "".
-func VendorHomeDir(workDir, agentName, sessionDir string) string {
+func VendorHomeDir(storageRoot, agentName, sessionDir string) string {
 	switch agentName {
 	case "codex":
-		if workDir == "" {
+		if storageRoot == "" {
 			return ""
 		}
-		return filepath.Join(workDir, ".codex")
+		return filepath.Join(storageRoot, ".codex")
 	case "claudecode":
-		if workDir == "" {
+		if storageRoot == "" {
 			return ""
 		}
-		return filepath.Join(workDir, ".claude")
+		return filepath.Join(storageRoot, ".claude")
 	case "wayfinder":
 		return sessionDir
 	case "":
 		return ""
 	default:
-		if workDir == "" {
+		if storageRoot == "" {
 			return ""
 		}
-		return filepath.Join(workDir, "."+agentName)
+		return filepath.Join(storageRoot, "."+agentName)
 	}
 }
