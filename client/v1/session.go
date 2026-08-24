@@ -23,6 +23,7 @@ type SessionInfo struct {
 	AgentSessionID string                  `json:"agent_session_id"`
 	SessionDir     string                  `json:"session_dir"`
 	ConfigDir      string                  `json:"config_dir,omitempty"`
+	SandboxMode    string                  `json:"sandbox_mode,omitempty"`
 	CreatedAt      time.Time               `json:"created_at"`
 	UpdatedAt      time.Time               `json:"updated_at"`
 	AgentBindings  map[string]AgentBinding `json:"agent_bindings,omitempty"`
@@ -81,7 +82,16 @@ type SessionRequest struct {
 	StorageRoot string `json:"storage_root,omitempty"`
 	SessionDir  string `json:"session_dir,omitempty"`
 	ConfigDir   string `json:"config_dir,omitempty"`
+	// SandboxMode is optional: "read-only" (default), "workspace-write", or "danger-full-access".
+	SandboxMode string `json:"sandbox_mode,omitempty"`
 }
+
+// Sandbox mode values for SessionRequest / SessionInfo (aligned with Codex CLI -s).
+const (
+	SandboxModeReadOnly         = "read-only"
+	SandboxModeWorkspaceWrite   = "workspace-write"
+	SandboxModeDangerFullAccess = "danger-full-access"
+)
 
 // CreateSession creates a new session and returns a Session object.
 func (c *Client) CreateSession(ctx context.Context, req SessionRequest) (*Session, error) {

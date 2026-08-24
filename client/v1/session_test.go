@@ -72,6 +72,84 @@ func TestGetSession_Typed(t *testing.T) {
 	}
 }
 
+func TestCreateSession_SandboxModeMarshaled(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/sessions" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"session_id": "s-new"})
+	}))
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	_, err := c.CreateSession(context.Background(), v1.SessionRequest{
+		Agent:       "codex",
+		WorkDir:     "/tmp/w",
+		SandboxMode: v1.SandboxModeWorkspaceWrite,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if gotBody["sandbox_mode"] != v1.SandboxModeWorkspaceWrite {
+		t.Fatalf("sandbox_mode = %v, want %s", gotBody["sandbox_mode"], v1.SandboxModeWorkspaceWrite)
+	}
+}
+
+func TestCreateSession_SandboxModeOmittedWhenEmpty(t *testing.T) {
+	var raw []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		raw, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"session_id": "s-new"})
+	}))
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	_, err := c.CreateSession(context.Background(), v1.SessionRequest{
+		Agent:   "codex",
+		WorkDir: "/tmp/w",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if strings.Contains(string(raw), "sandbox_mode") {
+		t.Fatalf("sandbox_mode must be omitted when empty, body=%s", raw)
+	}
+}
+
+func TestGetSession_SandboxMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":           "s1",
+			"agent_name":   "codex",
+			"status":       "active",
+			"work_dir":     "/tmp/w",
+			"session_dir":  "/tmp/s",
+			"sandbox_mode": v1.SandboxModeDangerFullAccess,
+		})
+	}))
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	info, err := c.GetSession(context.Background(), "s1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if info.SandboxMode != v1.SandboxModeDangerFullAccess {
+		t.Fatalf("SandboxMode = %q", info.SandboxMode)
+	}
+}
+
 func TestGetSession_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

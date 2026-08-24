@@ -154,15 +154,23 @@ Initializes a new coding session.
   - `storage_root` (string, Optional): Parent directory for Agent Homes. Defaults to `work_dir`. When set to a path other than `work_dir`, `.tern`, `.codex`, and `.claude` are created under this parent.
   - `session_dir` (string, Optional): Override for the **canonical session folder** (Tern leaf). Defaults to `{storage_root}/.tern/{session_id}`. This is not the Codex/Claude CLI home; do not place CLI homes under `{session_dir}/native`.
   - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into the agent vendor home before launching the agent (`{storage_root}/.claude` for Claude Code, `{storage_root}/.codex` for Codex, or the canonical session folder for Wayfinder). When omitted, behavior is unchanged from previous versions (no overlay).
+  - `sandbox_mode` (string, Optional): Per-session Codex/Claude sandbox policy. Allowed values:
+    - `read-only` (default when omitted and `agent_service.disable_sandbox` is false): Codex `-s read-only` (workspace writes blocked).
+    - `workspace-write`: Codex `-s workspace-write` (R/W under the workspace; sandbox retained). Preferred for Agent Service workloads that need file edits without full bypass.
+    - `danger-full-access`: Codex `--dangerously-bypass-approvals-and-sandbox` (full bypass). Also used when CreateSession omits `sandbox_mode` and the server has `agent_service.disable_sandbox: true`.
+    - Precedence: explicit `sandbox_mode` > server `disable_sandbox` > `read-only`.
+    - Claude Code mapping: `danger-full-access` sets `CLAUDE_CODE_SKIP_SANDBOX=1`; `read-only` / `workspace-write` do not (Claude still uses `--permission-mode bypassPermissions`). See Issue [#54](https://github.com/axsh/arctic-tern/issues/54).
+    - `sandbox_mode` is fixed at CreateSession time (not changeable via PATCH).
   - Paths (`work_dir`, `storage_root`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
   ```json
   {
-    "agent": "claudecode",
-    "model": "claude-3-5-sonnet-20241022",
+    "agent": "codex",
+    "model": "gpt-5.3-codex",
     "work_dir": "/path/to/workspace",
     "storage_root": "/path/to/storage",
     "session_dir": "/path/to/tern-sessions/card-1",
-    "config_dir": "/path/to/config-sets/alpha"
+    "config_dir": "/path/to/config-sets/alpha",
+    "sandbox_mode": "workspace-write"
   }
   ```
   - Persistence env mapping:
@@ -202,6 +210,7 @@ Retrieves metadata and the active state of a created session.
     "storage_root": "/path/to/workspace",
     "session_dir": "/path/to/workspace/.tern/a95db64cb646901efb395a18d817a37d",
     "config_dir": "/path/to/config-sets/alpha",
+    "sandbox_mode": "workspace-write",
     "agent_session_id": "agent-internal-session-id",
     "active_agent": "claudecode",
     "agent_bindings": {
