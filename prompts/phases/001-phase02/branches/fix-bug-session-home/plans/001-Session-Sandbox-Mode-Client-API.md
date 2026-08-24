@@ -213,7 +213,7 @@ SandboxMode string `json:"sandbox_mode,omitempty"`
 7. [x] **tests/common_sandbox_mode_test.go**: T1–T7。
 8. [x] **docs**: ReferenceManual 更新。
 9. [x] **Verify**: build + integration `--specify TestSandboxMode` + `--specify TestSessionRecover`。
-10. [/] **Git**: 意味単位で commit → 全成功後 push → PR（Issue #54 リンク）。
+10. [x] **Git**: 意味単位で commit → 全成功後 push → PR（Issue #54 リンク）。
 
 ## Verification Plan
 
