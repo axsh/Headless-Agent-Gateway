@@ -143,26 +143,32 @@ Initializes a new coding session.
 
 - **Method**: `POST`
 - **Path**: `/api/v1/sessions`
+- **Terminology**:
+  - `storage_root`: Parent directory for Agent Homes (default = `work_dir`). Agent Homes are `{storage_root}/.tern` (Wayfinder Home), `{storage_root}/.codex`, and `{storage_root}/.claude`.
+  - **Canonical session folder**: `{storage_root}/.tern/{session_id}` — persisted as API `session_dir` when defaulted. Contains `record.json`, `metadata.json`, and `history/`.
+  - `session_id`: HTTP session identifier issued by Tern; not part of the Home path definition.
 - **Request Body (JSON)**:
   - `agent` (string, Required): The name of the agent to use (`claudecode`, `wayfinder`, etc.).
   - `model` (string, Optional): The LLM model to use. If not specified, the default model is applied.
   - `work_dir` (string, Required): The absolute workspace directory path where the agent will operate.
-  - `session_dir` (string, Optional): The directory path for the Tern canonical session store (`record.json`, `metadata.json`, `history/`). Defaults to `work_dir/.tern/{session_id}`. This is not the Codex/Claude CLI home; do not place CLI homes under `{session_dir}/native`.
-  - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into the agent vendor home before launching the agent (`work_dir/.claude` for Claude Code, `work_dir/.codex` for Codex, or `session_dir` for Wayfinder). When omitted, behavior is unchanged from previous versions (no overlay).
-  - Paths (`work_dir`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
+  - `storage_root` (string, Optional): Parent directory for Agent Homes. Defaults to `work_dir`. When set to a path other than `work_dir`, `.tern`, `.codex`, and `.claude` are created under this parent.
+  - `session_dir` (string, Optional): Override for the **canonical session folder** (Tern leaf). Defaults to `{storage_root}/.tern/{session_id}`. This is not the Codex/Claude CLI home; do not place CLI homes under `{session_dir}/native`.
+  - `config_dir` (string, Optional): Agent config set directory (skills / rules / settings). When set, Tern overlays allowlisted entries into the agent vendor home before launching the agent (`{storage_root}/.claude` for Claude Code, `{storage_root}/.codex` for Codex, or the canonical session folder for Wayfinder). When omitted, behavior is unchanged from previous versions (no overlay).
+  - Paths (`work_dir`, `storage_root`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
   ```json
   {
     "agent": "claudecode",
     "model": "claude-3-5-sonnet-20241022",
     "work_dir": "/path/to/workspace",
+    "storage_root": "/path/to/storage",
     "session_dir": "/path/to/tern-sessions/card-1",
     "config_dir": "/path/to/config-sets/alpha"
   }
   ```
   - Persistence env mapping:
-    - Claude Code: `CLAUDE_CONFIG_DIR={work_dir}/.claude`
-    - Codex: `CODEX_HOME={work_dir}/.codex`
-    - Wayfinder: agent `SessionDir` is the Tern `session_dir` (default `{work_dir}/.tern/{session_id}`); same root as the canonical store (no `native/` subdirectory).
+    - Claude Code: `CLAUDE_CONFIG_DIR={storage_root}/.claude`
+    - Codex: `CODEX_HOME={storage_root}/.codex`
+    - Wayfinder: agent `SessionDir` is the Tern canonical session folder (`session_dir`, default `{storage_root}/.tern/{session_id}`); same root as the canonical store (no `native/` subdirectory).
   - Precedence:
     - Claude Code: CLI flags > project `.claude` under `work_dir` > user config under `CLAUDE_CONFIG_DIR` (after overlay). Project `.claude` nesting of `config_dir` is not supported.
     - Codex: CLI `-c` > (when `config_dir` is set) `$CODEX_HOME` user config/skills > project `.codex`; when `config_dir` is omitted, `--ignore-user-config` + `-c` as today.
@@ -193,6 +199,7 @@ Retrieves metadata and the active state of a created session.
     "model": "claude-3-5-sonnet-20241022",
     "status": "active",
     "work_dir": "/path/to/workspace",
+    "storage_root": "/path/to/workspace",
     "session_dir": "/path/to/workspace/.tern/a95db64cb646901efb395a18d817a37d",
     "config_dir": "/path/to/config-sets/alpha",
     "agent_session_id": "agent-internal-session-id",
@@ -219,11 +226,13 @@ Retrieves metadata and the active state of a created session.
 
 ### 5.1 List Sessions
 
-Lists session records persisted under `{work_dir}/.tern/*/record.json`. Memory is only a cache; there is no `session.db`.
+Lists session records persisted under `{storage_root}/.tern/*/record.json` (or `{work_dir}/.tern/*/record.json` when `storage_root` is omitted). Memory is only a cache; there is no `session.db`.
 
 - **Method**: `GET`
 - **Path**: `/api/v1/sessions?work_dir=`
-- **Query**: `work_dir` (required) — workspace path whose `.tern` directory is scanned.
+- **Query**:
+  - `work_dir` (required) — workspace path used when `storage_root` is omitted; also used with `storage_root` for client compatibility.
+  - `storage_root` (optional) — parent directory whose `.tern` folder is scanned. When omitted, defaults to `work_dir`.
 - **Response (200 OK)**: JSON array of session records (same shape as Get Session).
 
 ---

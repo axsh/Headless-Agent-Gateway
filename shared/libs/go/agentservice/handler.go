@@ -76,12 +76,13 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 // handleCreateSession handles POST /api/v1/sessions.
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Agent      string `json:"agent"`
-		Model      string `json:"model"`
-		WorkDir    string `json:"work_dir"`
-		Prompt     string `json:"prompt"`
-		SessionDir string `json:"session_dir"`
-		ConfigDir  string `json:"config_dir"`
+		Agent       string `json:"agent"`
+		Model       string `json:"model"`
+		WorkDir     string `json:"work_dir"`
+		Prompt      string `json:"prompt"`
+		SessionDir  string `json:"session_dir"`
+		ConfigDir   string `json:"config_dir"`
+		StorageRoot string `json:"storage_root"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -115,13 +116,14 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := s.generateID()
 	record := &codingagent.SessionRecord{
-		ID:         sessionID,
-		AgentName:  req.Agent,
-		Model:      req.Model,
-		Status:     codingagent.StatusActive,
-		WorkDir:    req.WorkDir,
-		SessionDir: req.SessionDir,
-		ConfigDir:  req.ConfigDir,
+		ID:          sessionID,
+		AgentName:   req.Agent,
+		Model:       req.Model,
+		Status:      codingagent.StatusActive,
+		WorkDir:     req.WorkDir,
+		SessionDir:  req.SessionDir,
+		ConfigDir:   req.ConfigDir,
+		StorageRoot: req.StorageRoot,
 	}
 
 	// R2, R4: Resolve WorkDir to absolute path for record consistency.
@@ -131,9 +133,16 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// SessionDir fallback: {work_dir}/.tern/{session_id}.
-	if record.SessionDir == "" && record.WorkDir != "" {
-		record.SessionDir = filepath.Join(record.WorkDir, ".tern", record.ID)
+	record.StorageRoot = ResolveStorageRoot(record.StorageRoot, record.WorkDir)
+	if record.StorageRoot != "" {
+		if abs, err := filepath.Abs(record.StorageRoot); err == nil {
+			record.StorageRoot = abs
+		}
+	}
+
+	// SessionDir fallback: {storage_root}/.tern/{session_id}.
+	if record.SessionDir == "" && record.StorageRoot != "" {
+		record.SessionDir = CanonicalSessionDir(record.StorageRoot, record.ID)
 	}
 
 	// R1, R4: Resolve SessionDir to absolute path for record consistency.
@@ -158,6 +167,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		s.logger.Debug("session paths resolved",
 			"session_id", sessionID,
 			"work_dir", record.WorkDir,
+			"storage_root", record.StorageRoot,
 			"session_dir", record.SessionDir,
 			"config_dir", record.ConfigDir)
 	}
@@ -386,7 +396,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		codingagent.WithIdleTimeout(agentCfg.IdleTimeoutSeconds),
 		codingagent.WithMaxExecution(agentCfg.MaxExecutionSeconds),
 	}
-	if vh := VendorHomeDir(record.WorkDir, record.AgentName, record.SessionDir); vh != "" {
+	if vh := VendorHomeDir(EffectiveStorageRoot(record), record.AgentName, record.SessionDir); vh != "" {
 		opts = append(opts, codingagent.WithSessionDir(vh))
 		if s.logger != nil {
 			s.logger.Debug("vendor home resolved for agent launch",

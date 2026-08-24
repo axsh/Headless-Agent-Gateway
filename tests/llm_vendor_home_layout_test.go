@@ -134,3 +134,42 @@ func TestCodexResumeUsesSameVendorHome(t *testing.T) {
 		t.Fatalf("resume id = %q, want codex-native", second.AgentSessionID)
 	}
 }
+
+func TestStorageRoot_SharedParentForHomes(t *testing.T) {
+	ts, _, codex, _ := newPortabilityHTTP(t)
+	workDir := t.TempDir()
+	storageRoot := t.TempDir()
+	id := portCreate(t, ts, "codex", workDir, "", "gpt-4o", storageRoot)
+	portSend(t, ts, id, "hi")
+
+	sessionDir := filepath.Join(storageRoot, ".tern", id)
+	if _, err := os.Stat(filepath.Join(sessionDir, "record.json")); err != nil {
+		t.Fatalf("record.json under storage_root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, ".tern", id, "record.json")); !os.IsNotExist(err) {
+		t.Fatalf("record must not be under work_dir/.tern when storage_root differs")
+	}
+	cfg := codex.last()
+	want := filepath.Join(storageRoot, ".codex")
+	if cfg.SessionDir != want {
+		t.Fatalf("SessionDir = %q, want %q", cfg.SessionDir, want)
+	}
+}
+
+func TestStorageRoot_ExplicitSessionDir_VendorFromStorageRoot(t *testing.T) {
+	ts, _, codex, _ := newPortabilityHTTP(t)
+	workDir := t.TempDir()
+	storageRoot := t.TempDir()
+	leaf := t.TempDir()
+	id := portCreate(t, ts, "codex", workDir, leaf, "gpt-4o", storageRoot)
+	portSend(t, ts, id, "ping")
+	if _, err := os.Stat(filepath.Join(leaf, "record.json")); err != nil {
+		t.Fatalf("record.json under explicit leaf: %v", err)
+	}
+	cfg := codex.last()
+	want := filepath.Join(storageRoot, ".codex")
+	if cfg.SessionDir != want {
+		t.Fatalf("SessionDir = %q, want %q", cfg.SessionDir, want)
+	}
+	_ = id
+}

@@ -101,13 +101,23 @@ func newPortabilityServer(t *testing.T, sum portable.Summarizer) (*agentservice.
 }
 
 func createPortabilitySession(t *testing.T, handler http.Handler, agent, workDir, sessionDir, model string) string {
+	return createPortabilitySessionWithStorage(t, handler, agent, workDir, sessionDir, model, "")
+}
+
+func createPortabilitySessionWithStorage(t *testing.T, handler http.Handler, agent, workDir, sessionDir, model, storageRoot string) string {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{
-		"agent":       agent,
-		"model":       model,
-		"work_dir":    workDir,
-		"session_dir": sessionDir,
-	})
+	payload := map[string]string{
+		"agent":    agent,
+		"model":    model,
+		"work_dir": workDir,
+	}
+	if sessionDir != "" {
+		payload["session_dir"] = sessionDir
+	}
+	if storageRoot != "" {
+		payload["storage_root"] = storageRoot
+	}
+	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -171,6 +181,63 @@ func TestHandleCreateSession_DefaultSessionDirTern(t *testing.T) {
 	want := filepath.Join(workDir, ".tern", id)
 	if got["session_dir"] != want {
 		t.Errorf("session_dir = %v, want %s", got["session_dir"], want)
+	}
+	if got["storage_root"] != workDir {
+		t.Errorf("storage_root = %v, want %s", got["storage_root"], workDir)
+	}
+}
+
+func TestHandleCreateSession_StorageRootOverridesParent(t *testing.T) {
+	_, handler, _, _ := newPortabilityServer(t, &countingSummarizer{})
+	workDir := t.TempDir()
+	storageRoot := t.TempDir()
+	id := createPortabilitySessionWithStorage(t, handler, "claudecode", workDir, "", "claude-sonnet-4-20250514", storageRoot)
+	got := getSessionMap(t, handler, id)
+	wantSession := filepath.Join(storageRoot, ".tern", id)
+	if got["session_dir"] != wantSession {
+		t.Errorf("session_dir = %v, want %s", got["session_dir"], wantSession)
+	}
+	if got["storage_root"] != storageRoot {
+		t.Errorf("storage_root = %v, want %s", got["storage_root"], storageRoot)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, ".tern", id, "record.json")); !os.IsNotExist(err) {
+		t.Fatalf("record must not be under work_dir/.tern when storage_root differs")
+	}
+}
+
+func TestHandleCreateSession_ExplicitSessionDirKeepsLeaf(t *testing.T) {
+	_, handler, _, _ := newPortabilityServer(t, &countingSummarizer{})
+	workDir := t.TempDir()
+	storageRoot := t.TempDir()
+	leaf := t.TempDir()
+	id := createPortabilitySessionWithStorage(t, handler, "claudecode", workDir, leaf, "claude-sonnet-4-20250514", storageRoot)
+	got := getSessionMap(t, handler, id)
+	if filepath.Clean(got["session_dir"].(string)) != filepath.Clean(leaf) {
+		t.Errorf("session_dir = %v, want %s", got["session_dir"], leaf)
+	}
+	if got["storage_root"] != storageRoot {
+		t.Errorf("storage_root = %v, want %s", got["storage_root"], storageRoot)
+	}
+	_ = id
+}
+
+func TestHandleListSessions_ByStorageRoot(t *testing.T) {
+	workDir := t.TempDir()
+	storageRoot := t.TempDir()
+	_, handlerA, _, _ := newPortabilityServer(t, &countingSummarizer{})
+	id := createPortabilitySessionWithStorage(t, handlerA, "claudecode", workDir, "", "claude-sonnet-4-20250514", storageRoot)
+	_, handlerB, _, _ := newPortabilityServer(t, &countingSummarizer{})
+	u := "/api/v1/sessions?work_dir=" + url.QueryEscape(workDir) + "&storage_root=" + url.QueryEscape(storageRoot)
+	req := httptest.NewRequest(http.MethodGet, u, nil)
+	w := httptest.NewRecorder()
+	handlerB.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	var recs []map[string]any
+	json.NewDecoder(w.Body).Decode(&recs)
+	if len(recs) != 1 || recs[0]["id"] != id {
+		t.Fatalf("recs = %+v", recs)
 	}
 }
 

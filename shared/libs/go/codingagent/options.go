@@ -159,7 +159,7 @@ func ApplyDefaults(cfg *SessionConfig, ac *AdapterConfig) {
 	}
 	// SessionDir fallback: explicit > AdapterConfig.DefaultSessionDir.
 	// Do not synthesize WorkDir/.AgentName; Tern assigns {work_dir}/.tern/{session_id}
-	// as the canonical store and passes VendorHomeDir(workDir, agent, sessionDir) to adapters.
+	// as the canonical store and passes VendorHomeDir(storageRoot, agent, sessionDir) to adapters.
 	if cfg.SessionDir == "" && ac.DefaultSessionDir != "" {
 		cfg.SessionDir = ac.DefaultSessionDir
 	}

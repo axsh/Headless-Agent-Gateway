@@ -13,6 +13,7 @@ import (
 // WorkDirSessionLister lists sessions persisted under a workspace .tern directory.
 type WorkDirSessionLister interface {
 	ListByWorkDir(workDir string) ([]*codingagent.SessionRecord, error)
+	ListByStorageRoot(storageRoot string) ([]*codingagent.SessionRecord, error)
 }
 
 // WorkspaceSessionStore persists SessionRecord as {session_dir}/record.json
@@ -31,8 +32,11 @@ var _ WorkDirSessionLister = (*WorkspaceSessionStore)(nil)
 
 // Create writes record.json, initializes Canonical folders, and caches the record.
 func (s *WorkspaceSessionStore) Create(rec *codingagent.SessionRecord) error {
-	if rec.SessionDir == "" && rec.WorkDir != "" && rec.ID != "" {
-		rec.SessionDir = filepath.Join(rec.WorkDir, ".tern", rec.ID)
+	if rec.SessionDir == "" {
+		root := EffectiveStorageRoot(rec)
+		if root != "" && rec.ID != "" {
+			rec.SessionDir = CanonicalSessionDir(root, rec.ID)
+		}
 	}
 	if rec.SessionDir != "" {
 		if err := persistSessionRecord(rec); err != nil {
@@ -73,10 +77,19 @@ func (s *WorkspaceSessionStore) Delete(id string) error {
 
 // ListByWorkDir scans {work_dir}/.tern/*/record.json into the cache and returns them.
 func (s *WorkspaceSessionStore) ListByWorkDir(workDir string) ([]*codingagent.SessionRecord, error) {
-	if workDir == "" {
-		return nil, fmt.Errorf("work_dir is required")
+	return s.listUnderStorageRoot(workDir)
+}
+
+// ListByStorageRoot scans {storage_root}/.tern/*/record.json into the cache and returns them.
+func (s *WorkspaceSessionStore) ListByStorageRoot(storageRoot string) ([]*codingagent.SessionRecord, error) {
+	return s.listUnderStorageRoot(storageRoot)
+}
+
+func (s *WorkspaceSessionStore) listUnderStorageRoot(root string) ([]*codingagent.SessionRecord, error) {
+	if root == "" {
+		return nil, fmt.Errorf("storage root is required")
 	}
-	abs, err := filepath.Abs(workDir)
+	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +141,6 @@ func persistSessionRecord(rec *codingagent.SessionRecord) error {
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(path)
 		if err2 := os.Rename(tmp, path); err2 != nil {
-			_ = os.Remove(tmp)
 			return err2
 		}
 	}
