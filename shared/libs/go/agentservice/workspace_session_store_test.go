@@ -70,3 +70,37 @@ func TestWorkspaceSessionStore_ListByWorkDirReloads(t *testing.T) {
 		t.Errorf("SessionDir = %q, want %q", loaded.SessionDir, wantDir)
 	}
 }
+
+func TestWorkspaceSessionStore_ListByStorageRootReloads(t *testing.T) {
+	workDir := t.TempDir()
+	storageRoot := t.TempDir()
+	storeA := NewWorkspaceSessionStore()
+	rec := &codingagent.SessionRecord{
+		ID:          "sess-storage-root",
+		AgentName:   "codex",
+		WorkDir:     workDir,
+		StorageRoot: storageRoot,
+	}
+	if err := storeA.Create(rec); err != nil {
+		t.Fatal(err)
+	}
+	wantDir := filepath.Join(storageRoot, ".tern", "sess-storage-root")
+	if rec.SessionDir != wantDir {
+		t.Fatalf("SessionDir = %q, want %q", rec.SessionDir, wantDir)
+	}
+	storeB := NewWorkspaceSessionStore()
+	got, err := storeB.ListByStorageRoot(storageRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "sess-storage-root" {
+		t.Fatalf("ListByStorageRoot = %+v", got)
+	}
+	listWork, err := storeB.ListByWorkDir(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listWork) != 0 {
+		t.Fatalf("ListByWorkDir(workDir) should be empty when storage_root differs, got %+v", listWork)
+	}
+}

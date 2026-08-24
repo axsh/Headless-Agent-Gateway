@@ -19,6 +19,7 @@ type SessionInfo struct {
 	Status         string                  `json:"status"`
 	Error          string                  `json:"error,omitempty"`
 	WorkDir        string                  `json:"work_dir"`
+	StorageRoot    string                  `json:"storage_root,omitempty"`
 	AgentSessionID string                  `json:"agent_session_id"`
 	SessionDir     string                  `json:"session_dir"`
 	ConfigDir      string                  `json:"config_dir,omitempty"`
@@ -74,11 +75,12 @@ func ResumeSession(c *Client, sessionID string) *Session {
 
 // SessionRequest is the request to create a session.
 type SessionRequest struct {
-	Agent      string `json:"agent"`
-	Model      string `json:"model,omitempty"`
-	WorkDir    string `json:"work_dir"`
-	SessionDir string `json:"session_dir,omitempty"`
-	ConfigDir  string `json:"config_dir,omitempty"`
+	Agent       string `json:"agent"`
+	Model       string `json:"model,omitempty"`
+	WorkDir     string `json:"work_dir"`
+	StorageRoot string `json:"storage_root,omitempty"`
+	SessionDir  string `json:"session_dir,omitempty"`
+	ConfigDir   string `json:"config_dir,omitempty"`
 }
 
 // CreateSession creates a new session and returns a Session object.
@@ -380,9 +382,12 @@ func (s *Session) UpdateModel(ctx context.Context, model string) (*SessionInfo, 
 	return s.Update(ctx, UpdateSessionRequest{Model: &model})
 }
 
-// ListSessions lists sessions persisted under workDir/.tern.
-func (c *Client) ListSessions(ctx context.Context, workDir string) ([]SessionInfo, error) {
+// ListSessions lists sessions persisted under workDir/.tern (or storageRoot/.tern when set).
+func (c *Client) ListSessions(ctx context.Context, workDir string, storageRoot ...string) ([]SessionInfo, error) {
 	u := c.baseURL + "/api/v1/sessions?work_dir=" + url.QueryEscape(workDir)
+	if len(storageRoot) > 0 && storageRoot[0] != "" {
+		u += "&storage_root=" + url.QueryEscape(storageRoot[0])
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create list sessions request: %w", err)

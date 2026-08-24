@@ -63,7 +63,8 @@ func printUsage() {
 	fmt.Println("  agents                                List available agents")
 	fmt.Println("  models                                List available models")
 	fmt.Println("  run --agent NAME --prompt MSG          Create session and run")
-	fmt.Println("      [--session-dir DIR]                Session storage directory")
+	fmt.Println("      [--session-dir DIR]                Canonical session leaf (default: storage-root/.tern/{id})")
+	fmt.Println("      [--storage-root DIR]               Parent for .tern/.codex/.claude (default: work-dir)")
 	fmt.Println("      [--config-dir DIR]                 Agent config set directory (skills/rules)")
 	fmt.Println("  run --resume ID --prompt MSG           Continue existing session")
 	fmt.Println("  session --id ID                        Get session status")
@@ -142,8 +143,9 @@ func cmdRun(c *client.Client, args []string) {
 	model := fs.String("model", "", "Model name")
 	prompt := fs.String("prompt", "", "Prompt message (required)")
 	workDir := fs.String("work-dir", ".", "Working directory")
-	sessionDir := fs.String("session-dir", "", "Session data storage directory (default: work-dir)")
-	configDir := fs.String("config-dir", "", "Agent config set directory (skills/rules); overlaid into session-dir")
+	sessionDir := fs.String("session-dir", "", "Canonical session leaf directory (default: storage-root/.tern/{id})")
+	storageRoot := fs.String("storage-root", "", "Parent directory for .tern/.codex/.claude (default: work-dir)")
+	configDir := fs.String("config-dir", "", "Agent config set directory (skills/rules); overlaid into vendor home")
 	resumeSessionID := fs.String("resume", "", "Existing session ID (for continuation)")
 	fs.Parse(args)
 
@@ -169,11 +171,12 @@ func cmdRun(c *client.Client, args []string) {
 			os.Exit(1)
 		}
 		session, err = c.CreateSession(ctx, client.SessionRequest{
-			Agent:      *agent,
-			Model:      *model,
-			WorkDir:    *workDir,
-			SessionDir: *sessionDir,
-			ConfigDir:  *configDir,
+			Agent:       *agent,
+			Model:       *model,
+			WorkDir:     *workDir,
+			StorageRoot: *storageRoot,
+			SessionDir:  *sessionDir,
+			ConfigDir:   *configDir,
 		})
 		if err != nil {
 			log.Error("error creating session", "error", err.Error())

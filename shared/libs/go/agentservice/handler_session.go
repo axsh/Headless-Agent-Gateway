@@ -39,7 +39,8 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "workspace listing is not available", http.StatusNotImplemented)
 		return
 	}
-	recs, err := lister.ListByWorkDir(workDir)
+	scanRoot := ResolveStorageRoot(r.URL.Query().Get("storage_root"), workDir)
+	recs, err := lister.ListByStorageRoot(scanRoot)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -94,12 +94,19 @@ func newPortabilityHTTP(t *testing.T) (*httptest.Server, *portabilityAgent, *por
 	return ts, claude, codex, sum
 }
 
-func portCreate(t *testing.T, ts *httptest.Server, agent, workDir, sessionDir, model string) string {
+func portCreate(t *testing.T, ts *httptest.Server, agent, workDir, sessionDir, model string, storageRoot ...string) string {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{
-		"agent": agent, "model": model, "work_dir": workDir, "session_dir": sessionDir,
-	})
-	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
+	body := map[string]string{
+		"agent": agent, "model": model, "work_dir": workDir,
+	}
+	if sessionDir != "" {
+		body["session_dir"] = sessionDir
+	}
+	if len(storageRoot) > 0 && storageRoot[0] != "" {
+		body["storage_root"] = storageRoot[0]
+	}
+	raw, _ := json.Marshal(body)
+	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
