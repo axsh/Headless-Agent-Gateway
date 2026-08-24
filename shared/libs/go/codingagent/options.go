@@ -47,6 +47,10 @@ type SessionConfig struct {
 	ScannerMaxTokenBytes int
 	// MaxToolResultBytes is the max EventToolResult content size for SSE relay.
 	MaxToolResultBytes int
+
+	// SandboxMode is the resolved session sandbox policy (read-only | danger-full-access).
+	// When empty, adapters fall back to AdapterConfig.DisableSandbox for compatibility.
+	SandboxMode string
 }
 
 // WithModel sets the model name.
@@ -122,6 +126,11 @@ func WithScannerMaxTokenBytes(n int) SessionOption {
 // WithMaxToolResultBytes sets the max EventToolResult content size for SSE relay.
 func WithMaxToolResultBytes(n int) SessionOption {
 	return func(c *SessionConfig) { c.MaxToolResultBytes = n }
+}
+
+// WithSandboxMode sets the resolved session sandbox mode (read-only | danger-full-access).
+func WithSandboxMode(mode string) SessionOption {
+	return func(c *SessionConfig) { c.SandboxMode = mode }
 }
 
 // NewSessionConfig applies the given SessionOptions and returns a SessionConfig.

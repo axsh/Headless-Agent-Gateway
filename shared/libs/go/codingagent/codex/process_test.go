@@ -10,7 +10,7 @@ import (
 
 func TestCodexBuildArgs(t *testing.T) {
 	overrides := []string{"-c", `model="gpt-4o"`}
-	args := codex.BuildArgs("create hello.txt", overrides, true, "", true)
+	args := codex.BuildArgs("create hello.txt", overrides, true, "", codingagent.SandboxModeDangerFullAccess)
 
 	argsStr := strings.Join(args, " ")
 	if !strings.Contains(argsStr, "exec") {
@@ -34,13 +34,13 @@ func TestCodexBuildArgs(t *testing.T) {
 func TestCodexBuildArgs_WithConfigDirDisablesIgnoreUserConfig(t *testing.T) {
 	// When ConfigDir is set, StartProcess passes ignoreUserConfig=false.
 	// When ConfigDir == "", StartProcess passes ignoreUserConfig=true (restores --ignore-user-config).
-	args := codex.BuildArgs("hi", nil, false, "", true)
+	args := codex.BuildArgs("hi", nil, false, "", codingagent.SandboxModeDangerFullAccess)
 	for _, a := range args {
 		if a == "--ignore-user-config" {
 			t.Fatal("ignore-user-config must be omitted when config_dir is active")
 		}
 	}
-	cleared := codex.BuildArgs("hi", nil, true, "", true)
+	cleared := codex.BuildArgs("hi", nil, true, "", codingagent.SandboxModeDangerFullAccess)
 	found := false
 	for _, a := range cleared {
 		if a == "--ignore-user-config" {
@@ -54,7 +54,7 @@ func TestCodexBuildArgs_WithConfigDirDisablesIgnoreUserConfig(t *testing.T) {
 }
 
 func TestCodexBuildArgs_StdinMode(t *testing.T) {
-	args := codex.BuildArgs("some prompt text", nil, true, "", true)
+	args := codex.BuildArgs("some prompt text", nil, true, "", codingagent.SandboxModeDangerFullAccess)
 
 	// Last argument should be "-" to instruct codex to read from stdin.
 	if args[len(args)-1] != "-" {
@@ -70,7 +70,7 @@ func TestCodexBuildArgs_StdinMode(t *testing.T) {
 }
 
 func TestCodexBuildArgs_EmptyPrompt(t *testing.T) {
-	args := codex.BuildArgs("", nil, true, "", true)
+	args := codex.BuildArgs("", nil, true, "", codingagent.SandboxModeDangerFullAccess)
 
 	// When prompt is empty, "-" should NOT be in args.
 	for _, a := range args {
@@ -233,16 +233,42 @@ func TestBuildEnv_CodexGatewayToken(t *testing.T) {
 }
 
 func TestCodexBuildArgs_SandboxEnforcedOmitsBypassFlag(t *testing.T) {
-	args := codex.BuildArgs("hi", nil, true, "", false)
+	args := codex.BuildArgs("hi", nil, true, "", codingagent.SandboxModeReadOnly)
 	for _, a := range args {
 		if strings.Contains(a, "bypass") {
 			t.Fatalf("bypass flag must be omitted when sandbox enforced, got %v", args)
 		}
 	}
+	found := false
+	for i, a := range args {
+		if a == "-s" && i+1 < len(args) && args[i+1] == codingagent.SandboxModeReadOnly {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected -s read-only, got %v", args)
+	}
+}
+
+func TestCodexBuildArgs_WorkspaceWrite(t *testing.T) {
+	args := codex.BuildArgs("hi", nil, true, "", codingagent.SandboxModeWorkspaceWrite)
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "bypass") {
+		t.Fatalf("bypass must be omitted for workspace-write, got %v", args)
+	}
+	found := false
+	for i, a := range args {
+		if a == "-s" && i+1 < len(args) && args[i+1] == codingagent.SandboxModeWorkspaceWrite {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected -s workspace-write, got %v", args)
+	}
 }
 
 func TestCodexBuildArgs_ResumeUsesExecResume(t *testing.T) {
-	args := codex.BuildArgs("hi", nil, false, "abc-123", true)
+	args := codex.BuildArgs("hi", nil, false, "abc-123", codingagent.SandboxModeDangerFullAccess)
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "exec") || !strings.Contains(joined, "resume") {
 		t.Fatalf("expected exec resume, got %v", args)
@@ -268,7 +294,7 @@ func TestCodexBuildArgs_ResumeUsesExecResume(t *testing.T) {
 }
 
 func TestCodexBuildArgs_NoResumeKeepsExec(t *testing.T) {
-	args := codex.BuildArgs("hi", nil, true, "", true)
+	args := codex.BuildArgs("hi", nil, true, "", codingagent.SandboxModeDangerFullAccess)
 	if len(args) < 2 || args[0] != "exec" {
 		t.Fatalf("expected exec ..., got %v", args)
 	}

@@ -126,6 +126,13 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 	if ac.DisableSandbox {
 		env["CLAUDE_CODE_SKIP_SANDBOX"] = "1"
 	}
+	if cfg.SandboxMode != "" {
+		if codingagent.SandboxModeDisablesSandbox(cfg.SandboxMode) {
+			env["CLAUDE_CODE_SKIP_SANDBOX"] = "1"
+		} else {
+			delete(env, "CLAUDE_CODE_SKIP_SANDBOX")
+		}
+	}
 
 	// Session data storage directory override.
 	if cfg.SessionDir != "" {
@@ -189,13 +196,17 @@ func StartProcess(
 			return nil, nil, err
 		}
 
+		disableSandbox := ac.DisableSandbox
+		if cfg.SandboxMode != "" {
+			disableSandbox = codingagent.SandboxModeDisablesSandbox(cfg.SandboxMode)
+		}
 		builder := &codingagent.WSLCommandBuilder{
 			Distro:         distro,
 			WorkDir:        linuxWorkDir,
 			Command:        "claude",
 			Args:           args,
 			Env:            env,
-			DisableSandbox: ac.DisableSandbox,
+			DisableSandbox: disableSandbox,
 		}
 		cmd = builder.BuildCmd(procCtx)
 	} else {

@@ -71,12 +71,24 @@ func resolveTimeouts(cfg *codingagent.SessionConfig) (idleSec, maxSec int) {
 // and skills under CODEX_HOME can load; -c overrides still win for Tern keys.
 // When resumeSessionID != "", uses "codex exec resume <id>" to continue a thread.
 // When prompt is non-empty, "-" is appended to instruct codex to read from stdin.
-func BuildArgs(prompt string, configOverrides []string, ignoreUserConfig bool, resumeSessionID string, disableSandbox bool) []string {
+//
+// sandboxMode selects Codex isolation (aligned with codex -s):
+//   - read-only: -s read-only (no full bypass)
+//   - workspace-write: -s workspace-write (writable workspace, still sandboxed)
+//   - danger-full-access: --dangerously-bypass-approvals-and-sandbox
+// Empty sandboxMode is treated as read-only.
+func BuildArgs(prompt string, configOverrides []string, ignoreUserConfig bool, resumeSessionID string, sandboxMode string) []string {
 	common := []string{
 		"--json",
 	}
-	if disableSandbox {
+	mode := codingagent.EffectiveSandboxMode(sandboxMode)
+	switch mode {
+	case codingagent.SandboxModeDangerFullAccess:
 		common = append(common, "--dangerously-bypass-approvals-and-sandbox")
+	case codingagent.SandboxModeWorkspaceWrite:
+		common = append(common, "-s", codingagent.SandboxModeWorkspaceWrite)
+	default:
+		common = append(common, "-s", codingagent.SandboxModeReadOnly)
 	}
 	if ignoreUserConfig {
 		common = append(common, "--ignore-user-config")
@@ -161,8 +173,13 @@ func StartProcess(
 	log = log.WithComponent("codex")
 
 	ignoreUserConfig := cfg.ConfigDir == ""
-	args := BuildArgs(cfg.Prompt, configOverrides, ignoreUserConfig, cfg.AgentSessionID, ac.DisableSandbox)
-	log.Debug("building CLI arguments", "args", args, "ignore_user_config", ignoreUserConfig, "config_dir", cfg.ConfigDir, "resume_session_id", cfg.AgentSessionID)
+	sandboxMode := cfg.SandboxMode
+	if sandboxMode == "" && ac.DisableSandbox {
+		sandboxMode = codingagent.SandboxModeDangerFullAccess
+	}
+	args := BuildArgs(cfg.Prompt, configOverrides, ignoreUserConfig, cfg.AgentSessionID, sandboxMode)
+	disableSandbox := codingagent.SandboxModeDisablesSandbox(codingagent.EffectiveSandboxMode(sandboxMode))
+	log.Debug("building CLI arguments", "args", args, "ignore_user_config", ignoreUserConfig, "config_dir", cfg.ConfigDir, "resume_session_id", cfg.AgentSessionID, "sandbox_mode", codingagent.EffectiveSandboxMode(sandboxMode), "disable_sandbox", disableSandbox)
 
 	env := BuildEnv(ac, cfg)
 
@@ -226,7 +243,7 @@ func StartProcess(
 			Command:        "codex",
 			Args:           args,
 			Env:            env,
-			DisableSandbox: ac.DisableSandbox,
+			DisableSandbox: disableSandbox,
 		}
 		cmd = builder.BuildCmd(procCtx)
 	} else {

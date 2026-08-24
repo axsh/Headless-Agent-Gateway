@@ -76,13 +76,14 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 // handleCreateSession handles POST /api/v1/sessions.
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Agent       string `json:"agent"`
-		Model       string `json:"model"`
-		WorkDir     string `json:"work_dir"`
-		Prompt      string `json:"prompt"`
-		SessionDir  string `json:"session_dir"`
-		ConfigDir   string `json:"config_dir"`
-		StorageRoot string `json:"storage_root"`
+		Agent        string `json:"agent"`
+		Model        string `json:"model"`
+		WorkDir      string `json:"work_dir"`
+		Prompt       string `json:"prompt"`
+		SessionDir   string `json:"session_dir"`
+		ConfigDir    string `json:"config_dir"`
+		StorageRoot  string `json:"storage_root"`
+		SandboxMode  string `json:"sandbox_mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -115,6 +116,13 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := s.generateID()
+
+	resolvedSandbox, err := codingagent.ResolveSandboxMode(req.SandboxMode, s.disableSandbox)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	record := &codingagent.SessionRecord{
 		ID:          sessionID,
 		AgentName:   req.Agent,
@@ -124,6 +132,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		SessionDir:  req.SessionDir,
 		ConfigDir:   req.ConfigDir,
 		StorageRoot: req.StorageRoot,
+		SandboxMode: resolvedSandbox,
 	}
 
 	// R2, R4: Resolve WorkDir to absolute path for record consistency.
@@ -169,7 +178,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			"work_dir", record.WorkDir,
 			"storage_root", record.StorageRoot,
 			"session_dir", record.SessionDir,
-			"config_dir", record.ConfigDir)
+			"config_dir", record.ConfigDir,
+			"sandbox_mode", record.SandboxMode,
+			"server_disable_sandbox", s.disableSandbox)
 	}
 
 	s.sessions.Create(record)
@@ -395,6 +406,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		codingagent.WithExecutionMode(agentCfg.ExecutionMode),
 		codingagent.WithIdleTimeout(agentCfg.IdleTimeoutSeconds),
 		codingagent.WithMaxExecution(agentCfg.MaxExecutionSeconds),
+		codingagent.WithSandboxMode(codingagent.EffectiveSandboxMode(record.SandboxMode)),
 	}
 	if vh := VendorHomeDir(EffectiveStorageRoot(record), record.AgentName, record.SessionDir); vh != "" {
 		opts = append(opts, codingagent.WithSessionDir(vh))

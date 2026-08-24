@@ -23,6 +23,8 @@ type SessionRecord struct {
 	AgentSessionID string    `json:"agent_session_id"`
 	SessionDir     string    `json:"session_dir"`
 	ConfigDir      string    `json:"config_dir,omitempty"`
+	// SandboxMode is the resolved session sandbox policy (read-only | danger-full-access).
+	SandboxMode    string    `json:"sandbox_mode,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
