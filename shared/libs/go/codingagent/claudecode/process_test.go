@@ -111,6 +111,19 @@ func TestBuildEnv(t *testing.T) {
 			wantNot: "CLAUDE_CODE_SKIP_SANDBOX",
 		},
 		{
+			name: "session danger-full-access sets SKIP even when adapter false",
+			ac:   &codingagent.AdapterConfig{DisableSandbox: false},
+			cfg:  &codingagent.SessionConfig{SandboxMode: codingagent.SandboxModeDangerFullAccess},
+			wantKey: "CLAUDE_CODE_SKIP_SANDBOX",
+			wantVal: "1",
+		},
+		{
+			name:    "session read-only clears SKIP even when adapter true",
+			ac:      &codingagent.AdapterConfig{DisableSandbox: true},
+			cfg:     &codingagent.SessionConfig{SandboxMode: codingagent.SandboxModeReadOnly},
+			wantNot: "CLAUDE_CODE_SKIP_SANDBOX",
+		},
+		{
 			name:    "no gateway URL: ANTHROPIC_API_KEY not set",
 			ac:      &codingagent.AdapterConfig{},
 			cfg:     &codingagent.SessionConfig{},

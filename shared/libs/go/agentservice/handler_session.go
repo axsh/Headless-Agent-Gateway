@@ -175,6 +175,7 @@ func (s *Server) writeSessionJSON(w http.ResponseWriter, record *codingagent.Ses
 
 func (s *Server) sessionResponse(record *codingagent.SessionRecord) sessionAPIResponse {
 	resp := sessionAPIResponse{SessionRecord: *record}
+	resp.SandboxMode = codingagent.EffectiveSandboxMode(resp.SandboxMode)
 	if exec, ok := s.execRegistry.Get(record.ID); ok {
 		resp.Followable = true
 		resp.TurnID = exec.turnID
