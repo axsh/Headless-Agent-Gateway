@@ -161,6 +161,12 @@ Initializes a new coding session.
     - Precedence: explicit `sandbox_mode` > server `disable_sandbox` > `read-only`.
     - Claude Code mapping: `danger-full-access` sets `CLAUDE_CODE_SKIP_SANDBOX=1`; `read-only` / `workspace-write` do not (Claude still uses `--permission-mode bypassPermissions`). See Issue [#54](https://github.com/axsh/arctic-tern/issues/54).
     - `sandbox_mode` is fixed at CreateSession time (not changeable via PATCH).
+  - `file_change_collectors` (object, Optional): Per-session System Artifact collection algorithms. Keys:
+    - `structured_tool` (bool, default `true`): Tier 1 — structured file tools (`Write`, `Edit`, `file_change`, …).
+    - `shell_parser` (bool, default `true`): Tier 2 — shell command parsing (`Bash`, `command_execution`, …).
+    - `workdir_reconcile` (bool, default `false`): Tier 3 — end-of-turn git diff / directory snapshot supplement. May include changes from background processes or edits outside the agent session; `.gitignore` paths are not detected via git. Enable explicitly when maximizing coverage.
+    - Partial objects apply **per-key defaults** for omitted keys. Unknown keys or non-booleans → `400`.
+    - Fixed at CreateSession (not changeable via PATCH). Tracking records path + operation metadata only (not unified diffs).
   - Paths (`work_dir`, `storage_root`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
   ```json
   {
@@ -170,7 +176,10 @@ Initializes a new coding session.
     "storage_root": "/path/to/storage",
     "session_dir": "/path/to/tern-sessions/card-1",
     "config_dir": "/path/to/config-sets/alpha",
-    "sandbox_mode": "workspace-write"
+    "sandbox_mode": "workspace-write",
+    "file_change_collectors": {
+      "workdir_reconcile": true
+    }
   }
   ```
   - Persistence env mapping:
@@ -211,6 +220,11 @@ Retrieves metadata and the active state of a created session.
     "session_dir": "/path/to/workspace/.tern/a95db64cb646901efb395a18d817a37d",
     "config_dir": "/path/to/config-sets/alpha",
     "sandbox_mode": "workspace-write",
+    "file_change_collectors": {
+      "structured_tool": true,
+      "shell_parser": true,
+      "workdir_reconcile": false
+    },
     "agent_session_id": "agent-internal-session-id",
     "active_agent": "claudecode",
     "agent_bindings": {
@@ -229,6 +243,7 @@ Retrieves metadata and the active state of a created session.
   }
   ```
   - `config_dir` is included when set at CreateSession time (or later via PATCH).
+  - `file_change_collectors` is always present as the resolved three-key object (defaults applied for legacy records).
   - `agent_bindings` and `supplement` are the canonical metadata (effective supplement merges server defaults with the session strategy; turn override is not stored).
 
 ---

@@ -150,6 +150,91 @@ func TestGetSession_SandboxMode(t *testing.T) {
 	}
 }
 
+func TestCreateSession_FileChangeCollectorsMarshaled(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"session_id": "s-new"})
+	}))
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	_, err := c.CreateSession(context.Background(), v1.SessionRequest{
+		Agent:   "codex",
+		WorkDir: "/tmp/w",
+		FileChangeCollectors: &v1.FileChangeCollectors{
+			WorkdirReconcile: v1.BoolPtr(true),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	raw, ok := gotBody["file_change_collectors"].(map[string]any)
+	if !ok {
+		t.Fatalf("file_change_collectors missing: %v", gotBody)
+	}
+	if raw["workdir_reconcile"] != true {
+		t.Fatalf("workdir_reconcile=%v", raw["workdir_reconcile"])
+	}
+}
+
+func TestCreateSession_FileChangeCollectorsOmitted(t *testing.T) {
+	var raw []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		raw, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"session_id": "s-new"})
+	}))
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	_, err := c.CreateSession(context.Background(), v1.SessionRequest{
+		Agent:   "codex",
+		WorkDir: "/tmp/w",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if strings.Contains(string(raw), "file_change_collectors") {
+		t.Fatalf("must omit collectors when nil, body=%s", raw)
+	}
+}
+
+func TestGetSession_FileChangeCollectors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":          "s1",
+			"agent_name":  "codex",
+			"status":      "active",
+			"work_dir":    "/tmp/w",
+			"session_dir": "/tmp/s",
+			"file_change_collectors": map[string]any{
+				"structured_tool":   true,
+				"shell_parser":      true,
+				"workdir_reconcile": false,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	info, err := c.GetSession(context.Background(), "s1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if info.FileChangeCollectors == nil || info.FileChangeCollectors.WorkdirReconcile {
+		t.Fatalf("got %+v", info.FileChangeCollectors)
+	}
+}
+
 func TestGetSession_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
