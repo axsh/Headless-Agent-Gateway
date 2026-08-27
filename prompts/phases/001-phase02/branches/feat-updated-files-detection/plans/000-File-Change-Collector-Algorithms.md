@@ -315,7 +315,7 @@ type FileChangeCollectorsInfo struct {
 6. **[x] Examples**: `examples/file-change-collectors/` + artifact-pipeline コメント。
 7. **[x] Docs**: README + ReferenceManual。
 8. **[x] Verify**: build.sh → integration_test.sh（下記）。
-9. **[/] Commit/Push**: 意味単位でコミット後、全成功で push。
+9. **[x] Commit/Push**: 意味単位でコミット後、全成功で push。
 
 ## Verification Plan
 
