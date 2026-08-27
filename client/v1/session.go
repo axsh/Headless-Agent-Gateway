@@ -31,6 +31,7 @@ type SessionInfo struct {
 	Supplement     SupplementStrategy      `json:"supplement,omitempty"`
 	Followable     bool                    `json:"followable,omitempty"`
 	TurnID         string                  `json:"turn_id,omitempty"`
+	FileChangeCollectors *FileChangeCollectorsInfo `json:"file_change_collectors,omitempty"`
 }
 
 // AgentBinding is a native session id and ingest watermark for one coding agent.
@@ -84,7 +85,35 @@ type SessionRequest struct {
 	ConfigDir   string `json:"config_dir,omitempty"`
 	// SandboxMode is optional: "read-only" (default), "workspace-write", or "danger-full-access".
 	SandboxMode string `json:"sandbox_mode,omitempty"`
+	// FileChangeCollectors selects System Artifact collection algorithms (optional).
+	// Omitted keys use server per-key defaults (structured_tool/shell_parser true, workdir_reconcile false).
+	FileChangeCollectors *FileChangeCollectors `json:"file_change_collectors,omitempty"`
 }
+
+// File change collector algorithm IDs.
+const (
+	CollectorStructuredTool   = "structured_tool"
+	CollectorShellParser      = "shell_parser"
+	CollectorWorkdirReconcile = "workdir_reconcile"
+)
+
+// FileChangeCollectors is the CreateSession patch form. Nil pointer fields are omitted
+// from JSON so the server applies per-key defaults.
+type FileChangeCollectors struct {
+	StructuredTool   *bool `json:"structured_tool,omitempty"`
+	ShellParser      *bool `json:"shell_parser,omitempty"`
+	WorkdirReconcile *bool `json:"workdir_reconcile,omitempty"`
+}
+
+// FileChangeCollectorsInfo is the resolved collector config returned by GetSession.
+type FileChangeCollectorsInfo struct {
+	StructuredTool   bool `json:"structured_tool"`
+	ShellParser      bool `json:"shell_parser"`
+	WorkdirReconcile bool `json:"workdir_reconcile"`
+}
+
+// BoolPtr returns a pointer to v (for FileChangeCollectors fields).
+func BoolPtr(v bool) *bool { return &v }
 
 // Sandbox mode values for SessionRequest / SessionInfo (aligned with Codex CLI -s).
 const (

@@ -35,24 +35,37 @@ var defaultToolMappings = map[string][]toolMapping{
 // WorkDirResolver returns the agent working directory for a session ID.
 type WorkDirResolver func(sessionID string) string
 
+// CollectorConfigResolver returns the resolved file-change collector config for a session.
+type CollectorConfigResolver func(sessionID string) codingagent.FileChangeCollectors
+
 // ToolCallAnalyzer attaches to a TaskLog and writes SystemArtifactEvents to an ArtifactStore
 // whenever a recognized file-writing tool call is observed.
 type ToolCallAnalyzer struct {
-	st              store.ArtifactStore
-	projectRoot     string
-	workDirResolver WorkDirResolver
+	st                store.ArtifactStore
+	projectRoot       string
+	workDirResolver   WorkDirResolver
+	collectorResolver CollectorConfigResolver
 }
 
 // New creates a ToolCallAnalyzer and registers it as the TaskLog entry handler.
 // workDirResolver may be nil; when set, relative tool paths are resolved against the session work dir.
-func New(tl *tasklog.TaskLog, s store.ArtifactStore, projectRoot string, workDirResolver WorkDirResolver) *ToolCallAnalyzer {
+// collectorResolver may be nil; when nil, DefaultFileChangeCollectors is used.
+func New(tl *tasklog.TaskLog, s store.ArtifactStore, projectRoot string, workDirResolver WorkDirResolver, collectorResolver CollectorConfigResolver) *ToolCallAnalyzer {
 	a := &ToolCallAnalyzer{
-		st:              s,
-		projectRoot:     filepath.ToSlash(filepath.Clean(projectRoot)),
-		workDirResolver: workDirResolver,
+		st:                s,
+		projectRoot:       filepath.ToSlash(filepath.Clean(projectRoot)),
+		workDirResolver:   workDirResolver,
+		collectorResolver: collectorResolver,
 	}
 	tl.SetOnEntry(a.onEntry)
 	return a
+}
+
+func (a *ToolCallAnalyzer) collectorsFor(sessionID string) codingagent.FileChangeCollectors {
+	if a.collectorResolver != nil {
+		return a.collectorResolver(sessionID)
+	}
+	return codingagent.DefaultFileChangeCollectors()
 }
 
 // onEntry is invoked synchronously for each new TaskLog entry.
@@ -81,13 +94,24 @@ func (a *ToolCallAnalyzer) analyzeEvents(ev codingagent.StreamEvent, sessionID, 
 		return nil
 	}
 
+	cfg := a.collectorsFor(sessionID)
+
 	switch ev.ToolName {
 	case "file_change":
+		if !cfg.StructuredTool {
+			return nil
+		}
 		return a.analyzeFileChange(ev, sessionID, turnID, correlationID)
 	case "command_execution", "Bash", "shell", "shell_command":
+		if !cfg.ShellParser {
+			return nil
+		}
 		return a.analyzeShellTool(ev, sessionID, turnID, correlationID)
 	}
 
+	if !cfg.StructuredTool {
+		return nil
+	}
 	if event := a.analyzeMappedTool(ev, sessionID, turnID, correlationID); event != nil {
 		return []*store.SystemArtifactEvent{event}
 	}

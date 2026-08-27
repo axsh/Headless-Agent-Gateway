@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/artifact/analyzer"
+	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
 
 func snapshotKey(sessionID, turnID string) string {
@@ -16,6 +17,11 @@ func (s *Server) captureTurnSnapshot(sessionID, turnID, workDir string) {
 	}
 	if turnID == "" {
 		return
+	}
+	if rec, err := s.sessions.Get(sessionID); err == nil {
+		if !codingagent.EffectiveFileChangeCollectors(rec.FileChangeCollectors).WorkdirReconcile {
+			return
+		}
 	}
 	if analyzer.IsGitRepo(workDir) {
 		return
@@ -44,6 +50,9 @@ func (s *Server) reconcileSessionArtifacts(ctx context.Context, sessionID, turnI
 	}
 	record, err := s.sessions.Get(sessionID)
 	if err != nil {
+		return
+	}
+	if !codingagent.EffectiveFileChangeCollectors(record.FileChangeCollectors).WorkdirReconcile {
 		return
 	}
 

@@ -102,6 +102,8 @@ func runGenerate(ctx context.Context, c *client.Client, key, agentName, model, w
 	}
 	fmt.Printf("[Step 2] Artifact written to: %s\n", inputPath)
 
+	// Default collectors: structured_tool + shell_parser ON, workdir_reconcile OFF.
+	// Set FileChangeCollectors.WorkdirReconcile to enable git/snapshot supplement if needed.
 	session, err := c.CreateSession(ctx, client.SessionRequest{
 		Agent:   agentName,
 		Model:   model,

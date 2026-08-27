@@ -638,6 +638,32 @@ _, _ = session.SendMessageWithOpts(ctx, []client.ContentPart{{Type: "text", Text
 
 Tern tracks every file created or modified by Coding Agents as a **System Artifact**, and lets users upload their own data as **User Artifacts**.
 
+System Artifacts record **path + operation** metadata (`create` / `update` / `delete`), not unified diffs. File contents are read from disk via the download API when needed.
+
+### File change collectors (per session)
+
+CreateSession accepts optional `file_change_collectors` to choose which collection algorithms run:
+
+| Algorithm | Default | Role |
+| :--- | :--- | :--- |
+| `structured_tool` | ON | Write / Edit / Codex `file_change`, etc. |
+| `shell_parser` | ON | Bash / `command_execution` command parsing |
+| `workdir_reconcile` | **OFF** | End-of-turn git diff / snapshot supplement |
+
+`workdir_reconcile` is off by default because it can include background-process or out-of-session edits. Set it to `true` when you want maximum coverage of workdir changes.
+
+```go
+session, _ := c.CreateSession(ctx, client.SessionRequest{
+    Agent:   "codex",
+    WorkDir: dir,
+    FileChangeCollectors: &client.FileChangeCollectors{
+        WorkdirReconcile: client.BoolPtr(true), // enable Tier 3
+    },
+})
+```
+
+Runnable demo: [`examples/file-change-collectors/`](examples/file-change-collectors/).
+
 ### Listing system artifacts (files written by agents)
 
 ```go

@@ -68,7 +68,7 @@ func TestAnalyzer_CursorWrite(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{
 		"path":     projectRoot + "/internal/user.go",
@@ -89,7 +89,7 @@ func TestAnalyzer_CursorStrReplace(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "StrReplace", map[string]any{
 		"path": projectRoot + "/a.go",
@@ -107,7 +107,7 @@ func TestAnalyzer_CursorDelete(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Delete", map[string]any{
 		"path": projectRoot + "/tmp/old.go",
@@ -125,7 +125,7 @@ func TestAnalyzer_ClaudeCodeEdit(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	// Claude Code uses "file_path" instead of "path".
 	injectToolUseEvent(t, tl, "sess-1", "Edit", map[string]any{
@@ -144,7 +144,7 @@ func TestAnalyzer_TextEvent_Ignored(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	// A plain text event should not produce any artifact events.
 	tl.Add(tasklog.NewAgentLogSendEntry("log-1", "sess-1", `{"type":"text","content":"hello"}`))
@@ -158,7 +158,7 @@ func TestAnalyzer_UnknownTool_Ignored(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
 
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Read", map[string]any{
 		"path": projectRoot + "/a.go",
@@ -173,7 +173,7 @@ func TestAnalyzer_PathOutsideProjectRoot(t *testing.T) {
 	tl := tasklog.New()
 	projectRoot := "/myproject"
 
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	// Path outside project root should be stored as-is (no panic).
 	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{
@@ -191,7 +191,7 @@ func TestAnalyzer_Codex_FileChange_Create(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	workDir := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, workDir, func(sessionID string) string { return workDir })
+	analyzer.New(tl, ms, workDir, func(sessionID string) string { return workDir }, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "file_change", map[string]any{
 		"path": "docs/a.md",
@@ -209,7 +209,7 @@ func TestAnalyzer_Codex_FileChange_Multiple(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	workDir := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, workDir, nil)
+	analyzer.New(tl, ms, workDir, nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "file_change", map[string]any{
 		"changes": []any{
@@ -225,7 +225,7 @@ func TestAnalyzer_Codex_FileChange_Multiple(t *testing.T) {
 func TestAnalyzer_Codex_FileChange_Delete(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
-	analyzer.New(tl, ms, t.TempDir(), nil)
+	analyzer.New(tl, ms, t.TempDir(), nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "file_change", map[string]any{
 		"path": "gone.txt",
@@ -241,7 +241,7 @@ func TestAnalyzer_Codex_CommandExecution_Create(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	workDir := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, workDir, func(string) string { return workDir })
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
 		"command": "echo hi > out.txt",
@@ -257,7 +257,7 @@ func TestAnalyzer_ClaudeCode_Bash_Create(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	workDir := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, workDir, func(string) string { return workDir })
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Bash", map[string]any{
 		"command": "echo hi > out.txt",
@@ -273,7 +273,7 @@ func TestAnalyzer_ClaudeCode_NotebookEdit(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	workDir := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, workDir, nil)
+	analyzer.New(tl, ms, workDir, nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "NotebookEdit", map[string]any{
 		"notebook_path": "nb.ipynb",
@@ -288,7 +288,7 @@ func TestAnalyzer_ClaudeCode_NotebookEdit(t *testing.T) {
 func TestAnalyzer_CommandExecution_NoFileOp(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
-	analyzer.New(tl, ms, t.TempDir(), nil)
+	analyzer.New(tl, ms, t.TempDir(), nil, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
 		"command": "ls -la",
@@ -302,7 +302,7 @@ func TestAnalyzer_WorkDirRelativePath(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	workDir := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, "/other-root", func(string) string { return workDir })
+	analyzer.New(tl, ms, "/other-root", func(string) string { return workDir }, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{
 		"path": "subdir/file.go",
@@ -317,7 +317,7 @@ func TestAnalyzer_LegacyShell_Create(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	workDir := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, workDir, func(string) string { return workDir })
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
 	injectToolUseEvent(t, tl, "sess-1", "shell", map[string]any{
 		"arguments": `{"command":"echo hi > legacy.txt"}`,
@@ -332,7 +332,7 @@ func TestAnalyzer_PropagatesTurnContext(t *testing.T) {
 	ms := &memStore{}
 	tl := tasklog.New()
 	projectRoot := filepath.ToSlash(t.TempDir())
-	analyzer.New(tl, ms, projectRoot, nil)
+	analyzer.New(tl, ms, projectRoot, nil, nil)
 
 	body := `{"type":"tool_use","tool_name":"Write","turn_id":"turn-1","correlation_id":"corr-1","tool_input":{"path":"main.go"}}`
 	tl.Add(tasklog.NewAgentLogSendEntry("log-turn", "sess-1", body))
@@ -341,4 +341,34 @@ func TestAnalyzer_PropagatesTurnContext(t *testing.T) {
 	require.Len(t, ms.events, 1)
 	assert.Equal(t, "turn-1", ms.events[0].TurnID)
 	assert.Equal(t, "corr-1", ms.events[0].CorrelationID)
+}
+
+func TestAnalyzer_StructuredToolOff(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	projectRoot := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, projectRoot, nil, func(string) codingagent.FileChangeCollectors {
+		return codingagent.FileChangeCollectors{StructuredTool: false, ShellParser: true, WorkdirReconcile: false}
+	})
+
+	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{
+		"path": projectRoot + "/a.go",
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Empty(t, ms.events)
+}
+
+func TestAnalyzer_ShellParserOff(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, func(string) codingagent.FileChangeCollectors {
+		return codingagent.FileChangeCollectors{StructuredTool: true, ShellParser: false, WorkdirReconcile: false}
+	})
+
+	injectToolUseEvent(t, tl, "sess-1", "Bash", map[string]any{
+		"command": "echo hi > out.txt",
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Empty(t, ms.events)
 }
