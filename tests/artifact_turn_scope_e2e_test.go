@@ -84,7 +84,7 @@ func TestE2E_SystemArtifact_AnalyzerPropagatesTurnAndCorrelation(t *testing.T) {
 	}))
 
 	tl := tasklog.New()
-	_ = analyzer.New(tl, st, "/proj", func(string) string { return "/proj" })
+	_ = analyzer.New(tl, st, "/proj", func(string) string { return "/proj" }, nil)
 
 	ev := codingagent.StreamEvent{
 		Type:          codingagent.EventToolUse,

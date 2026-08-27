@@ -76,14 +76,15 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 // handleCreateSession handles POST /api/v1/sessions.
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Agent        string `json:"agent"`
-		Model        string `json:"model"`
-		WorkDir      string `json:"work_dir"`
-		Prompt       string `json:"prompt"`
-		SessionDir   string `json:"session_dir"`
-		ConfigDir    string `json:"config_dir"`
-		StorageRoot  string `json:"storage_root"`
-		SandboxMode  string `json:"sandbox_mode"`
+		Agent                string          `json:"agent"`
+		Model                string          `json:"model"`
+		WorkDir              string          `json:"work_dir"`
+		Prompt               string          `json:"prompt"`
+		SessionDir           string          `json:"session_dir"`
+		ConfigDir            string          `json:"config_dir"`
+		StorageRoot          string          `json:"storage_root"`
+		SandboxMode          string          `json:"sandbox_mode"`
+		FileChangeCollectors json.RawMessage `json:"file_change_collectors"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -123,16 +124,23 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resolvedCollectors, err := codingagent.ResolveFileChangeCollectors(req.FileChangeCollectors)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	record := &codingagent.SessionRecord{
-		ID:          sessionID,
-		AgentName:   req.Agent,
-		Model:       req.Model,
-		Status:      codingagent.StatusActive,
-		WorkDir:     req.WorkDir,
-		SessionDir:  req.SessionDir,
-		ConfigDir:   req.ConfigDir,
-		StorageRoot: req.StorageRoot,
-		SandboxMode: resolvedSandbox,
+		ID:                   sessionID,
+		AgentName:            req.Agent,
+		Model:                req.Model,
+		Status:               codingagent.StatusActive,
+		WorkDir:              req.WorkDir,
+		SessionDir:           req.SessionDir,
+		ConfigDir:            req.ConfigDir,
+		StorageRoot:          req.StorageRoot,
+		SandboxMode:          resolvedSandbox,
+		FileChangeCollectors: &resolvedCollectors,
 	}
 
 	// R2, R4: Resolve WorkDir to absolute path for record consistency.
@@ -180,7 +188,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			"session_dir", record.SessionDir,
 			"config_dir", record.ConfigDir,
 			"sandbox_mode", record.SandboxMode,
-			"server_disable_sandbox", s.disableSandbox)
+			"server_disable_sandbox", s.disableSandbox,
+			"file_change_collectors", resolvedCollectors,
+		)
 	}
 
 	s.sessions.Create(record)

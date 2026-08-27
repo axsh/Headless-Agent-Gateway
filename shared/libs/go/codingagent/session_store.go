@@ -24,9 +24,11 @@ type SessionRecord struct {
 	SessionDir     string    `json:"session_dir"`
 	ConfigDir      string    `json:"config_dir,omitempty"`
 	// SandboxMode is the resolved session sandbox policy (read-only | danger-full-access).
-	SandboxMode    string    `json:"sandbox_mode,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	SandboxMode string `json:"sandbox_mode,omitempty"`
+	// FileChangeCollectors is nil for legacy records (Effective → defaults).
+	FileChangeCollectors *FileChangeCollectors `json:"file_change_collectors,omitempty"`
+	CreatedAt            time.Time             `json:"created_at"`
+	UpdatedAt            time.Time             `json:"updated_at"`
 }
 
 // Session status constants.

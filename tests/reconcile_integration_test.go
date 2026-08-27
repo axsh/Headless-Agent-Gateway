@@ -50,6 +50,9 @@ func TestReconcile_SessionEndGitSupplement(t *testing.T) {
 	body := map[string]any{
 		"agent":    "codex",
 		"work_dir": workDir,
+		"file_change_collectors": map[string]any{
+			"workdir_reconcile": true,
+		},
 	}
 	b, _ := json.Marshal(body)
 	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(b))
@@ -110,7 +113,13 @@ func TestReconcile_ManyExistingEvents_NoDuplicateSupplement(t *testing.T) {
 	ts := httptest.NewServer(srv.HTTPHandler())
 	t.Cleanup(ts.Close)
 
-	body := map[string]any{"agent": "codex", "work_dir": workDir}
+	body := map[string]any{
+		"agent":    "codex",
+		"work_dir": workDir,
+		"file_change_collectors": map[string]any{
+			"workdir_reconcile": true,
+		},
+	}
 	b, _ := json.Marshal(body)
 	resp, err := http.Post(ts.URL+"/api/v1/sessions", "application/json", bytes.NewReader(b))
 	require.NoError(t, err)

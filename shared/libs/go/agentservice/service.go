@@ -188,12 +188,20 @@ func New(opts ...ServerOption) *Server {
 	}
 	// Attach ToolCallAnalyzer when an ArtifactStore is provided.
 	if s.artifactStore != nil && s.taskLog != nil {
-		analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir, func(sessionID string) string {
-			if rec, err := s.sessions.Get(sessionID); err == nil {
-				return rec.WorkDir
-			}
-			return ""
-		})
+		analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir,
+			func(sessionID string) string {
+				if rec, err := s.sessions.Get(sessionID); err == nil {
+					return rec.WorkDir
+				}
+				return ""
+			},
+			func(sessionID string) codingagent.FileChangeCollectors {
+				if rec, err := s.sessions.Get(sessionID); err == nil {
+					return codingagent.EffectiveFileChangeCollectors(rec.FileChangeCollectors)
+				}
+				return codingagent.DefaultFileChangeCollectors()
+			},
+		)
 		if s.logger != nil {
 			s.logger.Debug("artifact tracking enabled", "work_dir", s.artifactWorkDir)
 		}
