@@ -12,12 +12,16 @@ import (
 )
 
 const (
-	defaultSSEClientDrainTimeout  = 90 * time.Second
-	maxLoggedStderrBytes          = 8 * 1024
-	logCodexProcessRetryExhausted = "codex process retry exhausted"
-	logClientDisconnectedSSE      = "client disconnected during SSE stream"
-	logSSEDrainTimedOut           = "SSE drain timed out; stopping agent process"
-	drainTimeoutTerminalContent   = "client drain timeout"
+	defaultSSEClientDrainTimeout      = 90 * time.Second
+	defaultSSEPostResultDrain         = 2 * time.Second
+	defaultSSEPostResultStallWarn     = 5 * time.Second
+	maxLoggedStderrBytes              = 8 * 1024
+	logCodexProcessRetryExhausted     = "codex process retry exhausted"
+	logClientDisconnectedSSE          = "client disconnected during SSE stream"
+	logSSEDrainTimedOut               = "SSE drain timed out; stopping agent process"
+	logSSEStallAfterEventResult       = "SSE still open after EventResult"
+	logSSEPostResultDrainElapsed      = "SSE post-EventResult drain elapsed; closing stream"
+	drainTimeoutTerminalContent       = "client drain timeout"
 	streamEndedWithoutTerminalContent = "stream ended without terminal event"
 )
 
@@ -90,6 +94,13 @@ func (s *Server) clientDrainTimeout() time.Duration {
 		return s.sseDrainTimeout
 	}
 	return defaultSSEClientDrainTimeout
+}
+
+func (s *Server) postResultDrainTimeout() time.Duration {
+	if s.ssePostResultDrain > 0 {
+		return s.ssePostResultDrain
+	}
+	return defaultSSEPostResultDrain
 }
 
 func (s *Server) classifiedTerminal(content string) (tagged string, overloaded bool) {
@@ -537,8 +548,37 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 	idx := from
 	eventCount := 0
 	terminalWritten := false
+	stallWarned := false
+	var stallTimer <-chan time.Time
+	var postResultDrain <-chan time.Time
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+
+	armPostResultTimers := func() {
+		if postResultDrain == nil {
+			postResultDrain = time.After(s.postResultDrainTimeout())
+		}
+		if !stallWarned && stallTimer == nil {
+			stallTimer = time.After(defaultSSEPostResultStallWarn)
+		}
+	}
+
+	warnIfStalledAfterResult := func() {
+		if stallWarned || s.logger == nil || term.kind != codingagent.EventResult {
+			return
+		}
+		stallWarned = true
+		stallTimer = nil
+		sourceDone := false
+		if exec.relay != nil {
+			sourceDone = exec.relay.isSourceDone()
+		}
+		s.logger.Warn(logSSEStallAfterEventResult,
+			"session_id", sessionID,
+			"source_done", sourceDone,
+			"events_sent", eventCount,
+			"stall_after", defaultSSEPostResultStallWarn.String())
+	}
 
 	writeEvent := func(ev codingagent.StreamEvent) bool {
 		ev.TurnID = exec.turnID
@@ -576,6 +616,9 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 		if ev.Type == codingagent.EventResult || (ev.Type == codingagent.EventError && !ev.Retryable) {
 			terminalWritten = true
 		}
+		if ev.Type == codingagent.EventResult {
+			armPostResultTimers()
+		}
 		return suspended && stopOnUserInput
 	}
 
@@ -587,9 +630,9 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 			return
 		}
 		ev := codingagent.StreamEvent{
-			Type:    term.kind,
-			Content: term.content,
-			TurnID:  exec.turnID,
+			Type:          term.kind,
+			Content:       term.content,
+			TurnID:        exec.turnID,
 			CorrelationID: exec.correlationID,
 		}
 		if term.kind == codingagent.EventError {
@@ -624,6 +667,26 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 				s.logger.Debug("SSE subscriber stolen", "session_id", sessionID)
 			}
 			return term, suspended, true
+		case <-postResultDrain:
+			// Sweep window after EventResult elapsed: close SSE even if the
+			// upstream channel is still open (hang / lost-wakeup insurance).
+			if term.kind == codingagent.EventResult {
+				if s.logger != nil {
+					sourceDone := false
+					if exec.relay != nil {
+						sourceDone = exec.relay.isSourceDone()
+					}
+					s.logger.Debug(logSSEPostResultDrainElapsed,
+						"session_id", sessionID,
+						"source_done", sourceDone,
+						"events_sent", eventCount,
+						"drain_after", s.postResultDrainTimeout().String())
+				}
+				return term, suspended, false
+			}
+			postResultDrain = nil
+		case <-stallTimer:
+			warnIfStalledAfterResult()
 		case <-ticker.C:
 			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
