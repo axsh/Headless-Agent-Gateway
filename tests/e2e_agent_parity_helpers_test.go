@@ -1,5 +1,8 @@
 package llm_test
 
+// Shared Claude / Codex E2E parity helpers.
+// Used by agent-specific suites and by TestAgentParityMatrix_* (agent-swap matrix).
+
 import (
 	"encoding/json"
 	"fmt"
