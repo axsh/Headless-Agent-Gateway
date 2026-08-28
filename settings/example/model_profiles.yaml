@@ -30,7 +30,7 @@ providers:
         secret: vault://providers/anthropic/default
         models:
           - name: claude-haiku-4-5
-          - name: claude-sonnet-4-20250514
+          - name: claude-sonnet-4-6
           - name: claude-opus-4-8
 
   # Google (cheapest: gemini-2.5-flash)

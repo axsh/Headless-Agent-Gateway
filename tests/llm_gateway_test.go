@@ -80,7 +80,7 @@ func TestAnthropicMessages_NonStream(t *testing.T) {
 	defer cleanup()
 
 	body := map[string]any{
-		"model":      "claude-sonnet-4-20250514",
+		"model":      "claude-sonnet-4-6",
 		"max_tokens": 50,
 		"messages": []map[string]string{
 			{"role": "user", "content": "Say exactly: hello integration test"},
@@ -124,7 +124,7 @@ func TestAnthropicMessages_Stream(t *testing.T) {
 	defer cleanup()
 
 	body := map[string]any{
-		"model":      "claude-sonnet-4-20250514",
+		"model":      "claude-sonnet-4-6",
 		"max_tokens": 50,
 		"stream":     true,
 		"messages": []map[string]string{

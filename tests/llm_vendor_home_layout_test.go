@@ -53,7 +53,7 @@ func TestCodexUsesWorkDirCodexHome(t *testing.T) {
 func TestClaudeUsesWorkDirClaudeHome(t *testing.T) {
 	ts, claude, _, _ := newPortabilityHTTP(t)
 	workDir := t.TempDir()
-	id := portCreate(t, ts, "claudecode", workDir, "", "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", workDir, "", "claude-sonnet-4-6")
 	portSend(t, ts, id, "ping")
 	cfg := claude.last()
 	want := filepath.Join(workDir, ".claude")

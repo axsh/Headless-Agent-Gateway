@@ -1,6 +1,7 @@
 package claudecode_test
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -262,5 +263,28 @@ func TestBuildEnv_GatewayToken(t *testing.T) {
 	want := "not-needed;token=my-secret-token;fallback=false;sid=default"
 	if apiKey != want {
 		t.Errorf("ANTHROPIC_API_KEY = %q, want %q", apiKey, want)
+	}
+}
+
+func TestBuildEnv_WindowsPathGuards(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only env guards")
+	}
+	env := claudecode.BuildEnv(&codingagent.AdapterConfig{}, &codingagent.SessionConfig{})
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	if envMap["MSYS_NO_PATHCONV"] != "1" {
+		t.Fatalf("MSYS_NO_PATHCONV = %q, want 1", envMap["MSYS_NO_PATHCONV"])
+	}
+	if !strings.Contains(strings.ToLower(envMap["SHELL"]), "cmd.exe") {
+		t.Fatalf("SHELL = %q, want cmd.exe", envMap["SHELL"])
+	}
+	if !strings.Contains(strings.ToLower(envMap["COMSPEC"]), "cmd.exe") {
+		t.Fatalf("COMSPEC = %q, want cmd.exe", envMap["COMSPEC"])
 	}
 }

@@ -105,7 +105,7 @@ func TestCodexE2E_FileCreation(t *testing.T) {
 	t.Logf("Session created: %s", sessionID)
 
 	// 2. Send file creation prompt
-	prompt := "Create a file named hello.txt in the current directory containing exactly the text 'Hello Codex'. Do nothing else."
+	prompt := fileCreatePrompt(workDir, "hello.txt", "Hello Codex")
 	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
 	defer resp.Body.Close()
 
@@ -117,9 +117,7 @@ func TestCodexE2E_FileCreation(t *testing.T) {
 
 	// 4. Parse SSE events
 	events, gotDone := parseE2ESSEEvents(t, resp)
-	if !gotDone {
-		t.Fatal("expected [DONE] sentinel in SSE stream")
-	}
+	assertParitySSEDone(t, gotDone)
 
 	// Log event types for diagnostics
 	for i, ev := range events {
@@ -148,15 +146,12 @@ func TestCodexE2E_FileCreation(t *testing.T) {
 	}
 
 	// 5. Verify file was created
+	assertParityWorkFileExists(t, workDir, "hello.txt", events)
 	filePath := filepath.Join(workDir, "hello.txt")
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		entries, _ := os.ReadDir(workDir)
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Fatalf("expected hello.txt in %s, got files: %v, error: %v", workDir, names, err)
+		// Parity helper already failed if missing; keep UTF-16 decode path when present.
+		t.Fatalf("expected hello.txt readable after parity check: %v", err)
 	}
 	// Decode file content - handle UTF-16 LE BOM if present (Windows codex may use it).
 	contentStr := string(content)
@@ -438,7 +433,7 @@ func TestCodexE2E_AnthropicModel_FileCreation(t *testing.T) {
 	workDir := t.TempDir()
 
 	sessionID := createE2ESessionWithModel(
-		t, baseURL, "codex", "claude-sonnet-4-20250514", workDir)
+		t, baseURL, "codex", "claude-sonnet-4-6", workDir)
 	t.Logf("Session created: %s", sessionID)
 
 	prompt := "Create a file named test_anthropic.txt in the current directory " +

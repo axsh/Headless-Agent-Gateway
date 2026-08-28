@@ -30,7 +30,7 @@ import (
 
 // e2eDefaultModel is the model used for E2E tests.
 // Must match a model registered in tests/testdata/model_profiles.yaml.
-const e2eDefaultModel = "claude-sonnet-4-20250514"
+const e2eDefaultModel = "claude-sonnet-4-6"
 
 // freePort returns a free TCP port by briefly listening on :0.
 func freePort(t *testing.T) int {
@@ -356,7 +356,7 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 	t.Logf("Session created: %s", sessionID)
 
 	// 2. Send message requesting file creation
-	prompt := "Create a file named hello.txt in the current directory containing exactly the text 'Hello World'. Do nothing else."
+	prompt := fileCreatePrompt(workDir, "hello.txt", "Hello World")
 	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
 	defer resp.Body.Close()
 
@@ -368,11 +368,7 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 
 	// 3. Parse SSE events
 	events, gotDone := parseE2ESSEEvents(t, resp)
-
-	// Must receive [DONE]
-	if !gotDone {
-		t.Fatal("expected [DONE] sentinel in SSE stream")
-	}
+	assertParitySSEDone(t, gotDone)
 
 	// Log event types for diagnostics
 	for i, ev := range events {
@@ -387,7 +383,7 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 	// Check for error events - if present, log and fail
 	for _, ev := range events {
 		if ev.Type == codingagent.EventError {
-			if e2eDefaultModel == "claude-sonnet-4-20250514" {
+			if e2eDefaultModel == "claude-sonnet-4-6" {
 				t.Skipf("Skipping: claudecode failed (likely due to API/model issues with %s): %s", e2eDefaultModel, ev.Content)
 			}
 			t.Fatalf("received error event from claude CLI: %s", ev.Content)
@@ -417,40 +413,17 @@ func TestE2E_CodingAgentStreaming(t *testing.T) {
 	}
 
 	// 4. Verify file was created
+	assertParityWorkFileExists(t, workDir, "hello.txt", events)
 	filePath := filepath.Join(workDir, "hello.txt")
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		// List directory contents for debugging
-		entries, _ := os.ReadDir(workDir)
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
+	if content, err := os.ReadFile(filePath); err == nil {
+		if !strings.Contains(string(content), "Hello World") {
+			t.Errorf("hello.txt content = %q, want to contain 'Hello World'", string(content))
 		}
-		// Inspect tool_use events to determine the actual path the LLM used.
-		// Claude CLI may write to a sandbox path (e.g. /tmp/claude_code_sandbox/)
-		// even when CLAUDE_CODE_SKIP_SANDBOX=1, because the LLM model itself
-		// generates the file_path argument based on its system prompt.
-		var writePaths []string
-		for _, ev := range events {
-			if ev.Type == codingagent.EventToolUse && ev.Content != "" {
-				writePaths = append(writePaths, ev.Content)
-			}
-		}
-		t.Fatalf("expected hello.txt in %s, got files: %v, error: %v\n"+
-			"tool_use events (check for sandbox paths): %v",
-			workDir, names, err, writePaths)
 	}
-	if !strings.Contains(string(content), "Hello World") {
-		t.Errorf("hello.txt content = %q, want to contain 'Hello World'", string(content))
-	}
-	t.Logf("File created successfully: %s (%d bytes)", filePath, len(content))
 
 	// 5. Verify session status
+	assertParitySessionCompleted(t, baseURL, sessionID)
 	session := getE2ESession(t, baseURL, sessionID)
-	sessionStatus, _ := session["status"].(string)
-	if sessionStatus != "completed" {
-		t.Errorf("session status = %q, want %q", sessionStatus, "completed")
-	}
 
 	// 6. Verify agent_session_id was captured
 	agentSID, _ := session["agent_session_id"].(string)
@@ -572,14 +545,12 @@ func TestE2E_CodingAgentDefaultModel(t *testing.T) {
 	sessionID := createE2ESessionNoModel(t, baseURL, "claudecode", workDir)
 	t.Logf("Session created (no model): %s", sessionID)
 
-	prompt := "Create a file named test.txt in the current directory containing exactly the text 'hello world'. Do nothing else."
+	prompt := fileCreatePrompt(workDir, "test.txt", "hello world")
 	resp := sendE2EMessage(t, baseURL, sessionID, prompt, 120*time.Second)
 	defer resp.Body.Close()
 
 	events, gotDone := parseE2ESSEEvents(t, resp)
-	if !gotDone {
-		t.Fatal("expected [DONE] sentinel in SSE stream")
-	}
+	assertParitySSEDone(t, gotDone)
 	for i, ev := range events {
 		t.Logf("event[%d]: type=%s content_len=%d", i, ev.Type, len(ev.Content))
 	}
@@ -608,16 +579,7 @@ func TestE2E_CodingAgentDefaultModel(t *testing.T) {
 	if !hasToolUse {
 		t.Error("expected at least one tool_use event for file creation prompt")
 	}
-	filePath := filepath.Join(workDir, "test.txt")
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		entries, _ := os.ReadDir(workDir)
-		for _, e := range entries {
-			t.Logf("  workdir entry: %s", e.Name())
-		}
-		t.Fatalf("expected test.txt to be created: %v", err)
-	}
-	t.Logf("File created: %s (%d bytes)", filePath, len(content))
+	assertParityWorkFileExists(t, workDir, "test.txt", events)
 }
 
 // --- TC: Session continuation E2E ---
@@ -642,7 +604,7 @@ func TestE2E_SessionContinuation(t *testing.T) {
 
 	for _, ev := range events1 {
 		if ev.Type == codingagent.EventError {
-			if e2eDefaultModel == "claude-sonnet-4-20250514" {
+			if e2eDefaultModel == "claude-sonnet-4-6" {
 				t.Skipf("Skipping first message error due to model %s: %s", e2eDefaultModel, ev.Content)
 			}
 		}
@@ -670,7 +632,7 @@ func TestE2E_SessionContinuation(t *testing.T) {
 	}
 	for _, ev := range events2 {
 		if ev.Type == codingagent.EventError {
-			if e2eDefaultModel == "claude-sonnet-4-20250514" {
+			if e2eDefaultModel == "claude-sonnet-4-6" {
 				t.Skipf("Skipping second message error due to model %s: %s", e2eDefaultModel, ev.Content)
 			}
 			t.Fatalf("second message error: %s", ev.Content)
