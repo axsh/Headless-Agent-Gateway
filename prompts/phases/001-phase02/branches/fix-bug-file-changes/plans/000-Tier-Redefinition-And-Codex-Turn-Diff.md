@@ -206,7 +206,7 @@ if s.taskLog != nil {
 7. **[x] SSE sync Add**: `handler_retry.go`（attachSSE Add + pump skip when subscriber）。
 8. **[x] Integration E2E**: `tests/turn_diff_tier1_e2e_test.go`。
 9. **[x] Docs**: ReferenceManual 更新。
-10. **[/] Build & tests**: Verification Plan を実行。
+10. **[x] Build & tests**: `build.sh` PASS。関連 integration (`TestTurnDiff|TestSSE_Tier1|TestFileChangeCollector|TestReconcile`) PASS。フル `integration_test.sh` は 10m タイムアウトで LLM 系 E2E が失敗（本変更の非 LLM テストは成功）。
 
 ## Verification Plan
 
