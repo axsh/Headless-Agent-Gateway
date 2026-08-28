@@ -81,6 +81,7 @@ System Artifact の収集を「エージェントがネイティブに提供す�
 - Claude Code: `Write` / `Edit` / `MultiEdit` / `NotebookEdit` 等。
 - Cursor 相当: `Write` / `StrReplace` / `Delete` 等。
 - これらは引き続き Tier1（`structured_tool` / 下記 R6 のエージェントネイティブ収集）として ON/OFF 可能であること。
+- **補足（仕様 002）**: Claude Tier1 は上記に加え、ターン集約相当として Tern が合成する `tool_name=turn_files` を含む（`turn_diff` は Codex unified diff 専用のまま）。詳細は `ideas/002-Claude-Code-Tier1-File-Change-Parity.md`。
 
 #### R5: Tier2 / Tier3 の役割は維持する
 

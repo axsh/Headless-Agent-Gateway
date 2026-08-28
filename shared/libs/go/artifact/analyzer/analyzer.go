@@ -102,7 +102,7 @@ func (a *ToolCallAnalyzer) analyzeEvents(ev codingagent.StreamEvent, sessionID, 
 	cfg := a.collectorsFor(sessionID)
 
 	switch ev.ToolName {
-	case "file_change", "turn_diff":
+	case "file_change", "turn_diff", ToolNameTurnFiles:
 		if !cfg.StructuredTool {
 			return nil
 		}
@@ -145,7 +145,7 @@ func (a *ToolCallAnalyzer) analyzeMappedTool(ev codingagent.StreamEvent, session
 
 func kindToOperation(kind string) string {
 	switch kind {
-	case "add":
+	case "add", "create":
 		return store.OperationCreate
 	case "update":
 		return store.OperationUpdate
@@ -248,7 +248,7 @@ func (a *ToolCallAnalyzer) buildEvent(sessionID, turnID, correlationID, toolName
 
 func isTier1ToolName(toolName string) bool {
 	switch toolName {
-	case "file_change", "turn_diff", "Write", "Edit", "MultiEdit", "NotebookEdit", "StrReplace", "Delete":
+	case "file_change", "turn_diff", ToolNameTurnFiles, "Write", "Edit", "MultiEdit", "NotebookEdit", "StrReplace", "Delete":
 		return true
 	default:
 		return false

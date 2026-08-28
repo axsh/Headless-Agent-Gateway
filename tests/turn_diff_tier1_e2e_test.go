@@ -125,6 +125,7 @@ func TestTurnDiff_Tier1_FromAppServerNotifyFixture(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, page.TotalCount, 1)
+	AssertSystemArtifactPathsContain(t, page.Items, "hello.txt")
 	found := false
 	for _, item := range page.Items {
 		if filepath.Base(item.Key) == "hello.txt" {
@@ -173,6 +174,7 @@ func TestSSE_Tier1_AvailableImmediatelyAfterDone(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, page.TotalCount, 1)
+	AssertSystemArtifactPathsContain(t, page.Items, "sse_immediate.txt")
 	found := false
 	for _, item := range page.Items {
 		if filepath.Base(item.Key) == "sse_immediate.txt" {

@@ -830,6 +830,11 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	// Cancel the agent execution context.
 	s.CancelExecution(sessionID)
 
+	// Reconcile (including turn_files flush) while the exec relay is still registered.
+	if s.artifactStore != nil {
+		s.reconcileSessionArtifacts(r.Context(), sessionID, turnID, correlationID)
+	}
+
 	// Clear busy state so a subsequent SendMessage can start a new turn
 	// (e.g. after config_dir switch on the same session_id).
 	if exec, ok := s.execRegistry.Get(sessionID); ok {
@@ -844,9 +849,7 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	record.Status = codingagent.StatusClosed
 	s.sessions.Update(record)
 
-	// Reconcile supplemental artifacts before closing the session record.
 	if s.artifactStore != nil {
-		s.reconcileSessionArtifacts(r.Context(), sessionID, turnID, correlationID)
 		_ = s.artifactStore.CloseSession(r.Context(), sessionID)
 	}
 

@@ -9,7 +9,8 @@ import (
 //
 // Tier meanings (agent-native vs inferred vs external):
 //   - structured_tool (Tier1): Coding Agent native file-change surfaces
-//     (Codex: turn/diff → tool_name turn_diff, plus file_change; Claude/Cursor: Write/Edit/…).
+//     (Codex: turn/diff → tool_name turn_diff, plus file_change;
+//     Claude/Cursor: Write/Edit/… plus Tern-synthesized turn_files).
 //   - shell_parser (Tier2): Infer paths from native non-file tools (Bash, command_execution).
 //   - workdir_reconcile (Tier3): External observation (git diff / directory snapshot).
 const (
