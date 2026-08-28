@@ -95,7 +95,7 @@ func TestAgentParityMatrix_FixtureWriteList(t *testing.T)
 3. [x] **FileCreate matrix**: `runParityFileCreate` + `TestAgentParityMatrix_FileCreate`。
 4. [x] **Ternctl matrix**: `resolveTernctlBin` + `runParityTernctl` + `TestAgentParityMatrix_Ternctl`。
 5. [x] **Verification Plan 実行**。
-6. [/] **Commit / push**。
+6. [x] **Commit / push**。
 
 ## Verification Plan
 
