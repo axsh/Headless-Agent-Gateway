@@ -48,7 +48,8 @@ func fileCreatePrompt(workDir, fileName, contents string) string {
 	target := filepath.Join(abs, fileName)
 	return fmt.Sprintf(
 		"Create a file at the absolute path %q containing exactly the text %q. "+
-			"Use a file write tool (Write/file_change). Do not write under /tmp. Do nothing else.",
+			"You must actually create the file on disk (apply_patch, shell redirect, or file write tools). "+
+			"Do not write under /tmp. Do nothing else.",
 		target, contents,
 	)
 }

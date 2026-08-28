@@ -146,7 +146,7 @@ func AssertSystemArtifactPathsContain(t *testing.T, listed []store.SystemArtifac
 5. [x] **Parity helper**: List パス断言ヘルパを追加。
 6. [x] **E2E fixture**: `tests/claude_tier1_turn_files_e2e_test.go` を追加。`turn_diff` E2E をヘルパ利用に更新。
 7. [x] **Docs**: 000 R4 注記 + Reference Manual。
-8. [/] **Verification Plan 実行**。
+8. [x] **Verification Plan 実行**。
 
 ## Verification Plan
 

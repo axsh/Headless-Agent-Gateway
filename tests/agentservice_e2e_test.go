@@ -226,17 +226,27 @@ func createE2ESessionNoModel(t *testing.T, baseURL, agent, workDir string) strin
 // Used by TC-006 (OpenAI) and TC-007 (Google) to test cross-provider routing.
 func createE2ESessionWithModel(t *testing.T, baseURL, agent, model, workDir string) string {
 	t.Helper()
+	return createE2ESessionWithCollectors(t, baseURL, agent, model, workDir, nil)
+}
+
+// createE2ESessionWithCollectors creates a session with optional file_change_collectors.
+func createE2ESessionWithCollectors(t *testing.T, baseURL, agent, model, workDir string, collectors map[string]any) string {
+	t.Helper()
 	initGitRepo(t, workDir)
 	sessionDir := filepath.Join(workDir, "sessions")
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		t.Fatalf("create session dir: %v", err)
 	}
-	body, _ := json.Marshal(map[string]string{
+	bodyMap := map[string]any{
 		"agent":       agent,
 		"model":       model,
 		"work_dir":    workDir,
 		"session_dir": sessionDir,
-	})
+	}
+	if collectors != nil {
+		bodyMap["file_change_collectors"] = collectors
+	}
+	body, _ := json.Marshal(bodyMap)
 	resp, err := http.Post(baseURL+"/api/v1/sessions", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("create session: %v", err)

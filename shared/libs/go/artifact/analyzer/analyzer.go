@@ -279,6 +279,7 @@ func (a *ToolCallAnalyzer) hasTier1Key(sessionID, turnID, key string) bool {
 
 // resolvePath converts agent-reported paths to absolute filesystem paths.
 func (a *ToolCallAnalyzer) resolvePath(filePath, sessionID string) string {
+	filePath = normalizeShellPath(filePath)
 	clean := filepath.Clean(filePath)
 	if filepath.IsAbs(clean) {
 		return clean

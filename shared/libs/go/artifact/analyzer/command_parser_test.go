@@ -100,6 +100,26 @@ func TestParseShellCommand(t *testing.T) {
 			want: []analyzer.ParsedFileOp{{Path: "real.txt", Operation: store.OperationCreate}},
 		},
 		{
+			name: "quoted redirect path",
+			cmd:  `echo hello > "output.txt"`,
+			want: []analyzer.ParsedFileOp{{Path: "output.txt", Operation: store.OperationCreate}},
+		},
+		{
+			name: "unbalanced quote with trailing slash",
+			cmd:  `echo hello > "C:/tmp/hello.txt/`,
+			want: []analyzer.ParsedFileOp{{Path: "C:/tmp/hello.txt", Operation: store.OperationCreate}},
+		},
+		{
+			name: "backslash-escaped quotes",
+			cmd:  `echo hello > \"C:/tmp/hello.txt\"`,
+			want: []analyzer.ParsedFileOp{{Path: "C:/tmp/hello.txt", Operation: store.OperationCreate}},
+		},
+		{
+			name: "leading quote only absolute",
+			cmd:  `echo hello > "C:/tmp/hello.txt`,
+			want: []analyzer.ParsedFileOp{{Path: "C:/tmp/hello.txt", Operation: store.OperationCreate}},
+		},
+		{
 			name: "tee null",
 			cmd:  "cat foo | tee /dev/null",
 			want: nil,

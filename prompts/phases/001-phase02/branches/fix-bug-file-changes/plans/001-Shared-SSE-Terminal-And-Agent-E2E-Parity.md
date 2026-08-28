@@ -159,7 +159,7 @@ func assertParityWorkFileExists(t *testing.T, workDir, fileName string, events [
 6. [x] **Wire Claude E2E**: `agentservice_e2e_test.go` のファイル作成・ternctl をヘルパ化。
 7. [x] **Wire Codex E2E**: `codex_e2e_test.go` の該当テストをヘルパ化。
 8. [x] **M6 確認**: モデル ID 同期ファイルを確認。
-9. [/] **Verification Plan 実行**: 下記コマンドを順に実行し、Claude / Codex ライブ対が両方 PASS（または対称 Skip）であること。
+9. [x] **Verification Plan 実行**: 下記コマンドを順に実行し、Claude / Codex ライブ対が両方 PASS（または対称 Skip）であること。
 
 ## Verification Plan
 
