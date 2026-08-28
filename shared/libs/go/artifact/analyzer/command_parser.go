@@ -38,7 +38,7 @@ func ParseShellCommand(command string) []ParsedFileOp {
 	seen := make(map[string]string)
 
 	add := func(path, op string) {
-		path = stripQuotes(path)
+		path = normalizeShellPath(path)
 		if path == "" || isIgnoredArtifactPath(path) {
 			return
 		}
@@ -125,10 +125,28 @@ func stripQuotes(s string) string {
 	return s
 }
 
+// normalizeShellPath strips quotes and trailing separators from shell-captured paths.
+// PowerShell / Windows redirects often yield unbalanced or backslash-escaped quotes
+// (e.g. `"C:/tmp/a.txt` or `\"C:/tmp/a.txt\"`).
+func normalizeShellPath(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, `\"`, `"`)
+	s = strings.ReplaceAll(s, `\'`, `'`)
+	for {
+		trimmed := strings.Trim(s, `"'`)
+		if trimmed == s {
+			break
+		}
+		s = strings.TrimSpace(trimmed)
+	}
+	s = strings.TrimRight(s, `/\`)
+	return strings.TrimSpace(s)
+}
+
 // isIgnoredArtifactPath reports paths that must not become System Artifacts
 // (device nodes and OS null devices used as redirect/tee targets).
 func isIgnoredArtifactPath(path string) bool {
-	p := strings.TrimSpace(stripQuotes(path))
+	p := strings.TrimSpace(normalizeShellPath(path))
 	if p == "" {
 		return true
 	}

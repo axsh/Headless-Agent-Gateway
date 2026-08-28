@@ -52,7 +52,28 @@ func (s *Server) reconcileSessionArtifacts(ctx context.Context, sessionID, turnI
 	if err != nil {
 		return
 	}
-	if !codingagent.EffectiveFileChangeCollectors(record.FileChangeCollectors).WorkdirReconcile {
+	cfg := codingagent.EffectiveFileChangeCollectors(record.FileChangeCollectors)
+
+	// Flush Claude Tier1 aggregate (turn_files) before the Tier3 workdir gate.
+	// Codex file_change/turn_diff are not collected here (Write-family tools only).
+	if s.toolAnalyzer != nil && cfg.StructuredTool {
+		var events []codingagent.StreamEvent
+		if exec, ok := s.execRegistry.Get(sessionID); ok && exec != nil && exec.relay != nil {
+			events = exec.relay.EventsSnapshot()
+		}
+		ops := analyzer.CollectClaudeTier1OpsFromStream(events)
+		if len(ops) > 0 {
+			if err := s.toolAnalyzer.FlushTurnFiles(ctx, sessionID, turnID, correlationID, ops); err != nil {
+				if s.logger != nil {
+					s.logger.Warn("turn_files flush failed", "session_id", sessionID, "turn_id", turnID, "error", err.Error())
+				}
+			} else if s.logger != nil {
+				s.logger.Debug("turn_files flushed", "session_id", sessionID, "turn_id", turnID, "op_count", len(ops))
+			}
+		}
+	}
+
+	if !cfg.WorkdirReconcile {
 		return
 	}
 

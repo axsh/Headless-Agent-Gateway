@@ -120,7 +120,7 @@ func Reconcile(in ReconcileInput, workDirResolver WorkDirResolver, projectRoot s
 
 func sourceForToolName(toolName string) ReconcileSource {
 	switch toolName {
-	case "file_change", "Write", "Edit", "MultiEdit", "NotebookEdit", "StrReplace", "Delete":
+	case "file_change", "turn_diff", "turn_files", "Write", "Edit", "MultiEdit", "NotebookEdit", "StrReplace", "Delete":
 		return SourceStructuredTool
 	case "command_execution", "Bash", "shell", "shell_command":
 		return SourceShellParser

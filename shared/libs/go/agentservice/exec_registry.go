@@ -108,12 +108,17 @@ func (e *activeExecution) hasSubscriber() bool {
 type eventRelay struct {
 	mu         sync.Mutex
 	events     []codingagent.StreamEvent
-	notify     chan struct{}
+	notify     chan struct{} // capacity 1; event wakeups (may drop)
+	doneCh     chan struct{} // closed exactly once when source exhausts
 	sourceDone bool
+	doneOnce   sync.Once
 }
 
 func newEventRelay(source <-chan codingagent.StreamEvent) *eventRelay {
-	r := &eventRelay{notify: make(chan struct{}, 1)}
+	r := &eventRelay{
+		notify: make(chan struct{}, 1),
+		doneCh: make(chan struct{}),
+	}
 	go func() {
 		for ev := range source {
 			r.mu.Lock()
@@ -127,6 +132,7 @@ func newEventRelay(source <-chan codingagent.StreamEvent) *eventRelay {
 		r.mu.Lock()
 		r.sourceDone = true
 		r.mu.Unlock()
+		r.doneOnce.Do(func() { close(r.doneCh) })
 		select {
 		case r.notify <- struct{}{}:
 		default:
@@ -159,7 +165,10 @@ func (r *eventRelay) stream(startIdx int, stopOnUserInput bool) <-chan codingage
 			if done {
 				return
 			}
-			<-r.notify
+			select {
+			case <-r.notify:
+			case <-r.doneCh:
+			}
 		}
 	}()
 	return ch
@@ -169,6 +178,16 @@ func (r *eventRelay) eventCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.events)
+}
+
+// isSourceDone reports whether the upstream agent event channel has closed.
+func (r *eventRelay) isSourceDone() bool {
+	if r == nil {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sourceDone
 }
 
 // EventsSnapshot returns a copy of buffered relay events.

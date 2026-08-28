@@ -741,11 +741,11 @@ func setupAgentServiceTestServerWithModels(t *testing.T) *httptest.Server {
 	srv.RegisterAgent(&integrationMockAgent{name: "claudecode"})
 	srv.SetGatewayModels(
 		[]llmgateway.ModelInfo{
-			{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+			{Provider: "anthropic", Model: "claude-sonnet-4-6"},
 			{Provider: "openai", Model: "gpt-4o"},
 			{Provider: "google", Model: "gemini-2.5-flash"},
 		},
-		&llmgateway.ModelInfo{Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+		&llmgateway.ModelInfo{Provider: "anthropic", Model: "claude-sonnet-4-6"},
 	)
 	ts := httptest.NewServer(srv.HTTPHandler())
 	t.Cleanup(ts.Close)
@@ -783,8 +783,8 @@ func TestAgentServiceModelsEndpoint(t *testing.T) {
 	if body.DefaultModel.Provider != "anthropic" {
 		t.Errorf("default_model.provider = %q, want %q", body.DefaultModel.Provider, "anthropic")
 	}
-	if body.DefaultModel.Model != "claude-sonnet-4-20250514" {
-		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-20250514")
+	if body.DefaultModel.Model != "claude-sonnet-4-6" {
+		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-6")
 	}
 }
 
@@ -829,7 +829,7 @@ func TestAgentServiceCreateSession_ValidModel(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]string{
 		"agent": "claudecode",
-		"model": "claude-sonnet-4-20250514", // anthropic model matches claudecode
+		"model": "claude-sonnet-4-6", // anthropic model matches claudecode
 	})
 	resp, err := http.Post(ts.URL+"/api/v1/sessions",
 		"application/json", bytes.NewReader(body))
@@ -1377,12 +1377,12 @@ func TestAgentServiceDefaultModelFromProfiles(t *testing.T) {
 		t.Fatal("default_model should not be nil")
 	}
 	// Verify the default model matches what was set from profiles,
-	// not a hardcoded value like "claude-sonnet-4-20250514" from main.go.
+	// not a hardcoded value like "claude-sonnet-4-6" from main.go.
 	if body.DefaultModel.Provider != "anthropic" {
 		t.Errorf("default_model.provider = %q, want %q", body.DefaultModel.Provider, "anthropic")
 	}
-	if body.DefaultModel.Model != "claude-sonnet-4-20250514" {
-		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-20250514")
+	if body.DefaultModel.Model != "claude-sonnet-4-6" {
+		t.Errorf("default_model.model = %q, want %q", body.DefaultModel.Model, "claude-sonnet-4-6")
 	}
 
 	// Also verify the default model is valid in the model list.

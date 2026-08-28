@@ -61,6 +61,7 @@ type Server struct {
 	artifactStore      store.ArtifactStore
 	artifactStorage    *artifactstorage.UserArtifactStorage
 	artifactWorkDir    string
+	toolAnalyzer       *analyzer.ToolCallAnalyzer
 	sessionSnapshots   map[string]analyzer.DirSnapshot
 	sessionSnapshotsMu sync.Mutex
 	summarizer         portable.Summarizer
@@ -68,6 +69,7 @@ type Server struct {
 	processRetry       config.ProcessRetryConfig
 	processRetryCustom bool
 	sseDrainTimeout    time.Duration
+	ssePostResultDrain time.Duration
 }
 
 // ServerOption configures a Server.
@@ -145,6 +147,13 @@ func WithSSEDrainTimeout(d time.Duration) ServerOption {
 	return func(s *Server) { s.sseDrainTimeout = d }
 }
 
+// WithSSEPostResultDrain overrides how long attachSSE keeps reading after
+// EventResult before closing the SSE stream (trailing-event sweep).
+// Production zero value uses defaultSSEPostResultDrain (2s).
+func WithSSEPostResultDrain(d time.Duration) ServerOption {
+	return func(s *Server) { s.ssePostResultDrain = d }
+}
+
 // MarkSessionBusy registers a dummy execution so PATCH/SendMessage return 409 (tests).
 func (s *Server) MarkSessionBusy(sessionID, status string) error {
 	return s.execRegistry.Register(sessionID, &activeExecution{
@@ -188,7 +197,7 @@ func New(opts ...ServerOption) *Server {
 	}
 	// Attach ToolCallAnalyzer when an ArtifactStore is provided.
 	if s.artifactStore != nil && s.taskLog != nil {
-		analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir,
+		s.toolAnalyzer = analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir,
 			func(sessionID string) string {
 				if rec, err := s.sessions.Get(sessionID); err == nil {
 					return rec.WorkDir

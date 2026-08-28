@@ -372,3 +372,70 @@ func TestAnalyzer_ShellParserOff(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	require.Empty(t, ms.events)
 }
+
+func TestAnalyzer_TurnDiff_Create(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	injectToolUseEvent(t, tl, "sess-1", "turn_diff", map[string]any{
+		"path": "hello.txt",
+		"kind": "add",
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "hello.txt", ms.events[0].Key)
+	assert.Equal(t, store.OperationCreate, ms.events[0].Operation)
+	assert.Equal(t, "turn_diff", ms.events[0].ToolName)
+}
+
+func TestAnalyzer_TurnDiff_StructuredToolOff(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, func(string) codingagent.FileChangeCollectors {
+		return codingagent.FileChangeCollectors{StructuredTool: false, ShellParser: true, WorkdirReconcile: false}
+	})
+
+	injectToolUseEvent(t, tl, "sess-1", "turn_diff", map[string]any{
+		"path": "hello.txt",
+		"kind": "add",
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Empty(t, ms.events)
+}
+
+func TestAnalyzer_TurnDiff_FirstWinsOverFileChange(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	injectToolUseEvent(t, tl, "sess-1", "file_change", map[string]any{
+		"path": "hello.txt",
+		"kind": "add",
+	})
+	injectToolUseEvent(t, tl, "sess-1", "turn_diff", map[string]any{
+		"path": "hello.txt",
+		"kind": "add",
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "file_change", ms.events[0].ToolName)
+
+	ms2 := &memStore{}
+	tl2 := tasklog.New()
+	analyzer.New(tl2, ms2, workDir, func(string) string { return workDir }, nil)
+	injectToolUseEvent(t, tl2, "sess-2", "turn_diff", map[string]any{
+		"path": "hello.txt",
+		"kind": "add",
+	})
+	injectToolUseEvent(t, tl2, "sess-2", "file_change", map[string]any{
+		"path": "hello.txt",
+		"kind": "add",
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms2.events, 1)
+	assert.Equal(t, "turn_diff", ms2.events[0].ToolName)
+}

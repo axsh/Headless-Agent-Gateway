@@ -86,8 +86,8 @@ func newPortabilityHTTP(t *testing.T) (*httptest.Server, *portabilityAgent, *por
 	srv.RegisterAgent(claude)
 	srv.RegisterAgent(codex)
 	srv.SetGatewayModels(
-		[]llmgateway.ModelInfo{{Model: "claude-sonnet-4-20250514"}, {Model: "gpt-4o"}},
-		&llmgateway.ModelInfo{Model: "claude-sonnet-4-20250514"},
+		[]llmgateway.ModelInfo{{Model: "claude-sonnet-4-6"}, {Model: "gpt-4o"}},
+		&llmgateway.ModelInfo{Model: "claude-sonnet-4-6"},
 	)
 	ts := httptest.NewServer(srv.HTTPHandler())
 	t.Cleanup(ts.Close)
@@ -163,7 +163,7 @@ func portPatch(t *testing.T, ts *httptest.Server, id string, body any, want int)
 func TestSessionPortabilityBaselineSameAgent(t *testing.T) {
 	ts, claude, _, _ := newPortabilityHTTP(t)
 	sessionDir := t.TempDir()
-	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-6")
 	portSend(t, ts, id, portabilityToken)
 	portSend(t, ts, id, "second")
 	cfg := claude.last()
@@ -182,7 +182,7 @@ func TestSessionPortabilityBaselineSameAgent(t *testing.T) {
 func TestSessionPortabilityModelSwitchKeepsResume(t *testing.T) {
 	ts, claude, _, _ := newPortabilityHTTP(t)
 	sessionDir := t.TempDir()
-	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-6")
 	portSend(t, ts, id, portabilityToken)
 	portPatch(t, ts, id, map[string]string{"model": "gpt-4o"}, http.StatusOK)
 	portSend(t, ts, id, "continue")
@@ -198,7 +198,7 @@ func TestSessionPortabilityModelSwitchKeepsResume(t *testing.T) {
 func TestSessionPortabilityIngestOrigin(t *testing.T) {
 	ts, _, _, _ := newPortabilityHTTP(t)
 	sessionDir := t.TempDir()
-	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-6")
 	portSend(t, ts, id, "hello")
 	msgs, err := session.OpenCanonical(sessionDir).LoadRange(1, 0)
 	if err != nil {
@@ -218,7 +218,7 @@ func TestSessionPortabilityIngestOrigin(t *testing.T) {
 func TestSessionPortabilityAgentSwitchSupplement(t *testing.T) {
 	ts, _, codex, _ := newPortabilityHTTP(t)
 	sessionDir := t.TempDir()
-	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-6")
 	portSend(t, ts, id, portabilityToken)
 	portPatch(t, ts, id, map[string]string{"agent": "codex"}, http.StatusOK)
 	portSend(t, ts, id, "ask")
@@ -238,7 +238,7 @@ func TestSessionPortabilityAgentSwitchSupplement(t *testing.T) {
 func TestSessionPortabilitySwitchBackResumesOwn(t *testing.T) {
 	ts, claude, _, _ := newPortabilityHTTP(t)
 	sessionDir := t.TempDir()
-	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-6")
 	portSend(t, ts, id, "from-claude")
 	portPatch(t, ts, id, map[string]string{"agent": "codex"}, http.StatusOK)
 	portSend(t, ts, id, "from-codex")
@@ -256,7 +256,7 @@ func TestSessionPortabilitySwitchBackResumesOwn(t *testing.T) {
 func TestSessionPortabilityAgentRoundTrip(t *testing.T) {
 	ts, _, codex, _ := newPortabilityHTTP(t)
 	sessionDir := t.TempDir()
-	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), sessionDir, "claude-sonnet-4-6")
 	portSend(t, ts, id, "c1")
 	portPatch(t, ts, id, map[string]string{"agent": "codex"}, http.StatusOK)
 	portSend(t, ts, id, "x1")
@@ -309,7 +309,7 @@ func TestSessionPortabilityBusyRejectsSwitch(t *testing.T) {
 	srv.RegisterAgent(codex)
 	ts := httptest.NewServer(srv.HTTPHandler())
 	t.Cleanup(ts.Close)
-	id := portCreate(t, ts, "claudecode", t.TempDir(), t.TempDir(), "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), t.TempDir(), "claude-sonnet-4-6")
 	if err := srv.MarkSessionBusy(id, codingagent.StatusActive); err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestSessionPortabilityMapReduceKeepsToken(t *testing.T) {
 
 func TestSessionPortabilitySupplementStrategy(t *testing.T) {
 	ts, _, _, sum := newPortabilityHTTP(t)
-	id := portCreate(t, ts, "claudecode", t.TempDir(), t.TempDir(), "claude-sonnet-4-20250514")
+	id := portCreate(t, ts, "claudecode", t.TempDir(), t.TempDir(), "claude-sonnet-4-6")
 	portSend(t, ts, id, "x")
 	resp, err := http.Get(ts.URL + "/api/v1/sessions/" + id)
 	if err != nil {
@@ -380,7 +380,7 @@ func TestSessionPortabilitySupplementStrategy(t *testing.T) {
 func TestSessionPortabilityReloadFromWorkspace(t *testing.T) {
 	workDir := t.TempDir()
 	tsA, _, _, _ := newPortabilityHTTP(t)
-	id := portCreate(t, tsA, "claudecode", workDir, "", "claude-sonnet-4-20250514")
+	id := portCreate(t, tsA, "claudecode", workDir, "", "claude-sonnet-4-6")
 	portSend(t, tsA, id, portabilityToken)
 	tsB, claude, _, _ := newPortabilityHTTP(t)
 	resp, err := http.Get(tsB.URL + "/api/v1/sessions?work_dir=" + url.QueryEscape(workDir))

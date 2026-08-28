@@ -94,22 +94,24 @@ func kvBool(t *testing.T, kv []any, key string) bool {
 }
 
 type retryAgent struct {
-	name         string
-	nativeID     string
-	failTimes    int
-	emptyError   bool
-	nonRetry     bool
-	delay        time.Duration
-	failResumeID string
-	nextNativeID string
-	genericExit  bool
-	lastPrompt   string
-	mu           sync.Mutex
-	creates      int
-	closes       int
-	cfgs         []*codingagent.SessionConfig
-	sendDone     atomic.Bool
-	earlyClose   atomic.Int32
+	name            string
+	nativeID        string
+	failTimes       int
+	emptyError      bool
+	nonRetry        bool
+	delay           time.Duration
+	failResumeID    string
+	nextNativeID    string
+	genericExit     bool
+	hangAfterResult bool
+	afterResult     []codingagent.StreamEvent
+	lastPrompt      string
+	mu              sync.Mutex
+	creates         int
+	closes          int
+	cfgs            []*codingagent.SessionConfig
+	sendDone        atomic.Bool
+	earlyClose      atomic.Int32
 }
 
 func (a *retryAgent) Name() string { return a.name }
@@ -148,8 +150,12 @@ func (s *retrySession) Send(_ context.Context, prompt string) (<-chan codingagen
 	ch := make(chan codingagent.StreamEvent, 4)
 	s.agent.sendDone.Store(false)
 	go func() {
-		defer close(ch)
-		defer s.agent.sendDone.Store(true)
+		defer func() {
+			if !s.agent.hangAfterResult {
+				close(ch)
+			}
+			s.agent.sendDone.Store(true)
+		}()
 		if s.agent.delay > 0 {
 			time.Sleep(s.agent.delay)
 		}
@@ -204,6 +210,12 @@ func (s *retrySession) Send(_ context.Context, prompt string) (<-chan codingagen
 		ch <- codingagent.StreamEvent{Type: codingagent.EventSystem, SessionID: sid}
 		ch <- codingagent.StreamEvent{Type: codingagent.EventText, Content: "ok"}
 		ch <- codingagent.StreamEvent{Type: codingagent.EventResult}
+		for _, ev := range s.agent.afterResult {
+			ch <- ev
+		}
+		if s.agent.hangAfterResult {
+			select {}
+		}
 	}()
 	return ch, nil
 }
@@ -275,6 +287,59 @@ func TestHandleSendMessage_CodexRetryableProcessRetriesSameResume(t *testing.T) 
 		t.Fatalf("second resume id = %+v, want empty after self-heal", last)
 	}
 	_ = srv
+}
+
+func TestHandleSendMessage_PostResultDrainClosesWhenSourceHangs(t *testing.T) {
+	agent := &retryAgent{name: "codex", nativeID: "codex-native", hangAfterResult: true}
+	logs := &captureLogger{}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 1},
+		agentservice.WithLogger(logs),
+		agentservice.WithSSEPostResultDrain(40*time.Millisecond),
+	)
+	sessionID := createCodexSessionHTTP(t, handler)
+	start := time.Now()
+	w := postSSE(t, handler, sessionID, "hello")
+	elapsed := time.Since(start)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"type":"result"`) {
+		t.Fatalf("expected EventResult, body=%s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "data: [DONE]") {
+		t.Fatalf("expected [DONE] after post-result drain, body=%s", w.Body.String())
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("SSE hung too long despite drain: %s", elapsed)
+	}
+	if _, ok := logs.find("debug", "SSE post-EventResult drain elapsed; closing stream"); !ok {
+		t.Fatalf("expected post-result drain debug log, entries=%v", logs.entries)
+	}
+}
+
+func TestHandleSendMessage_PostResultDrainDeliversTrailingEvents(t *testing.T) {
+	agent := &retryAgent{
+		name:            "codex",
+		nativeID:        "codex-native",
+		hangAfterResult: true,
+		afterResult: []codingagent.StreamEvent{
+			{Type: codingagent.EventText, Content: "trailing"},
+		},
+	}
+	_, handler := newRetryHandler(t, agent, config.ProcessRetryConfig{MaxAttempts: 1},
+		agentservice.WithSSEPostResultDrain(80*time.Millisecond),
+	)
+	sessionID := createCodexSessionHTTP(t, handler)
+	w := postSSE(t, handler, sessionID, "hello")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"content":"trailing"`) {
+		t.Fatalf("expected trailing text before DONE, body=%s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "data: [DONE]") {
+		t.Fatalf("expected [DONE], body=%s", w.Body.String())
+	}
 }
 
 func TestHandleSendMessage_CodexRetryExhaustedOneClassifiedError(t *testing.T) {
@@ -799,7 +864,7 @@ type toolResultOnlySession struct {
 	delay time.Duration
 }
 
-func (s *toolResultOnlySession) ID() string { return "recover-native" }
+func (s *toolResultOnlySession) ID() string   { return "recover-native" }
 func (s *toolResultOnlySession) Close() error { return nil }
 func (s *toolResultOnlySession) Send(_ context.Context, _ string) (<-chan codingagent.StreamEvent, error) {
 	ch := make(chan codingagent.StreamEvent, 4)

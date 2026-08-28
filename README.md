@@ -482,7 +482,7 @@ Create a `model_profiles.yaml`:
 ```yaml
 default_profile:
   provider: anthropic
-  model: claude-sonnet-4-20250514
+  model: claude-sonnet-4-6
 
 providers:
   anthropic:
@@ -490,8 +490,8 @@ providers:
       - name: default
         secret: vault://providers/anthropic/default
         models:
-          - name: claude-sonnet-4-20250514
-          - name: claude-opus-4-20250514
+          - name: claude-sonnet-4-6
+          - name: claude-opus-4-8
   openai:
     api_keys:
       - name: default
