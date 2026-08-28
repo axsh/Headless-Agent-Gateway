@@ -395,7 +395,9 @@ func (s *Server) handleRelaySideEffects(sessionID string, exec *activeExecution,
 			return suspended, err
 		}
 	}
-	if s.taskLog != nil {
+	// Skip TaskLog when an SSE subscriber is attached: attachSSE already Adds
+	// synchronously. Pump still Adds after detach (drain / no subscriber).
+	if s.taskLog != nil && !exec.hasSubscriber() {
 		s.taskLog.Add(toAgentLogEntry(ev, sessionID, exec.turnID, exec.correlationID))
 	}
 	if ev.Type == codingagent.EventSystem && ev.SessionID != "" {
@@ -565,6 +567,11 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 			}
 			detached = true
 			return true
+		}
+		// Synchronously record TaskLog while the SSE subscriber is attached so
+		// ToolCallAnalyzer runs before finishActiveExecution unregisters the pump.
+		if s.taskLog != nil {
+			s.taskLog.Add(toAgentLogEntry(ev, sessionID, exec.turnID, exec.correlationID))
 		}
 		if ev.Type == codingagent.EventResult || (ev.Type == codingagent.EventError && !ev.Retryable) {
 			terminalWritten = true

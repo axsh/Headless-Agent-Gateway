@@ -6,6 +6,12 @@ import (
 )
 
 // File change collector algorithm IDs (API / docs).
+//
+// Tier meanings (agent-native vs inferred vs external):
+//   - structured_tool (Tier1): Coding Agent native file-change surfaces
+//     (Codex: turn/diff → tool_name turn_diff, plus file_change; Claude/Cursor: Write/Edit/…).
+//   - shell_parser (Tier2): Infer paths from native non-file tools (Bash, command_execution).
+//   - workdir_reconcile (Tier3): External observation (git diff / directory snapshot).
 const (
 	CollectorStructuredTool   = "structured_tool"
 	CollectorShellParser      = "shell_parser"
@@ -14,6 +20,7 @@ const (
 
 // FileChangeCollectors is the resolved per-session System Artifact collection config.
 // All three keys are always serialized (no omitempty on the bool fields).
+// structured_tool gates the entire Tier1 surface including Codex turn_diff.
 type FileChangeCollectors struct {
 	StructuredTool   bool `json:"structured_tool"`
 	ShellParser      bool `json:"shell_parser"`

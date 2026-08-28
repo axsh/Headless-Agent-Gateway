@@ -1,0 +1,1 @@
+{"method":"turn/diff/updated","params":{"threadId":"thread-fixture","turnId":"turn-fixture","diff":"--- /dev/null\n+++ b/hello.txt\n@@ -0,0 +1 @@\n+Hello from turn/diff fixture\n"}}

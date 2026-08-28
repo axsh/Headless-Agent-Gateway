@@ -161,10 +161,11 @@ Initializes a new coding session.
     - Precedence: explicit `sandbox_mode` > server `disable_sandbox` > `read-only`.
     - Claude Code mapping: `danger-full-access` sets `CLAUDE_CODE_SKIP_SANDBOX=1`; `read-only` / `workspace-write` do not (Claude still uses `--permission-mode bypassPermissions`). See Issue [#54](https://github.com/axsh/arctic-tern/issues/54).
     - `sandbox_mode` is fixed at CreateSession time (not changeable via PATCH).
-  - `file_change_collectors` (object, Optional): Per-session System Artifact collection algorithms. Keys:
-    - `structured_tool` (bool, default `true`): Tier 1 — structured file tools (`Write`, `Edit`, `file_change`, …).
-    - `shell_parser` (bool, default `true`): Tier 2 — shell command parsing (`Bash`, `command_execution`, …).
-    - `workdir_reconcile` (bool, default `false`): Tier 3 — end-of-turn git diff / directory snapshot supplement. May include changes from background processes or edits outside the agent session; `.gitignore` paths are not detected via git. Enable explicitly when maximizing coverage.
+  - `file_change_collectors` (object, Optional): Per-session System Artifact collection algorithms. Tier meanings:
+    - **Tier1 (`structured_tool`, bool, default `true`)**: Coding Agent **native** file-change surfaces. For Codex this includes App Server `turn/diff/updated` (recorded as `tool_name=turn_diff`) and compatible `file_change` items; for Claude Code / Cursor, `Write` / `Edit` / `StrReplace` / etc. Shell-only edits are **not** Tier1.
+    - **Tier2 (`shell_parser`, bool, default `true`)**: Infer paths from native **non-file** tools (`Bash`, `command_execution`, …).
+    - **Tier3 (`workdir_reconcile`, bool, default `false`)**: External observation (end-of-turn git diff / directory snapshot). May include changes from background processes or edits outside the agent session; `.gitignore` paths are not detected via git. Enable explicitly when maximizing coverage.
+    - Note: Tern’s default Codex transport is still `codex exec --json`. `turn/diff/updated` is an App Server notification shape that Tern parses and records as Tier1 when present (fixtures / future App Server integration). Exec alone does not emit `turn/diff`.
     - Partial objects apply **per-key defaults** for omitted keys. Unknown keys or non-booleans → `400`.
     - Fixed at CreateSession (not changeable via PATCH). Tracking records path + operation metadata only (not unified diffs).
   - Paths (`work_dir`, `storage_root`, `session_dir`, `config_dir`) must be visible to the Tern process (for example, mounted into the container when Tern runs in Docker).
