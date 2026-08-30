@@ -403,6 +403,42 @@ func StartProcess(
 
 			ev := ParseExecEvent(line)
 			if ev != nil {
+				// Batch path: item.completed without prior item.started — synthesize ToolUse
+				// so ToolCallAnalyzer still sees the command (interactive already sent ToolUse).
+				if ev.Type == codingagent.EventToolResult &&
+					ev.ToolName == "command_execution" &&
+					!tracker.hasOpenToolUse() {
+					cmd := ""
+					if ev.ToolInput != nil {
+						if s, ok := ev.ToolInput["command"].(string); ok {
+							cmd = strings.TrimSpace(s)
+						}
+					}
+					if cmd != "" {
+						use := codingagent.StreamEvent{
+							Type:      codingagent.EventToolUse,
+							ToolName:  "command_execution",
+							ToolInput: map[string]any{"command": cmd},
+						}
+						tracker.markToolUse()
+						select {
+						case ch <- use:
+						case <-procCtx.Done():
+							return
+						}
+						if tracker.tryFlushPendingRejection(ch, procCtx, cfg.MaxToolResultBytes) {
+							log.Debug("synthesized sandbox tool_result from buffered stderr rejection")
+							if cfg.ExecutionMode != codingagent.ExecutionModeSingleShot {
+								stopAfterSandboxMu.Lock()
+								stop := stopAfterSandbox
+								stopAfterSandboxMu.Unlock()
+								if stop != nil {
+									go stop()
+								}
+							}
+						}
+					}
+				}
 				if ev.Type == codingagent.EventToolUse && ev.ToolName == "command_execution" {
 					tracker.markToolUse()
 					if tracker.tryFlushPendingRejection(ch, procCtx, cfg.MaxToolResultBytes) {
@@ -528,6 +564,15 @@ func (t *commandExecTracker) markToolUse() {
 	}
 	t.pending = true
 	t.toolResultSent = false
+}
+
+// hasOpenToolUse reports whether a command_execution ToolUse is in flight
+// (started seen, result not yet sent). Used to avoid synthesizing a second ToolUse
+// on interactive item.completed.
+func (t *commandExecTracker) hasOpenToolUse() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.pending && !t.toolResultSent
 }
 
 func (t *commandExecTracker) markToolResult() {
