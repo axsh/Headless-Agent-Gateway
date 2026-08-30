@@ -24,7 +24,8 @@ By default, all API endpoints are exposed at `http://localhost:3100` (customizab
 | `DELETE` | `/api/v1/sessions/:id` | Delete session data. |
 | `POST` | `/api/v1/sessions/:id/messages` | Send a message (text/image) to a session. |
 | `GET` | `/api/v1/sessions/:id/events` | Reattach to the in-flight turn SSE (no new message). |
-| `POST` | `/api/v1/sessions/:id/terminate` | Force terminate an active session process. |
+| `POST` | `/api/v1/sessions/:id/cancel` | Abort the in-flight turn; keep the same session id (not closed). |
+| `POST` | `/api/v1/sessions/:id/terminate` | Force terminate an active session process (status becomes closed). |
 | `GET` | `/api/v1/sessions/:id/logs` | Stream detailed task logs generated during session execution. |
 
 ---
@@ -411,7 +412,7 @@ For each `POST /api/v1/sessions/:id/messages` execution, Tern assigns a `turn_id
   - `404 Not Found`: Session not found.
   - `501 Not Implemented`: Returned if an image is sent to an agent that does not support multi-modal input (e.g., `wayfinder`).
 
-- **409** session busy: JSON `error` is `session busy`, `hint` is `follow, respond or terminate`.
+- **409** session busy: JSON `error` is `session busy`, `hint` is `follow, respond, cancel or terminate`.
 - When an execution is in `execRegistry`, Get Session includes `followable: true` and `turn_id` of that turn.
 
 ---
@@ -438,11 +439,38 @@ Reattach to the current turn without enqueueing a user message. This is not a su
 
 When a coding agent's sandbox or policy layer rejects a shell command (for example Codex `Rejected(...)` for `rm -f`), Tern surfaces the rejection to subscribers as a **`tool_result`** event when possible (including synthesizing output from stderr if the agent CLI exits without stdout `item.completed`). A turn must not end with a silent HTTP stream close alone: subscribers receive an explicit terminal **`result`** or non-retryable **`error`**, then `data: [DONE]` on `POST /messages` and on Follow (`GET .../events`). Follow clients observe the same event types and termination contract as the original message SSE.
 
+**Tool liveness (progress heartbeat)**
+
+While a tool is in-flight (`tool_use` until the matching `tool_result`, or until the turn ends), Tern injects SSE `progress` events at least every **30 seconds** (override with `SSE_TOOL_HEARTBEAT_INTERVAL`, e.g. `30s`, or server option). Payload shape:
+
+```json
+{"type":"progress","content":"tool_still_running","tool_name":"command_execution","turn_id":"..."}
+```
+
+`content` value `tool_still_running` is a liveness signal (distinct from WBS progress strings such as `2/5`). Clients may reset stall timers on these events. Comment-only SSE keepalives (`: keepalive`) remain for transport; prefer `progress` for application-level liveness.
+
 ---
 
-### 9. Terminate Session
+### 9. Cancel In-Flight Turn
 
-Forcefully stops and terminates the running session process (the agent process executing in the background).
+Aborts the current turn (cancels execution context, best-effort stops the agent session / process, clears busy / exec registry) but **keeps the same session id**. Session status becomes non-active (typically `error` with reason `turn cancelled`) and is **not** `closed`. Subsequent `SendMessage` / `PATCH` on the same id remain possible. Does **not** call artifact session close / terminate teardown.
+
+- **Method**: `POST`
+- **Path**: `/api/v1/sessions/:id/cancel`
+- **Response (200 OK)**:
+  ```json
+  {
+    "status": "cancelled"
+  }
+  ```
+
+`client/v1`: `Session.CancelTurn(ctx)`.
+
+---
+
+### 10. Terminate Session
+
+Forcefully stops and terminates the running session process (the agent process executing in the background). Sets session status to **`closed`**. Prefer **cancel** when you only need to free `active` / busy for resume on the same id.
 
 - **Method**: `POST`
 - **Path**: `/api/v1/sessions/:id/terminate`
@@ -455,7 +483,7 @@ Forcefully stops and terminates the running session process (the agent process e
 
 ---
 
-### 10. Stream Task Logs
+### 11. Stream Task Logs
 
 Streams detailed system logs and progress states generated during session execution via SSE.
 

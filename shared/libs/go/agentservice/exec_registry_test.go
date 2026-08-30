@@ -121,3 +121,61 @@ func TestEventRelay_StopOnUserInputStillCloses(t *testing.T) {
 		t.Fatalf("last event = %v, want user_input_required", got[1].Type)
 	}
 }
+
+func TestEventRelay_ToolHeartbeatInjectsProgress(t *testing.T) {
+	src := make(chan codingagent.StreamEvent, 4)
+	relay := newEventRelayWithHeartbeat(src, 40*time.Millisecond)
+	src <- codingagent.StreamEvent{Type: codingagent.EventToolUse, ToolName: "command_execution"}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var sawHeartbeat bool
+	for time.Now().Before(deadline) {
+		for _, ev := range relay.EventsSnapshot() {
+			if ev.Type == codingagent.EventProgress && ev.Content == toolStillRunningContent {
+				if ev.ToolName != "command_execution" {
+					t.Fatalf("tool_name = %q, want command_execution", ev.ToolName)
+				}
+				sawHeartbeat = true
+				break
+			}
+		}
+		if sawHeartbeat {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !sawHeartbeat {
+		t.Fatalf("expected tool_still_running progress within interval; events=%v", relay.EventsSnapshot())
+	}
+
+	src <- codingagent.StreamEvent{Type: codingagent.EventToolResult, Content: "done"}
+	src <- codingagent.StreamEvent{Type: codingagent.EventResult}
+	close(src)
+
+	waitDone := time.Now().Add(2 * time.Second)
+	for !relay.isSourceDone() {
+		if time.Now().After(waitDone) {
+			t.Fatal("timed out waiting for sourceDone")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	nAfter := len(relay.EventsSnapshot())
+	time.Sleep(120 * time.Millisecond)
+	if len(relay.EventsSnapshot()) != nAfter {
+		t.Fatalf("heartbeat continued after tool_result: before=%d after=%d", nAfter, len(relay.EventsSnapshot()))
+	}
+}
+
+func TestEventRelay_NoHeartbeatWithoutTool(t *testing.T) {
+	src := make(chan codingagent.StreamEvent, 4)
+	relay := newEventRelayWithHeartbeat(src, 30*time.Millisecond)
+	src <- codingagent.StreamEvent{Type: codingagent.EventText, Content: "thinking"}
+	time.Sleep(100 * time.Millisecond)
+	for _, ev := range relay.EventsSnapshot() {
+		if ev.Type == codingagent.EventProgress {
+			t.Fatalf("unexpected progress without tool_use: %+v", ev)
+		}
+	}
+	close(src)
+}

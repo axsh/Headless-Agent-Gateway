@@ -302,7 +302,7 @@ func (s *Session) SendTextWithHandlers(ctx context.Context, message string, h St
 	return stream.RunWithHandlers(ctx, s, h)
 }
 
-// Terminate terminates the session.
+// Terminate terminates the session (session status becomes closed; id is not reused for new turns).
 func (s *Session) Terminate(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		s.client.baseURL+"/api/v1/sessions/"+s.ID+"/terminate", nil)
@@ -320,6 +320,31 @@ func (s *Session) Terminate(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("terminate failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// CancelTurn aborts the in-flight turn without closing the session.
+// The same session id remains usable for a subsequent SendMessage / PATCH.
+// Distinct from Terminate (which sets status closed).
+func (s *Session) CancelTurn(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		s.client.baseURL+"/api/v1/sessions/"+s.ID+"/cancel", nil)
+	if err != nil {
+		return fmt.Errorf("create cancel request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send cancel request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cancel failed (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil
