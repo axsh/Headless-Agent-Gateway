@@ -184,19 +184,6 @@ func startLongToolSSE(t *testing.T, baseURL, sessionID, prompt string, overallTi
 	return headerCh, finishCh
 }
 
-func assertToolHeartbeat(t *testing.T, events []codingagent.StreamEvent) {
-	t.Helper()
-	for _, ev := range events {
-		if ev.Type == codingagent.EventProgress && ev.Content == liveToolStillRunning {
-			if strings.TrimSpace(ev.ToolName) == "" {
-				t.Fatalf("tool_still_running progress missing tool_name: %+v", ev)
-			}
-			return
-		}
-	}
-	t.Fatalf("expected progress/tool_still_running with tool_name; events=%v", summarizeEvents(events))
-}
-
 func assertTurnTerminal(t *testing.T, events []codingagent.StreamEvent, gotDone bool) {
 	t.Helper()
 	var terminal bool
