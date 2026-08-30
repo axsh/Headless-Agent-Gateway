@@ -299,7 +299,8 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 					Type:     codingagent.EventToolUse,
 					ToolName: "command_execution",
 					ToolInput: map[string]any{
-						"command": header.Command,
+						"command":          header.Command,
+						"execution_status": "completed",
 					},
 				}
 			}
@@ -308,12 +309,13 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 				Content: header.AggregatedOutput,
 			}
 		}
-		// item.started with command_execution -> tool use
+		// item.started with command_execution -> tool use (sandbox tracker); Analyzer ignores started.
 		return &codingagent.StreamEvent{
 			Type:     codingagent.EventToolUse,
 			ToolName: "command_execution",
 			ToolInput: map[string]any{
-				"command": header.Command,
+				"command":          header.Command,
+				"execution_status": "started",
 			},
 		}
 

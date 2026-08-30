@@ -93,6 +93,23 @@ func TestParseJSONLinesEvent_ToolResult(t *testing.T) {
 	if ev.Content != "ok" {
 		t.Errorf("Content = %v, want ok", ev.Content)
 	}
+	if ev.ToolCallID != "xxx" {
+		t.Errorf("ToolCallID = %v, want xxx", ev.ToolCallID)
+	}
+}
+
+func TestParseJSONLinesEvent_BashToolUse_PropagatesID(t *testing.T) {
+	input := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"echo hi > a.txt"}}]}}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.ToolName != "Bash" {
+		t.Errorf("ToolName = %v, want Bash", ev.ToolName)
+	}
+	if ev.ToolCallID != "tu_1" {
+		t.Errorf("ToolCallID = %v, want tu_1", ev.ToolCallID)
+	}
 }
 
 func TestParseJSONLinesEvent_Result(t *testing.T) {

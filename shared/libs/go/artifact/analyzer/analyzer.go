@@ -49,6 +49,11 @@ type ToolCallAnalyzer struct {
 	seenMu            sync.Mutex
 	// seenTier1Keys tracks session|turn|key claimed by Tier1 (first-wins).
 	seenTier1Keys map[string]struct{}
+	pendingMu     sync.Mutex
+	// pendingShellByCall: sessionID + toolCallID → ops flushed on matching tool_result.
+	pendingShellByCall map[string]pendingShellOps
+	// pendingShellFIFO: sessionID → queue when ToolCallID is empty.
+	pendingShellFIFO map[string][]pendingShellOps
 }
 
 // New creates a ToolCallAnalyzer and registers it as the TaskLog entry handler.
@@ -56,11 +61,13 @@ type ToolCallAnalyzer struct {
 // collectorResolver may be nil; when nil, DefaultFileChangeCollectors is used.
 func New(tl *tasklog.TaskLog, s store.ArtifactStore, projectRoot string, workDirResolver WorkDirResolver, collectorResolver CollectorConfigResolver) *ToolCallAnalyzer {
 	a := &ToolCallAnalyzer{
-		st:                s,
-		projectRoot:       filepath.ToSlash(filepath.Clean(projectRoot)),
-		workDirResolver:   workDirResolver,
-		collectorResolver: collectorResolver,
-		seenTier1Keys:     make(map[string]struct{}),
+		st:                 s,
+		projectRoot:        filepath.ToSlash(filepath.Clean(projectRoot)),
+		workDirResolver:    workDirResolver,
+		collectorResolver:  collectorResolver,
+		seenTier1Keys:      make(map[string]struct{}),
+		pendingShellByCall: make(map[string]pendingShellOps),
+		pendingShellFIFO:   make(map[string][]pendingShellOps),
 	}
 	tl.SetOnEntry(a.onEntry)
 	return a
@@ -85,7 +92,13 @@ func (a *ToolCallAnalyzer) onEntry(e tasklog.Entry) {
 		return
 	}
 
-	events := a.analyzeEvents(ev, agentLog.AgentID, ev.TurnID, ev.CorrelationID)
+	sessionID := agentLog.AgentID
+	var events []*store.SystemArtifactEvent
+	if ev.Type == codingagent.EventToolResult {
+		events = a.flushPendingShell(sessionID, ev.ToolCallID)
+	} else {
+		events = a.analyzeEvents(ev, sessionID, ev.TurnID, ev.CorrelationID)
+	}
 	for _, event := range events {
 		if event != nil {
 			_ = a.st.SaveSystemArtifactEvent(context.Background(), *event)
@@ -203,17 +216,39 @@ func (a *ToolCallAnalyzer) analyzeShellTool(ev codingagent.StreamEvent, sessionI
 	if cmd == "" {
 		return nil
 	}
+	status, _ := ev.ToolInput[shellExecStatusKey].(string)
+	if status == shellExecStatusStarted {
+		return nil
+	}
 	ops := ParseShellCommand(cmd)
 	if len(ops) == 0 {
 		return nil
 	}
-	var out []*store.SystemArtifactEvent
-	for _, op := range ops {
-		if event := a.buildEvent(sessionID, turnID, correlationID, ev.ToolName, op.Path, op.Operation); event != nil {
-			out = append(out, event)
-		}
+	// Codex completed (or legacy command_execution without status) → emit now with existence gate.
+	ready := status == shellExecStatusCompleted ||
+		(status == "" && ev.ToolName == "command_execution")
+	if ready {
+		return a.emitShellOps(sessionID, turnID, correlationID, ev.ToolName, ops)
 	}
-	return out
+	// Bash / legacy shell: defer until tool_result so create paths exist on disk.
+	a.stashPendingShell(sessionID, ev.ToolCallID, pendingShellOps{
+		toolName:      ev.ToolName,
+		turnID:        turnID,
+		correlationID: correlationID,
+		ops:           ops,
+	})
+	return nil
+}
+
+func (a *ToolCallAnalyzer) flushPendingShell(sessionID, toolCallID string) []*store.SystemArtifactEvent {
+	pending, ok := a.takePendingShell(sessionID, toolCallID)
+	if !ok {
+		return nil
+	}
+	if !a.collectorsFor(sessionID).ShellParser {
+		return nil
+	}
+	return a.emitShellOps(sessionID, pending.turnID, pending.correlationID, pending.toolName, pending.ops)
 }
 
 func (a *ToolCallAnalyzer) buildEvent(sessionID, turnID, correlationID, toolName, filePath, operation string) *store.SystemArtifactEvent {

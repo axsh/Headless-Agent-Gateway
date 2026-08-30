@@ -269,6 +269,10 @@ func TestParseExecEvent_ItemStarted_CommandExecution(t *testing.T) {
 	if ev.ToolName != "command_execution" {
 		t.Errorf("tool_name = %q, want %q", ev.ToolName, "command_execution")
 	}
+	status, _ := ev.ToolInput["execution_status"].(string)
+	if status != "started" {
+		t.Errorf("execution_status = %q, want started", status)
+	}
 }
 
 func TestParseExecEvent_ItemCompleted_CommandExecution(t *testing.T) {
@@ -286,6 +290,10 @@ func TestParseExecEvent_ItemCompleted_CommandExecution(t *testing.T) {
 	cmd, _ := ev.ToolInput["command"].(string)
 	if cmd != "echo hello" {
 		t.Errorf("command = %q, want echo hello", cmd)
+	}
+	status, _ := ev.ToolInput["execution_status"].(string)
+	if status != "completed" {
+		t.Errorf("execution_status = %q, want completed", status)
 	}
 }
 
