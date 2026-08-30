@@ -277,15 +277,35 @@ func TestParseExecEvent_ItemCompleted_CommandExecution(t *testing.T) {
 	if ev == nil {
 		t.Fatal("expected non-nil event")
 	}
-	if ev.Type != codingagent.EventToolUse {
-		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolUse)
+	if ev.Type != codingagent.EventToolResult {
+		t.Errorf("type = %q, want %q", ev.Type, codingagent.EventToolResult)
 	}
 	if ev.ToolName != "command_execution" {
 		t.Errorf("tool_name = %q, want command_execution", ev.ToolName)
 	}
+	if ev.Content != "hello\r\n" {
+		t.Errorf("content = %q, want hello\\r\\n", ev.Content)
+	}
 	cmd, _ := ev.ToolInput["command"].(string)
 	if cmd != "echo hello" {
 		t.Errorf("command = %q, want echo hello", cmd)
+	}
+}
+
+func TestParseExecEvent_ItemStartedThenCompleted_CommandExecution(t *testing.T) {
+	started := codex.ParseExecEvent(`{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"echo hello","aggregated_output":"","exit_code":null,"status":"in_progress"}}`)
+	completed := codex.ParseExecEvent(`{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"echo hello","aggregated_output":"hello\n","exit_code":0,"status":"completed"}}`)
+	if started == nil || completed == nil {
+		t.Fatal("expected non-nil events")
+	}
+	if started.Type != codingagent.EventToolUse {
+		t.Fatalf("started type = %q, want tool_use", started.Type)
+	}
+	if completed.Type != codingagent.EventToolResult {
+		t.Fatalf("completed type = %q, want tool_result", completed.Type)
+	}
+	if completed.Content != "hello\n" {
+		t.Fatalf("completed content = %q", completed.Content)
 	}
 }
 

@@ -292,20 +292,18 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 	switch header.Type {
 	case "command_execution":
 		if completed {
-			// Emit ToolUse on completed so ToolCallAnalyzer sees the command even when
-			// item.started was not streamed (common in codex exec --json batch output).
+			// Always emit tool_result with stdout. ToolInput.command is retained so
+			// process.go can synthesize a ToolUse when item.started was not streamed
+			// (batch / codex exec --json), without double-emitting ToolUse on interactive paths.
+			var tip map[string]any
 			if header.Command != "" {
-				return &codingagent.StreamEvent{
-					Type:     codingagent.EventToolUse,
-					ToolName: "command_execution",
-					ToolInput: map[string]any{
-						"command": header.Command,
-					},
-				}
+				tip = map[string]any{"command": header.Command}
 			}
 			return &codingagent.StreamEvent{
-				Type:    codingagent.EventToolResult,
-				Content: header.AggregatedOutput,
+				Type:      codingagent.EventToolResult,
+				ToolName:  "command_execution",
+				Content:   header.AggregatedOutput,
+				ToolInput: tip,
 			}
 		}
 		// item.started with command_execution -> tool use
