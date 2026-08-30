@@ -245,7 +245,7 @@ func (a *ToolCallAnalyzer) analyzeShellTool(ev codingagent.StreamEvent, sessionI
 5. **[x] Fix integration TestShellParser_IgnoresDevNull**: Update `artifact_pagination_test.go`.
 6. **[x] E2E**: Add `tests/shell_parser_existence_guard_e2e_test.go`.
 7. **[x] Verify**: `./scripts/process/build.sh` then `./scripts/process/integration_test.sh --specify "ShellParser|FileChangeCollectors|ExistenceGuard"`.
-8. **[/] Push**: 全成功後 `git push`.
+8. **[x] Push**: 全成功後 `git push`.
 
 各ステップ完了時に commit（英語メッセージ）。
 
