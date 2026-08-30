@@ -649,7 +649,7 @@ CreateSession accepts optional `file_change_collectors` to choose which collecti
 | Algorithm | Default | Role |
 | :--- | :--- | :--- |
 | `structured_tool` | ON | Write / Edit / Codex `file_change`, etc. |
-| `shell_parser` | ON | Bash / `command_execution` command parsing |
+| `shell_parser` | ON | Bash / `command_execution` command parsing (create/update only when the resolved path exists after the command; delete kept without existence check) |
 | `workdir_reconcile` | **OFF** | End-of-turn git diff / snapshot supplement |
 
 `workdir_reconcile` is off by default because it can include background-process or out-of-session edits. Set it to `true` when you want maximum coverage of workdir changes.
