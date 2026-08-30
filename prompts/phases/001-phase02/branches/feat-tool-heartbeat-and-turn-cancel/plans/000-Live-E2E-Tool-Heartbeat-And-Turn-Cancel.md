@@ -132,7 +132,7 @@ func postTerminateSession(t *testing.T, baseURL, sessionID string)
 5.  **[x] Build**: `./scripts/process/build.sh`（Windows）。失敗時は修正して再実行。
 6.  **[x] Live gate**: `./scripts/process/integration_test.sh --specify "TestLiveToolHeartbeat_|TestLiveTurnCancel_"`。失敗時は Fix Loop（プロンプト強化・タイムアウト・実装バグ修正）。Skip 禁止。
 7.  **[x] 検証記録**: 本計画の Verification チェックを `[x]` にし、実行結果を下欄に書く。
-8.  **[/] Commit / Push**: 意味単位で commit し、全 PASS 後に `git push`。
+8.  **[x] Commit / Push**: 意味単位で commit し、全 PASS 後に `git push`。
 
 ## Verification Plan
 
