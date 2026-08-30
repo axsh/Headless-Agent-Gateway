@@ -219,9 +219,11 @@ If `OnUserInputRequired` is not set, the SDK stops with an error when input is r
 
 `OnToolUse` receives tool arguments from the SSE `tool_input` field (`Event.ToolInput`). This is a breaking change from the previous `func(toolName string)` signature; see [docs/client-sse-tool-input.md](docs/client-sse-tool-input.md).
 
-While a session is `suspended`, only `respond` and `terminate` are accepted. Sending a new message to the same session returns HTTP 409 Conflict.
+While a session is `suspended`, only `respond`, `cancel`, and `terminate` are accepted. Sending a new message to the same session returns HTTP 409 Conflict.
 
-If a session appears stuck, call `session.Terminate(ctx)` to cancel the underlying agent process.
+If a turn appears stuck but you want to keep the session for resume, call `session.CancelTurn(ctx)` (status stays non-closed). Use `session.Terminate(ctx)` only when you intend to close the session.
+
+While a tool runs with no agent stdout, Tern emits SSE `progress` events with `content: "tool_still_running"` (default every 30s) so clients can treat the stream as alive. See [docs/ReferenceManual-WebAPIs.md](docs/ReferenceManual-WebAPIs.md).
 
 ### Multimodal Messages and Context
 

@@ -12,7 +12,16 @@ import (
 // ErrSessionBusy is returned when a session already has an active execution.
 var ErrSessionBusy = errors.New("session busy")
 
-const hintSessionBusy = "follow, respond or terminate"
+const hintSessionBusy = "follow, respond, cancel or terminate"
+
+// DefaultToolHeartbeatInterval is the SSE progress heartbeat period while a
+// tool is in-flight (EventToolUse until matching EventToolResult / turn end).
+const DefaultToolHeartbeatInterval = 30 * time.Second
+
+// toolStillRunningContent is the EventProgress content used as tool liveness.
+// Distinct from WBS progress payloads (e.g. "2/5"); clients may treat this
+// string as a stall-reset heartbeat.
+const toolStillRunningContent = "tool_still_running"
 
 type activeExecution struct {
 	sessionID        string
@@ -105,6 +114,8 @@ func (e *activeExecution) hasSubscriber() bool {
 }
 
 // eventRelay buffers events from a single agent channel for sequential SSE consumers.
+// While a tool is in-flight it also injects EventProgress heartbeats so subscribers
+// see liveness even when the agent emits no stdout.
 type eventRelay struct {
 	mu         sync.Mutex
 	events     []codingagent.StreamEvent
@@ -115,30 +126,102 @@ type eventRelay struct {
 }
 
 func newEventRelay(source <-chan codingagent.StreamEvent) *eventRelay {
+	return newEventRelayWithHeartbeat(source, DefaultToolHeartbeatInterval)
+}
+
+func newEventRelayWithHeartbeat(source <-chan codingagent.StreamEvent, interval time.Duration) *eventRelay {
 	r := &eventRelay{
 		notify: make(chan struct{}, 1),
 		doneCh: make(chan struct{}),
 	}
-	go func() {
-		for ev := range source {
-			r.mu.Lock()
-			r.events = append(r.events, ev)
-			r.mu.Unlock()
-			select {
-			case r.notify <- struct{}{}:
-			default:
-			}
-		}
-		r.mu.Lock()
-		r.sourceDone = true
-		r.mu.Unlock()
-		r.doneOnce.Do(func() { close(r.doneCh) })
-		select {
-		case r.notify <- struct{}{}:
-		default:
-		}
-	}()
+	go r.pump(source, interval)
 	return r
+}
+
+func (r *eventRelay) appendEvent(ev codingagent.StreamEvent) {
+	r.mu.Lock()
+	r.events = append(r.events, ev)
+	r.mu.Unlock()
+	select {
+	case r.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (r *eventRelay) markSourceDone() {
+	r.mu.Lock()
+	r.sourceDone = true
+	r.mu.Unlock()
+	r.doneOnce.Do(func() { close(r.doneCh) })
+	select {
+	case r.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (r *eventRelay) pump(source <-chan codingagent.StreamEvent, interval time.Duration) {
+	var (
+		toolDepth int
+		toolName  string
+		ticker    *time.Ticker
+		tickC     <-chan time.Time
+	)
+	stopTicker := func() {
+		if ticker != nil {
+			ticker.Stop()
+			ticker = nil
+			tickC = nil
+		}
+	}
+	startOrResetTicker := func(name string) {
+		if name != "" {
+			toolName = name
+		}
+		if interval <= 0 {
+			return
+		}
+		stopTicker()
+		ticker = time.NewTicker(interval)
+		tickC = ticker.C
+	}
+	defer stopTicker()
+
+	for {
+		select {
+		case ev, ok := <-source:
+			if !ok {
+				r.markSourceDone()
+				return
+			}
+			switch ev.Type {
+			case codingagent.EventToolUse:
+				toolDepth++
+				startOrResetTicker(ev.ToolName)
+			case codingagent.EventToolResult:
+				if toolDepth > 0 {
+					toolDepth--
+				}
+				if toolDepth == 0 {
+					stopTicker()
+					toolName = ""
+				}
+			case codingagent.EventResult, codingagent.EventError:
+				stopTicker()
+				toolDepth = 0
+				toolName = ""
+			}
+			r.appendEvent(ev)
+		case <-tickC:
+			if toolDepth <= 0 {
+				continue
+			}
+			r.appendEvent(codingagent.StreamEvent{
+				Type:     codingagent.EventProgress,
+				Content:  toolStillRunningContent,
+				ToolName: toolName,
+			})
+		}
+	}
 }
 
 // stream returns events starting at startIdx. When stopOnUserInput is true,

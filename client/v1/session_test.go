@@ -440,3 +440,27 @@ func TestFollow_UsesEventsPath(t *testing.T) {
 		t.Fatalf("from query = %s", gotQuery)
 	}
 }
+
+func TestCancelTurn_UsesCancelPath(t *testing.T) {
+	var gotMethod, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"cancelled"}`))
+	}))
+	defer srv.Close()
+
+	c := v1.New(srv.URL)
+	sess := v1.ResumeSession(c, "sess-cancel")
+	if err := sess.CancelTurn(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %s, want POST", gotMethod)
+	}
+	if gotPath != "/api/v1/sessions/sess-cancel/cancel" {
+		t.Fatalf("path = %s", gotPath)
+	}
+}
+

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -68,8 +69,10 @@ type Server struct {
 	supplementCfg      config.SupplementConfig
 	processRetry       config.ProcessRetryConfig
 	processRetryCustom bool
-	sseDrainTimeout    time.Duration
-	ssePostResultDrain time.Duration
+	sseDrainTimeout         time.Duration
+	ssePostResultDrain      time.Duration
+	toolHeartbeatInterval   time.Duration // 0 = DefaultToolHeartbeatInterval unless configured off
+	toolHeartbeatConfigured bool          // true when WithToolHeartbeatInterval was applied
 }
 
 // ServerOption configures a Server.
@@ -152,6 +155,32 @@ func WithSSEDrainTimeout(d time.Duration) ServerOption {
 // Production zero value uses defaultSSEPostResultDrain (2s).
 func WithSSEPostResultDrain(d time.Duration) ServerOption {
 	return func(s *Server) { s.ssePostResultDrain = d }
+}
+
+// WithToolHeartbeatInterval sets how often EventProgress tool_still_running
+// heartbeats are injected into the SSE relay while a tool is in-flight.
+// A non-positive duration disables heartbeats. When unset, DefaultToolHeartbeatInterval
+// is used (overridable via SSE_TOOL_HEARTBEAT_INTERVAL env, e.g. "30s").
+func WithToolHeartbeatInterval(d time.Duration) ServerOption {
+	return func(s *Server) {
+		s.toolHeartbeatInterval = d
+		s.toolHeartbeatConfigured = true
+	}
+}
+
+func (s *Server) resolvedToolHeartbeatInterval() time.Duration {
+	if s.toolHeartbeatConfigured {
+		if s.toolHeartbeatInterval <= 0 {
+			return 0
+		}
+		return s.toolHeartbeatInterval
+	}
+	if v := strings.TrimSpace(os.Getenv("SSE_TOOL_HEARTBEAT_INTERVAL")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultToolHeartbeatInterval
 }
 
 // MarkSessionBusy registers a dummy execution so PATCH/SendMessage return 409 (tests).
@@ -239,6 +268,26 @@ func NewWithStore(store codingagent.SessionStore, opts ...ServerOption) *Server 
 	}
 	if s.logger != nil {
 		s.logger.Debug("creating agent service", "agent_count", len(s.agents))
+	}
+	// Keep artifact behavior identical to New() even with custom SessionStore.
+	if s.artifactStore != nil && s.taskLog != nil {
+		s.toolAnalyzer = analyzer.New(s.taskLog, s.artifactStore, s.artifactWorkDir,
+			func(sessionID string) string {
+				if rec, err := s.sessions.Get(sessionID); err == nil {
+					return rec.WorkDir
+				}
+				return ""
+			},
+			func(sessionID string) codingagent.FileChangeCollectors {
+				if rec, err := s.sessions.Get(sessionID); err == nil {
+					return codingagent.EffectiveFileChangeCollectors(rec.FileChangeCollectors)
+				}
+				return codingagent.DefaultFileChangeCollectors()
+			},
+		)
+		if s.logger != nil {
+			s.logger.Debug("artifact tracking enabled", "work_dir", s.artifactWorkDir)
+		}
 	}
 	return s
 }
@@ -478,6 +527,8 @@ func (s *Server) routeSessionByID(w http.ResponseWriter, r *http.Request) {
 		s.handleRespond(w, r)
 	} else if strings.HasSuffix(path, "/terminate") {
 		s.handleTerminate(w, r)
+	} else if strings.HasSuffix(path, "/cancel") {
+		s.handleCancel(w, r)
 	} else if strings.HasSuffix(path, "/logs") {
 		s.handleLogStream(w, r)
 	} else if strings.HasSuffix(path, "/events") {

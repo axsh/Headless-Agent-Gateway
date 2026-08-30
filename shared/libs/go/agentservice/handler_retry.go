@@ -266,7 +266,7 @@ func (s *Server) runTurn(
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		relay := newEventRelay(ch)
+		relay := newEventRelayWithHeartbeat(ch, s.resolvedToolHeartbeatInterval())
 		stdin, _ := sess.(codingagent.StdinWriter)
 		if !registered {
 			active = &activeExecution{
@@ -715,20 +715,24 @@ func (s *Server) streamSSERelay(ctx context.Context, w http.ResponseWriter, exec
 		return s.waitDetached(context.Background(), exec)
 	}
 	if record, err := s.sessions.Get(exec.sessionID); err == nil {
-		switch {
-		case term.kind == codingagent.EventError && term.retryable:
-		case term.kind == codingagent.EventError:
-			record.Status = codingagent.StatusError
-			if term.content != "" {
-				record.Error = term.content
-			} else {
-				record.Error = "unknown error occurred during execution"
+		if record.Error == turnCancelledError {
+			// CancelTurn already set non-closed status; do not overwrite.
+		} else {
+			switch {
+			case term.kind == codingagent.EventError && term.retryable:
+			case term.kind == codingagent.EventError:
+				record.Status = codingagent.StatusError
+				if term.content != "" {
+					record.Error = term.content
+				} else {
+					record.Error = "unknown error occurred during execution"
+				}
+				s.sessions.Update(record)
+			case term.kind == codingagent.EventResult:
+				record.Status = codingagent.StatusCompleted
+				record.Error = ""
+				s.sessions.Update(record)
 			}
-			s.sessions.Update(record)
-		case term.kind == codingagent.EventResult:
-			record.Status = codingagent.StatusCompleted
-			record.Error = ""
-			s.sessions.Update(record)
 		}
 		if term.kind == codingagent.EventResult || (term.kind == codingagent.EventError && !term.retryable) {
 			s.reconcileSessionArtifacts(context.Background(), exec.sessionID, exec.turnID, exec.correlationID)

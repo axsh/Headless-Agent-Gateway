@@ -517,6 +517,10 @@ func (s *Server) updateSessionStatusOnTerminal(sessionID string, ev codingagent.
 	if err != nil {
 		return
 	}
+	if record.Error == turnCancelledError {
+		// Turn cancel already released busy state; keep cancel reason / non-closed status.
+		return
+	}
 	if hasError || ev.Type == codingagent.EventError {
 		record.Status = codingagent.StatusError
 		if errorMsg != "" {
@@ -856,6 +860,66 @@ func (s *Server) handleTerminate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "terminated"})
+}
+
+// turnCancelledError is persisted on the session when POST .../cancel aborts an in-flight turn.
+const turnCancelledError = "turn cancelled"
+
+// handleCancel handles POST /api/v1/sessions/:id/cancel.
+// Aborts the in-flight turn (CancelExecution + best-effort agent Stop) and clears busy
+// state, but keeps the same session id and does NOT close the session (status stays
+// non-closed so a later SendMessage / PATCH can resume). Distinct from terminate.
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/"), "/")
+	if len(parts) < 1 || parts[0] == "" {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	sessionID := parts[0]
+
+	record, err := s.sessions.Get(sessionID)
+	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	if record.Status == codingagent.StatusClosed {
+		http.Error(w, "session closed", http.StatusConflict)
+		return
+	}
+	if s.logger != nil {
+		s.logger.Debug("cancelling in-flight turn", "session_id", sessionID)
+	}
+
+	turnID := ""
+	correlationID := ""
+	if exec, ok := s.execRegistry.Get(sessionID); ok {
+		turnID = exec.turnID
+		correlationID = exec.correlationID
+	}
+
+	s.CancelExecution(sessionID)
+
+	if s.artifactStore != nil {
+		s.reconcileSessionArtifacts(r.Context(), sessionID, turnID, correlationID)
+	}
+
+	if exec, ok := s.execRegistry.Get(sessionID); ok {
+		if exec.agentSess != nil {
+			_ = exec.agentSess.Close()
+		}
+		s.execRegistry.Unregister(sessionID)
+	}
+	s.UnregisterActiveSession(sessionID)
+	s.UnregisterExecCancel(sessionID)
+
+	// Keep session id; mark non-active without StatusClosed so resume remains possible.
+	record.Status = codingagent.StatusError
+	record.Error = turnCancelledError
+	s.sessions.Update(record)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
 // extractPathParam extracts the first path component after the given prefix.
