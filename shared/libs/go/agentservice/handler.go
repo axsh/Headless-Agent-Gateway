@@ -907,6 +907,11 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		if exec.agentSess != nil {
 			_ = exec.agentSess.Close()
 		}
+		// Force relay subscribers (POST /messages SSE) to finish even if the
+		// agent process is slow to close its event channel after Cancel/Close.
+		if exec.relay != nil {
+			exec.relay.markSourceDone()
+		}
 		s.execRegistry.Unregister(sessionID)
 	}
 	s.UnregisterActiveSession(sessionID)

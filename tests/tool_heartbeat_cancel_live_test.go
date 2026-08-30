@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,28 +89,18 @@ agent_service:
 }
 
 func sleepToolPrompt(nSeconds int) string {
-	return fmt.Sprintf(`You MUST run exactly one shell/tool command that sleeps for at least %d seconds before finishing.
-Do not answer with text only. Do not skip the sleep.
-Unix/bash: sleep %d
-Windows cmd: timeout /t %d /nobreak
-After the sleep completes, reply with exactly: SLEEP_DONE`, nSeconds, nSeconds, nSeconds)
+	// ping -n (N+1) approximates N seconds on Windows; sleep N on Unix.
+	pingCount := nSeconds + 1
+	return fmt.Sprintf(`You MUST run exactly one shell/tool command that blocks for at least %d seconds.
+Do not answer with text only. Do not skip the wait. Do not use a shorter duration.
+Preferred commands:
+- Windows cmd: ping -n %d 127.0.0.1
+- Unix/bash: sleep %d
+After the command finishes, reply with exactly: SLEEP_DONE`, nSeconds, pingCount, nSeconds)
 }
 
 func shortResumePrompt() string {
 	return "Reply with exactly: OK"
-}
-
-func waitSessionFollowable(t *testing.T, baseURL, sessionID string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		info := getE2ESession(t, baseURL, sessionID)
-		if followable, _ := info["followable"].(bool); followable {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("session %s not followable within %s", sessionID, timeout)
 }
 
 func postCancelTurn(t *testing.T, baseURL, sessionID string) {
@@ -142,17 +133,22 @@ func postTerminateSession(t *testing.T, baseURL, sessionID string) {
 }
 
 type asyncSSEResult struct {
-	resp   *http.Response
 	err    error
 	events []codingagent.StreamEvent
 	done   bool
 }
 
-// startLongToolSSE posts /messages asynchronously and drains SSE in the background.
-func startLongToolSSE(t *testing.T, baseURL, sessionID, prompt string, overallTimeout time.Duration) (headerReady <-chan *http.Response, finished <-chan asyncSSEResult) {
+// liveCancelSSE streams one POST /messages SSE, signaling when a tool is in-flight.
+type liveCancelSSE struct {
+	toolInFlight <-chan struct{}
+	finished     <-chan asyncSSEResult
+}
+
+func startCancelableToolSSE(t *testing.T, baseURL, sessionID, prompt string, overallTimeout time.Duration) *liveCancelSSE {
 	t.Helper()
-	headerCh := make(chan *http.Response, 1)
+	toolCh := make(chan struct{})
 	finishCh := make(chan asyncSSEResult, 1)
+	var toolOnce sync.Once
 
 	go func() {
 		body, _ := json.Marshal(map[string]any{
@@ -174,14 +170,41 @@ func startLongToolSSE(t *testing.T, baseURL, sessionID, prompt string, overallTi
 			finishCh <- asyncSSEResult{err: err}
 			return
 		}
-		headerCh <- resp
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			finishCh <- asyncSSEResult{err: fmt.Errorf("send status=%d body=%s", resp.StatusCode, b)}
+			return
+		}
 
-		events, gotDone := parseE2ESSEEvents(t, resp)
+		var events []codingagent.StreamEvent
+		gotDone := false
+		scanner := codingagent.NewLargeLineScanner(resp.Body, 0)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			data := strings.TrimPrefix(line, "data: ")
+			if data == "[DONE]" {
+				gotDone = true
+				break
+			}
+			var ev codingagent.StreamEvent
+			if err := json.Unmarshal([]byte(data), &ev); err != nil {
+				continue
+			}
+			events = append(events, ev)
+			if ev.Type == codingagent.EventToolUse ||
+				(ev.Type == codingagent.EventProgress && ev.Content == liveToolStillRunning) {
+				toolOnce.Do(func() { close(toolCh) })
+			}
+		}
 		_ = resp.Body.Close()
-		finishCh <- asyncSSEResult{resp: resp, events: events, done: gotDone}
+		finishCh <- asyncSSEResult{events: events, done: gotDone}
 	}()
 
-	return headerCh, finishCh
+	return &liveCancelSSE{toolInFlight: toolCh, finished: finishCh}
 }
 
 func assertTurnTerminal(t *testing.T, events []codingagent.StreamEvent, gotDone bool) {
@@ -209,9 +232,22 @@ func summarizeEvents(events []codingagent.StreamEvent) string {
 	return strings.Join(parts, ", ")
 }
 
+func liveWorkDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "tern-live-hb-cancel-*")
+	if err != nil {
+		t.Fatalf("mkdir temp work dir: %v", err)
+	}
+	t.Cleanup(func() {
+		// Agent CLIs may briefly hold files after cancel; ignore cleanup errors.
+		_ = os.RemoveAll(dir)
+	})
+	return dir
+}
+
 func runHeartbeatScenario(t *testing.T, baseURL, agent, model string) {
 	t.Helper()
-	workDir := t.TempDir()
+	workDir := liveWorkDir(t)
 	sessionID := createE2ESessionWithModel(t, baseURL, agent, model, workDir)
 
 	attempt := func(prompt string) (events []codingagent.StreamEvent, gotDone bool, ok bool) {
@@ -241,6 +277,65 @@ func runHeartbeatScenario(t *testing.T, baseURL, agent, model string) {
 	assertTurnTerminal(t, events, gotDone)
 }
 
+func runCodexCancelResumeOnce(t *testing.T, baseURL, workDir string, sleepSec int) (ok bool, reason string) {
+	t.Helper()
+	sessionID := createE2ESessionWithModel(t, baseURL, "codex", liveCodexHeartbeatModel, workDir)
+	stream := startCancelableToolSSE(t, baseURL, sessionID, sleepToolPrompt(sleepSec), 150*time.Second)
+
+	select {
+	case <-stream.toolInFlight:
+		// Tool is running; cancel while in-flight.
+	case res := <-stream.finished:
+		if res.err != nil {
+			return false, fmt.Sprintf("SSE failed before tool_use: %v", res.err)
+		}
+		return false, fmt.Sprintf("SSE finished before tool_use/heartbeat; events=%v", summarizeEvents(res.events))
+	case <-time.After(90 * time.Second):
+		return false, "timed out waiting for tool_use or tool_still_running before cancel"
+	}
+
+	postCancelTurn(t, baseURL, sessionID)
+
+	info := getE2ESession(t, baseURL, sessionID)
+	if id, _ := info["id"].(string); id != "" && id != sessionID {
+		t.Fatalf("session id = %q, want %q", id, sessionID)
+	}
+	status, _ := info["status"].(string)
+	if status == codingagent.StatusClosed {
+		t.Fatal("status must not be closed after cancel")
+	}
+	if status != codingagent.StatusError {
+		t.Fatalf("status = %q, want %q", status, codingagent.StatusError)
+	}
+	if errField, _ := info["error"].(string); errField != "turn cancelled" {
+		t.Fatalf("error field = %q, want %q", errField, "turn cancelled")
+	}
+
+	select {
+	case res := <-stream.finished:
+		if res.err != nil {
+			t.Fatalf("SSE after cancel: %v", res.err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("SSE did not finish within 30s after cancel")
+	}
+
+	resp2 := sendE2EMessage(t, baseURL, sessionID, shortResumePrompt(), 90*time.Second)
+	defer resp2.Body.Close()
+	if resp2.StatusCode == http.StatusConflict {
+		t.Fatalf("session still busy after cancel: %s", readBodyPreview(resp2))
+	}
+	if resp2.StatusCode == http.StatusNotFound {
+		t.Fatal("session id destroyed after cancel")
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("resume send status=%d body=%s", resp2.StatusCode, readBodyPreview(resp2))
+	}
+	events, gotDone := parseE2ESSEEvents(t, resp2)
+	assertTurnTerminal(t, events, gotDone)
+	return true, ""
+}
+
 // TestLiveToolHeartbeat_Codex verifies SSE progress heartbeats while a real Codex tool runs.
 func TestLiveToolHeartbeat_Codex(t *testing.T) {
 	requireLiveCodexCLI(t)
@@ -263,67 +358,15 @@ func TestLiveTurnCancel_CodexResume(t *testing.T) {
 	baseURL, cleanup := startHeartbeatCancelLiveServer(t)
 	defer cleanup()
 
-	workDir := t.TempDir()
-	sessionID := createE2ESessionWithModel(t, baseURL, "codex", liveCodexHeartbeatModel, workDir)
-
-	headerReady, finished := startLongToolSSE(t, baseURL, sessionID, sleepToolPrompt(60), 120*time.Second)
-
-	select {
-	case resp := <-headerReady:
-		if resp.StatusCode != http.StatusOK {
-			b, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			t.Fatalf("async send status=%d body=%s", resp.StatusCode, b)
-		}
-	case res := <-finished:
-		if res.err != nil {
-			t.Fatalf("async send failed before headers: %v", res.err)
-		}
-		t.Fatalf("SSE finished before cancel opportunity; events=%v", summarizeEvents(res.events))
-	case <-time.After(60 * time.Second):
-		t.Fatal("timed out waiting for SSE response headers")
+	workDir := liveWorkDir(t)
+	ok, reason := runCodexCancelResumeOnce(t, baseURL, workDir, 45)
+	if !ok {
+		t.Logf("first cancel attempt aborted early: %s; retrying once", reason)
+		ok, reason = runCodexCancelResumeOnce(t, baseURL, liveWorkDir(t), 60)
 	}
-
-	waitSessionFollowable(t, baseURL, sessionID, 60*time.Second)
-	postCancelTurn(t, baseURL, sessionID)
-
-	info := getE2ESession(t, baseURL, sessionID)
-	if id, _ := info["id"].(string); id != "" && id != sessionID {
-		t.Fatalf("session id = %q, want %q", id, sessionID)
+	if !ok {
+		t.Fatalf("cancel+resume requires in-flight tool before cancel: %s", reason)
 	}
-	status, _ := info["status"].(string)
-	if status == codingagent.StatusClosed {
-		t.Fatal("status must not be closed after cancel")
-	}
-	if status != codingagent.StatusError {
-		t.Fatalf("status = %q, want %q", status, codingagent.StatusError)
-	}
-	if errField, _ := info["error"].(string); errField != "turn cancelled" {
-		t.Fatalf("error field = %q, want %q", errField, "turn cancelled")
-	}
-
-	select {
-	case res := <-finished:
-		if res.err != nil {
-			t.Fatalf("SSE after cancel: %v", res.err)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("SSE did not finish within 30s after cancel")
-	}
-
-	resp2 := sendE2EMessage(t, baseURL, sessionID, shortResumePrompt(), 90*time.Second)
-	defer resp2.Body.Close()
-	if resp2.StatusCode == http.StatusConflict {
-		t.Fatalf("session still busy after cancel: %s", readBodyPreview(resp2))
-	}
-	if resp2.StatusCode == http.StatusNotFound {
-		t.Fatal("session id destroyed after cancel")
-	}
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("resume send status=%d body=%s", resp2.StatusCode, readBodyPreview(resp2))
-	}
-	events, gotDone := parseE2ESSEEvents(t, resp2)
-	assertTurnTerminal(t, events, gotDone)
 }
 
 // TestLiveTurnCancel_TerminateClosesSession verifies terminate still closes the session.
@@ -332,7 +375,7 @@ func TestLiveTurnCancel_TerminateClosesSession(t *testing.T) {
 	baseURL, cleanup := startHeartbeatCancelLiveServer(t)
 	defer cleanup()
 
-	workDir := t.TempDir()
+	workDir := liveWorkDir(t)
 	sessionID := createE2ESessionWithModel(t, baseURL, "codex", liveCodexHeartbeatModel, workDir)
 	postTerminateSession(t, baseURL, sessionID)
 

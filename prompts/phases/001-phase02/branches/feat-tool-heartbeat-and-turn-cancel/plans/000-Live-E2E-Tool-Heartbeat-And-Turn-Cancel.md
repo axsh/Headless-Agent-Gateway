@@ -125,14 +125,14 @@ func postTerminateSession(t *testing.T, baseURL, sessionID string)
 
 ## Step-by-Step Implementation Guide
 
-1.  **[ ] Failed-first スケルトン**: [tests/tool_heartbeat_cancel_live_test.go](file://tests/tool_heartbeat_cancel_live_test.go) に4テストとヘルパの骨格を追加する（アサーション含む）。
-2.  **[ ] ヘルパ完成**: `startHeartbeatCancelLiveServer`（env + config）、`sleepToolPrompt`、`waitSessionFollowable`、`postCancelTurn`、非同期 SSE 開始を実装する。
-3.  **[ ] Heartbeat Codex / Claude**: `TestLiveToolHeartbeat_Codex` と `TestLiveToolHeartbeat_ClaudeCode` を完成させる。
-4.  **[ ] Cancel resume + Terminate**: `TestLiveTurnCancel_CodexResume` と `TestLiveTurnCancel_TerminateClosesSession` を完成させる。
-5.  **[ ] Build**: `./scripts/process/build.sh`（Windows）。失敗時は修正して再実行。
-6.  **[ ] Live gate**: `./scripts/process/integration_test.sh --specify "TestLiveToolHeartbeat_|TestLiveTurnCancel_"`。失敗時は Fix Loop（プロンプト強化・タイムアウト・実装バグ修正）。Skip 禁止。
-7.  **[ ] 検証記録**: 本計画の Verification チェックを `[x]` にし、実行結果を下欄に書く。
-8.  **[ ] Commit / Push**: 意味単位で commit し、全 PASS 後に `git push`。
+1.  **[x] Failed-first スケルトン**: [tests/tool_heartbeat_cancel_live_test.go](file://tests/tool_heartbeat_cancel_live_test.go) に4テストとヘルパの骨格を追加する（アサーション含む）。
+2.  **[x] ヘルパ完成**: `startHeartbeatCancelLiveServer`（env + config）、`sleepToolPrompt`、`waitSessionFollowable`、`postCancelTurn`、非同期 SSE 開始を実装する。
+3.  **[x] Heartbeat Codex / Claude**: `TestLiveToolHeartbeat_Codex` と `TestLiveToolHeartbeat_ClaudeCode` を完成させる。
+4.  **[x] Cancel resume + Terminate**: `TestLiveTurnCancel_CodexResume` と `TestLiveTurnCancel_TerminateClosesSession` を完成させる。
+5.  **[x] Build**: `./scripts/process/build.sh`（Windows）。失敗時は修正して再実行。
+6.  **[x] Live gate**: `./scripts/process/integration_test.sh --specify "TestLiveToolHeartbeat_|TestLiveTurnCancel_"`。失敗時は Fix Loop（プロンプト強化・タイムアウト・実装バグ修正）。Skip 禁止。
+7.  **[x] 検証記録**: 本計画の Verification チェックを `[x]` にし、実行結果を下欄に書く。
+8.  **[/] Commit / Push**: 意味単位で commit し、全 PASS 後に `git push`。
 
 ## Verification Plan
 
@@ -140,9 +140,9 @@ func postTerminateSession(t *testing.T, baseURL, sessionID string)
 
 ### Automated Verification
 
-1.  **[ ] Build & Unit Tests**: `./scripts/process/build.sh`
-2.  **[ ] Live E2E (必須ゲート)**: `./scripts/process/integration_test.sh --specify "TestLiveToolHeartbeat_|TestLiveTurnCancel_"`
-3.  **[ ] E2E Tests (コード)**: `tests/tool_heartbeat_cancel_live_test.go` に以下が存在する:
+1.  **[x] Build & Unit Tests**: `./scripts/process/build.sh`
+2.  **[x] Live E2E (必須ゲート)**: `./scripts/process/integration_test.sh --specify "TestLiveToolHeartbeat_|TestLiveTurnCancel_"`
+3.  **[x] E2E Tests (コード)**: `tests/tool_heartbeat_cancel_live_test.go` に以下が存在する:
     - `TestLiveToolHeartbeat_Codex`
     - `TestLiveToolHeartbeat_ClaudeCode`
     - `TestLiveTurnCancel_CodexResume`
@@ -159,7 +159,9 @@ xvfb-run -a ./scripts/process/integration_test.sh --specify "TestLiveToolHeartbe
 
 | 日時 | コマンド | 結果 |
 | :--- | :--- | :--- |
-| （実行後記入） | | |
+| 2026-08-31 | `./scripts/process/build.sh` | PASS (129s) |
+| 2026-08-31 | `./scripts/process/integration_test.sh --specify "TestLiveToolHeartbeat_|TestLiveTurnCancel_"` | PASS (61s): Heartbeat Codex 14s / Claude 31s / CancelResume 12s / Terminate 0.7s |
+| （補足） | cancel 後 SSE 残存対策で `handleCancel` が `relay.markSourceDone()` を呼ぶよう修正 | ライブで確認済み |
 
 ## Documentation
 
