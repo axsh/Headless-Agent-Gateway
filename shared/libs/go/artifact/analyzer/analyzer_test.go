@@ -319,9 +319,13 @@ func TestAnalyzer_CommandExecution_NoFileOp(t *testing.T) {
 	tl := tasklog.New()
 	analyzer.New(tl, ms, t.TempDir(), nil, nil)
 
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command":          "ls -la",
-		"execution_status": "completed",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "ls -la",
+			"execution_status": "completed",
+		},
 	})
 
 	time.Sleep(20 * time.Millisecond)
