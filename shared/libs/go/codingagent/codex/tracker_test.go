@@ -55,3 +55,18 @@ func TestCommandExecTracker_StderrBeforeToolUse(t *testing.T) {
 		t.Fatalf("type = %v, want tool_result", ev.Type)
 	}
 }
+
+func TestCommandExecTracker_HasOpenToolUse(t *testing.T) {
+	var tr commandExecTracker
+	if tr.hasOpenToolUse() {
+		t.Fatal("empty tracker should not have open tool use")
+	}
+	tr.markToolUse()
+	if !tr.hasOpenToolUse() {
+		t.Fatal("after markToolUse want open")
+	}
+	tr.markToolResult()
+	if tr.hasOpenToolUse() {
+		t.Fatal("after markToolResult want closed")
+	}
+}

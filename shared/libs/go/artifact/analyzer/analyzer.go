@@ -96,6 +96,12 @@ func (a *ToolCallAnalyzer) onEntry(e tasklog.Entry) {
 	var events []*store.SystemArtifactEvent
 	if ev.Type == codingagent.EventToolResult {
 		events = a.flushPendingShell(sessionID, ev.ToolCallID)
+		// Codex item.completed command_execution is a ToolResult with ToolInput.command.
+		if a.collectorsFor(sessionID).ShellParser {
+			if shellEvents := a.analyzeShellToolResult(ev, sessionID, ev.TurnID, ev.CorrelationID); len(shellEvents) > 0 {
+				events = append(events, shellEvents...)
+			}
+		}
 	} else {
 		events = a.analyzeEvents(ev, sessionID, ev.TurnID, ev.CorrelationID)
 	}
@@ -224,20 +230,40 @@ func (a *ToolCallAnalyzer) analyzeShellTool(ev codingagent.StreamEvent, sessionI
 	if len(ops) == 0 {
 		return nil
 	}
-	// Codex completed (or legacy command_execution without status) → emit now with existence gate.
-	ready := status == shellExecStatusCompleted ||
-		(status == "" && ev.ToolName == "command_execution")
-	if ready {
+	// Codex completed ToolUse (rare) or tests that inject execution_status=completed.
+	if status == shellExecStatusCompleted {
 		return a.emitShellOps(sessionID, turnID, correlationID, ev.ToolName, ops)
 	}
 	// Bash / legacy shell: defer until tool_result so create paths exist on disk.
-	a.stashPendingShell(sessionID, ev.ToolCallID, pendingShellOps{
-		toolName:      ev.ToolName,
-		turnID:        turnID,
-		correlationID: correlationID,
-		ops:           ops,
-	})
+	// command_execution without completed status waits for ToolResult (see analyzeShellToolResult).
+	switch ev.ToolName {
+	case "Bash", "shell", "shell_command":
+		a.stashPendingShell(sessionID, ev.ToolCallID, pendingShellOps{
+			toolName:      ev.ToolName,
+			turnID:        turnID,
+			correlationID: correlationID,
+			ops:           ops,
+		})
+	}
 	return nil
+}
+
+// analyzeShellToolResult records Tier2 artifacts from a completed shell ToolResult
+// (Codex command_execution item.completed).
+func (a *ToolCallAnalyzer) analyzeShellToolResult(ev codingagent.StreamEvent, sessionID, turnID, correlationID string) []*store.SystemArtifactEvent {
+	cmd := ExtractShellCommand(ev.ToolName, ev.ToolInput)
+	if cmd == "" {
+		return nil
+	}
+	ops := ParseShellCommand(cmd)
+	if len(ops) == 0 {
+		return nil
+	}
+	toolName := ev.ToolName
+	if toolName == "" {
+		toolName = "command_execution"
+	}
+	return a.emitShellOps(sessionID, turnID, correlationID, toolName, ops)
 }
 
 func (a *ToolCallAnalyzer) flushPendingShell(sessionID, toolCallID string) []*store.SystemArtifactEvent {

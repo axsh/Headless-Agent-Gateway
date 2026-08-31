@@ -46,8 +46,9 @@ func TestE2E_ShellParser_ExistenceGuard_KeepsExistingCreate(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "actual.txt"), []byte("hi"), 0o644))
 
 	injectShellGuardEvent(t, tl, sessionID, codingagent.StreamEvent{
-		Type:     codingagent.EventToolUse,
+		Type:     codingagent.EventToolResult,
 		ToolName: "command_execution",
+		Content:  "hi\n",
 		ToolInput: map[string]any{
 			"command":          "echo hi > actual.txt",
 			"execution_status": "completed",
@@ -69,7 +70,7 @@ func TestE2E_ShellParser_ExistenceGuard_DropsMissingCreate(t *testing.T) {
 
 	missing := filepath.ToSlash(filepath.Join(t.TempDir(), "definitely_not_exist_xyz_12345.txt"))
 	injectShellGuardEvent(t, tl, sessionID, codingagent.StreamEvent{
-		Type:     codingagent.EventToolUse,
+		Type:     codingagent.EventToolResult,
 		ToolName: "command_execution",
 		ToolInput: map[string]any{
 			"command":          "echo hi > " + missing,
@@ -121,7 +122,7 @@ func TestE2E_ShellParser_ExistenceGuard_DeleteWithoutFile(t *testing.T) {
 	st, tl, _, sessionID := setupShellGuardStore(t)
 
 	injectShellGuardEvent(t, tl, sessionID, codingagent.StreamEvent{
-		Type:     codingagent.EventToolUse,
+		Type:     codingagent.EventToolResult,
 		ToolName: "command_execution",
 		ToolInput: map[string]any{
 			"command":          "rm gone.txt",

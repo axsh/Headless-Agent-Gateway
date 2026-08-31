@@ -258,9 +258,14 @@ func TestAnalyzer_Codex_CommandExecution_Create(t *testing.T) {
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "out.txt"), []byte("hi"), 0o644))
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command":          "echo hi > out.txt",
-		"execution_status": "completed",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		Content:  "hi\n",
+		ToolInput: map[string]any{
+			"command":          "echo hi > out.txt",
+			"execution_status": "completed",
+		},
 	})
 
 	time.Sleep(20 * time.Millisecond)
@@ -365,9 +370,13 @@ func TestAnalyzer_Shell_Create_Exists(t *testing.T) {
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "real.txt"), []byte("x"), 0o644))
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command":          "echo hi > real.txt",
-		"execution_status": "completed",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo hi > real.txt",
+			"execution_status": "completed",
+		},
 	})
 	time.Sleep(20 * time.Millisecond)
 	require.Len(t, ms.events, 1)
@@ -381,9 +390,13 @@ func TestAnalyzer_Shell_Create_Missing_Dropped(t *testing.T) {
 	workDir := filepath.ToSlash(t.TempDir())
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command":          "echo hi > /definitely/not/exist_xyz_12345.txt",
-		"execution_status": "completed",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo hi > /definitely/not/exist_xyz_12345.txt",
+			"execution_status": "completed",
+		},
 	})
 	time.Sleep(20 * time.Millisecond)
 	assert.Empty(t, ms.events)
@@ -395,9 +408,13 @@ func TestAnalyzer_Shell_Update_Missing_Dropped(t *testing.T) {
 	workDir := filepath.ToSlash(t.TempDir())
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command":          "echo x >> missing.log",
-		"execution_status": "completed",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo x >> missing.log",
+			"execution_status": "completed",
+		},
 	})
 	time.Sleep(20 * time.Millisecond)
 	assert.Empty(t, ms.events)
@@ -410,9 +427,13 @@ func TestAnalyzer_Shell_Update_Exists(t *testing.T) {
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "log.txt"), []byte("a"), 0o644))
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command":          "echo x >> log.txt",
-		"execution_status": "completed",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo x >> log.txt",
+			"execution_status": "completed",
+		},
 	})
 	time.Sleep(20 * time.Millisecond)
 	require.Len(t, ms.events, 1)
@@ -426,9 +447,13 @@ func TestAnalyzer_Shell_Delete_WithoutFile(t *testing.T) {
 	workDir := filepath.ToSlash(t.TempDir())
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command":          "rm gone.txt",
-		"execution_status": "completed",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "rm gone.txt",
+			"execution_status": "completed",
+		},
 	})
 	time.Sleep(20 * time.Millisecond)
 	require.Len(t, ms.events, 1)
