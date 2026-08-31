@@ -295,9 +295,14 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 			// Always emit tool_result with stdout. ToolInput.command is retained so
 			// process.go can synthesize a ToolUse when item.started was not streamed
 			// (batch / codex exec --json), without double-emitting ToolUse on interactive paths.
+			// execution_status=completed lets ToolCallAnalyzer apply the existence gate once
+			// the filesystem reflects the finished command.
 			var tip map[string]any
 			if header.Command != "" {
-				tip = map[string]any{"command": header.Command}
+				tip = map[string]any{
+					"command":          header.Command,
+					"execution_status": "completed",
+				}
 			}
 			return &codingagent.StreamEvent{
 				Type:      codingagent.EventToolResult,
@@ -306,12 +311,13 @@ func parseItemEvent(item json.RawMessage, completed bool) *codingagent.StreamEve
 				ToolInput: tip,
 			}
 		}
-		// item.started with command_execution -> tool use
+		// item.started with command_execution -> tool use (sandbox tracker); Analyzer ignores started.
 		return &codingagent.StreamEvent{
 			Type:     codingagent.EventToolUse,
 			ToolName: "command_execution",
 			ToolInput: map[string]any{
-				"command": header.Command,
+				"command":          header.Command,
+				"execution_status": "started",
 			},
 		}
 

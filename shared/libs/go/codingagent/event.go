@@ -38,6 +38,7 @@ type StreamEvent struct {
 	Choices       []string               `json:"choices,omitempty"`
 	ToolName      string                 `json:"tool_name,omitempty"`
 	ToolInput     map[string]interface{} `json:"tool_input,omitempty"`
+	ToolCallID    string                 `json:"tool_call_id,omitempty"`
 	SessionID     string                 `json:"session_id,omitempty"`
 	TurnID        string                 `json:"turn_id,omitempty"`
 	CorrelationID string                 `json:"correlation_id,omitempty"`

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -115,16 +116,20 @@ func TestShellParser_IgnoresDevNull(t *testing.T) {
 
 	ctx := context.Background()
 	sessionID := "s-null"
+	workDir := t.TempDir()
 	require.NoError(t, st.UpsertSession(ctx, store.Session{
 		ID: sessionID, AgentID: "cursor", StartedAt: time.Now(),
 	}))
 
 	tl := tasklog.New()
-	_ = analyzer.New(tl, st, "/proj", func(string) string { return "/proj" }, nil)
+	_ = analyzer.New(tl, st, workDir, func(string) string { return workDir }, nil)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "out.txt"), []byte("x"), 0o644))
 
 	ev := codingagent.StreamEvent{
-		Type:     codingagent.EventToolUse,
-		ToolName: "Bash",
+		Type:       codingagent.EventToolUse,
+		ToolName:   "Bash",
+		ToolCallID: "tu_null",
 		ToolInput: map[string]any{
 			"command": "echo hi > /dev/null && echo x > out.txt",
 		},
@@ -132,6 +137,14 @@ func TestShellParser_IgnoresDevNull(t *testing.T) {
 	body, err := json.Marshal(ev)
 	require.NoError(t, err)
 	tl.Add(tasklog.NewAgentLogSendEntry("log1", sessionID, string(body)))
+
+	resBody, err := json.Marshal(codingagent.StreamEvent{
+		Type:       codingagent.EventToolResult,
+		ToolCallID: "tu_null",
+		Content:    "ok",
+	})
+	require.NoError(t, err)
+	tl.Add(tasklog.NewAgentLogSendEntry("log2", sessionID, string(resBody)))
 	time.Sleep(50 * time.Millisecond)
 
 	page, err := st.ListAllSystemArtifacts(ctx, store.SystemArtifactFilter{SessionIDs: []string{sessionID}})

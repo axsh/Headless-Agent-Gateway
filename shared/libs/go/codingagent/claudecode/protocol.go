@@ -33,6 +33,7 @@ type messagePayload struct {
 
 type contentBlock struct {
 	Type      string         `json:"type"`
+	ID        string         `json:"id,omitempty"`
 	Text      string         `json:"text,omitempty"`
 	Name      string         `json:"name,omitempty"`
 	Input     map[string]any `json:"input,omitempty"`
@@ -105,9 +106,10 @@ func ParseJSONLinesEvents(line string, logs ...logger.Logger) []*codingagent.Str
 			for _, block := range msg.Content {
 				if block.Type == "tool_use" {
 					out = append(out, &codingagent.StreamEvent{
-						Type:      codingagent.EventToolUse,
-						ToolName:  block.Name,
-						ToolInput: block.Input,
+						Type:       codingagent.EventToolUse,
+						ToolName:   block.Name,
+						ToolInput:  block.Input,
+						ToolCallID: block.ID,
 					})
 				}
 			}
@@ -130,8 +132,9 @@ func ParseJSONLinesEvents(line string, logs ...logger.Logger) []*codingagent.Str
 			for _, block := range msg.Content {
 				if block.Type == "tool_result" {
 					out = append(out, &codingagent.StreamEvent{
-						Type:    codingagent.EventToolResult,
-						Content: block.Content,
+						Type:       codingagent.EventToolResult,
+						Content:    block.Content,
+						ToolCallID: block.ToolUseID,
 					})
 					break
 				}

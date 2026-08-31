@@ -3,6 +3,7 @@ package analyzer_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -52,15 +53,28 @@ func (m *memStore) Close() error                                         { retur
 // It replicates the same JSON serialization that agentservice uses in toAgentLogEntry.
 func injectToolUseEvent(t *testing.T, tl *tasklog.TaskLog, sessionID, toolName string, input map[string]any) {
 	t.Helper()
-	ev := codingagent.StreamEvent{
+	injectStreamEvent(t, tl, sessionID, codingagent.StreamEvent{
 		Type:      codingagent.EventToolUse,
 		ToolName:  toolName,
 		ToolInput: input,
-	}
+	})
+}
+
+func injectStreamEvent(t *testing.T, tl *tasklog.TaskLog, sessionID string, ev codingagent.StreamEvent) {
+	t.Helper()
 	body, err := json.Marshal(ev)
 	require.NoError(t, err)
 	entry := tasklog.NewAgentLogSendEntry("log-test", sessionID, string(body))
 	tl.Add(entry)
+}
+
+func injectToolResult(t *testing.T, tl *tasklog.TaskLog, sessionID, toolCallID string) {
+	t.Helper()
+	injectStreamEvent(t, tl, sessionID, codingagent.StreamEvent{
+		Type:       codingagent.EventToolResult,
+		ToolCallID: toolCallID,
+		Content:    "ok",
+	})
 }
 
 func TestAnalyzer_CursorWrite(t *testing.T) {
@@ -243,8 +257,15 @@ func TestAnalyzer_Codex_CommandExecution_Create(t *testing.T) {
 	workDir := filepath.ToSlash(t.TempDir())
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command": "echo hi > out.txt",
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "out.txt"), []byte("hi"), 0o644))
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		Content:  "hi\n",
+		ToolInput: map[string]any{
+			"command":          "echo hi > out.txt",
+			"execution_status": "completed",
+		},
 	})
 
 	time.Sleep(20 * time.Millisecond)
@@ -259,9 +280,17 @@ func TestAnalyzer_ClaudeCode_Bash_Create(t *testing.T) {
 	workDir := filepath.ToSlash(t.TempDir())
 	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
 
-	injectToolUseEvent(t, tl, "sess-1", "Bash", map[string]any{
-		"command": "echo hi > out.txt",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:       codingagent.EventToolUse,
+		ToolName:   "Bash",
+		ToolCallID: "tu_bash_1",
+		ToolInput:  map[string]any{"command": "echo hi > out.txt"},
 	})
+	time.Sleep(20 * time.Millisecond)
+	require.Empty(t, ms.events)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "out.txt"), []byte("hi"), 0o644))
+	injectToolResult(t, tl, "sess-1", "tu_bash_1")
 
 	time.Sleep(20 * time.Millisecond)
 	require.Len(t, ms.events, 1)
@@ -290,8 +319,13 @@ func TestAnalyzer_CommandExecution_NoFileOp(t *testing.T) {
 	tl := tasklog.New()
 	analyzer.New(tl, ms, t.TempDir(), nil, nil)
 
-	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
-		"command": "ls -la",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "ls -la",
+			"execution_status": "completed",
+		},
 	})
 
 	time.Sleep(20 * time.Millisecond)
@@ -322,10 +356,165 @@ func TestAnalyzer_LegacyShell_Create(t *testing.T) {
 	injectToolUseEvent(t, tl, "sess-1", "shell", map[string]any{
 		"arguments": `{"command":"echo hi > legacy.txt"}`,
 	})
+	time.Sleep(20 * time.Millisecond)
+	require.Empty(t, ms.events)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "legacy.txt"), []byte("hi"), 0o644))
+	injectToolResult(t, tl, "sess-1", "")
 
 	time.Sleep(20 * time.Millisecond)
 	require.Len(t, ms.events, 1)
 	assert.Equal(t, "legacy.txt", ms.events[0].Key)
+}
+
+func TestAnalyzer_Shell_Create_Exists(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "real.txt"), []byte("x"), 0o644))
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo hi > real.txt",
+			"execution_status": "completed",
+		},
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "real.txt", ms.events[0].Key)
+	assert.Equal(t, store.OperationCreate, ms.events[0].Operation)
+}
+
+func TestAnalyzer_Shell_Create_Missing_Dropped(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo hi > /definitely/not/exist_xyz_12345.txt",
+			"execution_status": "completed",
+		},
+	})
+	time.Sleep(20 * time.Millisecond)
+	assert.Empty(t, ms.events)
+}
+
+func TestAnalyzer_Shell_Update_Missing_Dropped(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo x >> missing.log",
+			"execution_status": "completed",
+		},
+	})
+	time.Sleep(20 * time.Millisecond)
+	assert.Empty(t, ms.events)
+}
+
+func TestAnalyzer_Shell_Update_Exists(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "log.txt"), []byte("a"), 0o644))
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "echo x >> log.txt",
+			"execution_status": "completed",
+		},
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "log.txt", ms.events[0].Key)
+	assert.Equal(t, store.OperationUpdate, ms.events[0].Operation)
+}
+
+func TestAnalyzer_Shell_Delete_WithoutFile(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:     codingagent.EventToolResult,
+		ToolName: "command_execution",
+		ToolInput: map[string]any{
+			"command":          "rm gone.txt",
+			"execution_status": "completed",
+		},
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "gone.txt", ms.events[0].Key)
+	assert.Equal(t, store.OperationDelete, ms.events[0].Operation)
+}
+
+func TestAnalyzer_Tier1_Write_NoExistenceGate(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	projectRoot := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, projectRoot, nil, nil)
+
+	injectToolUseEvent(t, tl, "sess-1", "Write", map[string]any{
+		"path": projectRoot + "/does-not-exist-yet.go",
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "does-not-exist-yet.go", ms.events[0].Key)
+}
+
+func TestAnalyzer_Bash_DefersUntilToolResult(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:       codingagent.EventToolUse,
+		ToolName:   "Bash",
+		ToolCallID: "tu_defer",
+		ToolInput:  map[string]any{"command": "echo hi > new.txt"},
+	})
+	time.Sleep(20 * time.Millisecond)
+	require.Empty(t, ms.events)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "new.txt"), []byte("hi"), 0o644))
+	injectToolResult(t, tl, "sess-1", "tu_defer")
+	time.Sleep(20 * time.Millisecond)
+	require.Len(t, ms.events, 1)
+	assert.Equal(t, "new.txt", ms.events[0].Key)
+	assert.Equal(t, store.OperationCreate, ms.events[0].Operation)
+}
+
+func TestAnalyzer_CommandExecution_Started_Ignored(t *testing.T) {
+	ms := &memStore{}
+	tl := tasklog.New()
+	workDir := filepath.ToSlash(t.TempDir())
+	analyzer.New(tl, ms, workDir, func(string) string { return workDir }, nil)
+
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "out.txt"), []byte("hi"), 0o644))
+	injectToolUseEvent(t, tl, "sess-1", "command_execution", map[string]any{
+		"command":          "echo hi > out.txt",
+		"execution_status": "started",
+	})
+	time.Sleep(20 * time.Millisecond)
+	assert.Empty(t, ms.events)
 }
 
 func TestAnalyzer_PropagatesTurnContext(t *testing.T) {
@@ -366,9 +555,13 @@ func TestAnalyzer_ShellParserOff(t *testing.T) {
 		return codingagent.FileChangeCollectors{StructuredTool: true, ShellParser: false, WorkdirReconcile: false}
 	})
 
-	injectToolUseEvent(t, tl, "sess-1", "Bash", map[string]any{
-		"command": "echo hi > out.txt",
+	injectStreamEvent(t, tl, "sess-1", codingagent.StreamEvent{
+		Type:       codingagent.EventToolUse,
+		ToolName:   "Bash",
+		ToolCallID: "tu_off",
+		ToolInput:  map[string]any{"command": "echo hi > out.txt"},
 	})
+	injectToolResult(t, tl, "sess-1", "tu_off")
 	time.Sleep(20 * time.Millisecond)
 	require.Empty(t, ms.events)
 }
