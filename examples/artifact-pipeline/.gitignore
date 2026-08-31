@@ -1,0 +1,3 @@
+# Runtime files written when running the example with default --work-dir .
+artifact_input.txt
+output.txt
