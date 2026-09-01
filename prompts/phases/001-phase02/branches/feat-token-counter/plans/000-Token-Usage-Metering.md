@@ -394,7 +394,7 @@ type SessionUsageReport struct {
 - [x] 8 Docs
 - [x] 9 E2E
 - [x] 10 Build & integration tests
-- [/] 11 Push
+- [x] 11 Push
 
 ## Verification Plan
 
