@@ -78,3 +78,48 @@ func TestClaudeCodeE2E_TokenUsage_TurnAndSession(t *testing.T) {
 		t.Fatalf("client usage mismatch: %+v vs %+v", clientRep.Usage, rep.Usage)
 	}
 }
+
+// TestClaudeCodeE2E_TokenUsage_LastN sends two turns and asserts UsageQuery{LastN:1}.
+func TestClaudeCodeE2E_TokenUsage_LastN(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	workDir := t.TempDir()
+	sessionID := createE2ESessionWithModel(t, baseURL, "claudecode", e2eDefaultModel, workDir)
+
+	for _, prompt := range []string{"Reply with exactly: one", "Reply with exactly: two"} {
+		body := sendE2EMessage(t, baseURL, sessionID, prompt, 3*time.Minute)
+		events, _ := parseE2ESSEEvents(t, body)
+		body.Body.Close()
+		for _, ev := range events {
+			if ev.Type == codingagent.EventError {
+				t.Skipf("Skipping: agent error: %s", ev.Content)
+			}
+		}
+	}
+
+	cli := v1.New(baseURL)
+	full, err := cli.GetUsage(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(full.Turns) < 2 {
+		t.Fatalf("expected >=2 turns, got %d", len(full.Turns))
+	}
+
+	last, err := cli.GetUsage(context.Background(), sessionID, v1.UsageQuery{LastN: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(last.Turns) != 1 {
+		t.Fatalf("LastN=1 turns = %d report=%+v", len(last.Turns), last)
+	}
+	wantID := full.Turns[len(full.Turns)-1].TurnID
+	if last.Turns[0].TurnID != wantID {
+		t.Fatalf("last turn id = %s want %s", last.Turns[0].TurnID, wantID)
+	}
+	if last.Usage.InputTokens != last.Turns[0].Usage.InputTokens ||
+		last.Usage.OutputTokens != last.Turns[0].Usage.OutputTokens {
+		t.Fatalf("filtered usage should equal last turn: usage=%+v turn=%+v", last.Usage, last.Turns[0].Usage)
+	}
+}

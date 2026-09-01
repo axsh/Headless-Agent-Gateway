@@ -33,6 +33,33 @@ func TestGetUsage_Decode(t *testing.T) {
 	}
 }
 
+func TestGetUsage_LastNQuery(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(SessionUsageReport{
+			SessionID: "s1",
+			Usage:     TokenUsage{InputTokens: 3, OutputTokens: 3, Source: "derived_session_sum", Confidence: "high"},
+			Turns: []TurnUsageRecord{{
+				TurnID: "t2",
+				Usage:  TokenUsage{InputTokens: 3, OutputTokens: 3, Source: "claude_result", Confidence: "high"},
+			}},
+		})
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	rep, err := c.GetUsage(context.Background(), "s1", UsageQuery{LastN: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotQuery != "last_n=1" {
+		t.Fatalf("query = %q", gotQuery)
+	}
+	if len(rep.Turns) != 1 || rep.Turns[0].TurnID != "t2" {
+		t.Fatalf("rep = %+v", rep)
+	}
+}
+
 func TestGetSession_UsageField(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

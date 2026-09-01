@@ -257,6 +257,12 @@ Returns session, turn, and best-effort LLM-call token usage for a session.
 
 - **Method**: `GET`
 - **Path**: `/api/v1/sessions/:id/usage`
+- **Query** (all optional; omit for the full report):
+  - `last_n` (int) — keep only the last N turns after other filters
+  - `after_turn_id` (string) — turns strictly after this turn id
+  - `from_turn_id` / `to_turn_id` (string) — inclusive turn-id range
+  - `since` / `until` (RFC3339) — filter by turn `ended_at`
+- When any query filter is set, response `usage` is the **sum of the returned turns** (not the full-session cumulative). Full-session totals remain on `GET /api/v1/sessions/:id` (`usage`) or an unfiltered `GET .../usage`.
 - **Response (200 OK)**:
   ```json
   {
@@ -270,6 +276,7 @@ Returns session, turn, and best-effort LLM-call token usage for a session.
     "turns": [
       {
         "turn_id": "turn-1",
+        "ended_at": "2026-09-01T12:00:00Z",
         "usage": {
           "input_tokens": 12000,
           "output_tokens": 800,
@@ -290,7 +297,9 @@ Returns session, turn, and best-effort LLM-call token usage for a session.
   }
   ```
 - Turn totals are authoritative. Call-level entries may be incomplete (`confidence: low`) and must not rewrite turn totals.
-- Client SDK: `client/v1` `GetUsage` / `Session.GetUsage` and `SessionInfo.Usage` on GetSession.
+- Client SDK: `client/v1` `GetUsage(ctx, sessionID, opts ...UsageQuery)` / `Session.GetUsage(ctx, opts ...UsageQuery)` and `SessionInfo.Usage` on GetSession.
+  - Example: `sess.GetUsage(ctx)` (all turns); `sess.GetUsage(ctx, client.UsageQuery{LastN: 1})` (last turn only).
+- Demo: `examples/token-usage`.
 
 ---
 

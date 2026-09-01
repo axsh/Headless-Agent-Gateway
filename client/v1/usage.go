@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"time"
 )
 
 // TokenUsage mirrors server token accounting fields.
@@ -28,9 +31,10 @@ type TokenUsage struct {
 
 // TurnUsageRecord is one SendMessage turn in a usage report.
 type TurnUsageRecord struct {
-	TurnID string       `json:"turn_id"`
-	Usage  TokenUsage   `json:"usage"`
-	Calls  []TokenUsage `json:"calls,omitempty"`
+	TurnID  string       `json:"turn_id"`
+	EndedAt time.Time    `json:"ended_at,omitempty"`
+	Usage   TokenUsage   `json:"usage"`
+	Calls   []TokenUsage `json:"calls,omitempty"`
 }
 
 // SessionUsageReport is returned by GET /api/v1/sessions/:id/usage.
@@ -40,10 +44,26 @@ type SessionUsageReport struct {
 	Turns     []TurnUsageRecord `json:"turns"`
 }
 
+// UsageQuery filters turns for GetUsage. Zero value means all turns.
+type UsageQuery struct {
+	LastN       int
+	AfterTurnID string
+	FromTurnID  string
+	ToTurnID    string
+	Since       time.Time
+	Until       time.Time
+}
+
 // GetUsage fetches session / turn / call token usage for a session.
-func (c *Client) GetUsage(ctx context.Context, sessionID string) (*SessionUsageReport, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		c.baseURL+"/api/v1/sessions/"+sessionID+"/usage", nil)
+// Optional opts (first only) map to query parameters such as last_n.
+func (c *Client) GetUsage(ctx context.Context, sessionID string, opts ...UsageQuery) (*SessionUsageReport, error) {
+	u := c.baseURL + "/api/v1/sessions/" + sessionID + "/usage"
+	if len(opts) > 0 {
+		if q := encodeUsageQuery(opts[0]); q != "" {
+			u += "?" + q
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create get usage request: %w", err)
 	}
@@ -67,6 +87,29 @@ func (c *Client) GetUsage(ctx context.Context, sessionID string) (*SessionUsageR
 }
 
 // GetUsage fetches token usage for this session.
-func (s *Session) GetUsage(ctx context.Context) (*SessionUsageReport, error) {
-	return s.client.GetUsage(ctx, s.ID)
+func (s *Session) GetUsage(ctx context.Context, opts ...UsageQuery) (*SessionUsageReport, error) {
+	return s.client.GetUsage(ctx, s.ID, opts...)
+}
+
+func encodeUsageQuery(q UsageQuery) string {
+	v := url.Values{}
+	if q.LastN > 0 {
+		v.Set("last_n", strconv.Itoa(q.LastN))
+	}
+	if q.AfterTurnID != "" {
+		v.Set("after_turn_id", q.AfterTurnID)
+	}
+	if q.FromTurnID != "" {
+		v.Set("from_turn_id", q.FromTurnID)
+	}
+	if q.ToTurnID != "" {
+		v.Set("to_turn_id", q.ToTurnID)
+	}
+	if !q.Since.IsZero() {
+		v.Set("since", q.Since.UTC().Format(time.RFC3339))
+	}
+	if !q.Until.IsZero() {
+		v.Set("until", q.Until.UTC().Format(time.RFC3339))
+	}
+	return v.Encode()
 }
