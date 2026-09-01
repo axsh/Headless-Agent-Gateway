@@ -57,6 +57,7 @@ type Event struct {
 	Error             string
 	UserInputRequired UserInputRequiredEvent
 	ID                string
+	Usage             *TokenUsage
 }
 
 // Stream processes SSE events from a session message.
@@ -304,6 +305,7 @@ func (s *Stream) events() <-chan Event {
 				ChunkID       string         `json:"chunk_id,omitempty"`
 				Index         int            `json:"index,omitempty"`
 				Total         int            `json:"total,omitempty"`
+				Usage         *TokenUsage    `json:"usage,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &raw); err != nil {
 				continue
@@ -343,6 +345,7 @@ func (s *Stream) events() <-chan Event {
 				ToolInput:     raw.ToolInput,
 				TurnID:        raw.TurnID,
 				CorrelationID: raw.CorrelationID,
+				Usage:         raw.Usage,
 			}
 			if s.turnID == "" && raw.TurnID != "" {
 				s.turnID = raw.TurnID

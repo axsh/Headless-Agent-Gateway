@@ -26,7 +26,7 @@ By default, all API endpoints are exposed at `http://localhost:3100` (customizab
 | `GET` | `/api/v1/sessions/:id/events` | Reattach to the in-flight turn SSE (no new message). |
 | `POST` | `/api/v1/sessions/:id/cancel` | Abort the in-flight turn; keep the same session id (not closed). |
 | `POST` | `/api/v1/sessions/:id/terminate` | Force terminate an active session process (status becomes closed). |
-| `GET` | `/api/v1/sessions/:id/logs` | Stream detailed task logs generated during session execution. |
+| `GET` | `/api/v1/sessions/:id/usage` | Retrieve session / turn / call token usage aggregates. |
 
 ---
 
@@ -244,9 +244,53 @@ Retrieves metadata and the active state of a created session.
     "error": ""
   }
   ```
+  - `usage` (optional): Session-level token aggregate (`input_tokens`, `output_tokens`, `source`, `confidence`, …). Present after at least one turn has reported usage. Estimated `total_cost_usd` (when present) is not billing-authoritative.
   - `config_dir` is included when set at CreateSession time (or later via PATCH).
   - `file_change_collectors` is always present as the resolved three-key object (defaults applied for legacy records).
   - `agent_bindings` and `supplement` are the canonical metadata (effective supplement merges server defaults with the session strategy; turn override is not stored).
+
+---
+
+### 5.0 Get Session Usage
+
+Returns session, turn, and best-effort LLM-call token usage for a session.
+
+- **Method**: `GET`
+- **Path**: `/api/v1/sessions/:id/usage`
+- **Response (200 OK)**:
+  ```json
+  {
+    "session_id": "a95db64cb646901efb395a18d817a37d",
+    "usage": {
+      "input_tokens": 50000,
+      "output_tokens": 3200,
+      "source": "derived_session_sum",
+      "confidence": "high"
+    },
+    "turns": [
+      {
+        "turn_id": "turn-1",
+        "usage": {
+          "input_tokens": 12000,
+          "output_tokens": 800,
+          "source": "claude_result",
+          "confidence": "high"
+        },
+        "calls": [
+          {
+            "call_id": "msg_...",
+            "input_tokens": 10000,
+            "output_tokens": 200,
+            "source": "claude_assistant",
+            "confidence": "high"
+          }
+        ]
+      }
+    ]
+  }
+  ```
+- Turn totals are authoritative. Call-level entries may be incomplete (`confidence: low`) and must not rewrite turn totals.
+- Client SDK: `client/v1` `GetUsage` / `Session.GetUsage` and `SessionInfo.Usage` on GetSession.
 
 ---
 
@@ -367,6 +411,7 @@ Sends prompt text and image data to an active session, initiating agent executio
     - `session_id` (string, system events only): Agent-specific internal session ID.
     - `turn_id` (string, optional): Server-generated turn identifier for this SendMessage execution.
     - `correlation_id` (string, optional): Echoed user-supplied correlation ID.
+    - `usage` (object, optional): On terminal `result` events, turn-level token usage (`input_tokens`, `output_tokens`, `source`, `confidence`, …).
   - **Termination Signal**: Stream ends with `data: [DONE]`.
   - **Response Example**:
     ```http
