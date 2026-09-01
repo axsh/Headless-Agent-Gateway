@@ -33,6 +33,33 @@ func TestGetUsage_Decode(t *testing.T) {
 	}
 }
 
+func TestGetUsage_DecodeModelSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(SessionUsageReport{
+			SessionID: "s1",
+			Usage:     TokenUsage{InputTokens: 10, OutputTokens: 2, Source: "derived_session_sum", Confidence: "high"},
+			Turns: []TurnUsageRecord{{
+				TurnID: "t1",
+				Usage: TokenUsage{
+					InputTokens: 10, OutputTokens: 2,
+					Model: "claude-sonnet", ModelSource: ModelSourceAgent,
+					Source: "claude_result", Confidence: "high",
+				},
+			}},
+		})
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	rep, err := c.GetUsage(context.Background(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := rep.Turns[0].Usage
+	if u.Model != "claude-sonnet" || u.ModelSource != ModelSourceAgent {
+		t.Fatalf("usage = %+v", u)
+	}
+}
+
 func TestGetUsage_LastNQuery(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

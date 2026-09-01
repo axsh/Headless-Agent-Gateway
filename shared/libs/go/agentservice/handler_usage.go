@@ -34,6 +34,10 @@ func (s *Server) applyUsageSideEffects(sessionID string, exec *activeExecution, 
 		}
 		return
 	}
+	codingagent.ApplyModelAttribution(&rec.Usage, exec.sessionModel)
+	for i := range rec.Calls {
+		codingagent.ApplyModelAttribution(&rec.Calls[i], exec.sessionModel)
+	}
 	if ev.Type == codingagent.EventResult {
 		u := rec.Usage
 		ev.Usage = &u

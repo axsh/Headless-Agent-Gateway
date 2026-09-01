@@ -88,6 +88,9 @@ func TestHandleSendMessage_ResultUsageAndGetUsage(t *testing.T) {
 	if gotUsage == nil || gotUsage.InputTokens != 120 || gotUsage.OutputTokens != 8 {
 		t.Fatalf("result usage = %+v", gotUsage)
 	}
+	if gotUsage.Model != "m" || gotUsage.ModelSource != codingagent.ModelSourceTernSession {
+		t.Fatalf("result model attribution = %+v", gotUsage)
+	}
 
 	req = httptest.NewRequest("GET", "/api/v1/sessions/"+sessionID+"/usage", nil)
 	w = httptest.NewRecorder()

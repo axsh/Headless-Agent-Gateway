@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// Model source values for TokenUsage.ModelSource (mirror server API).
+const (
+	ModelSourceAgent       = "agent"
+	ModelSourceTernSession = "tern_session"
+)
+
 // TokenUsage mirrors server token accounting fields.
 type TokenUsage struct {
 	InputTokens              int      `json:"input_tokens"`
@@ -21,6 +27,7 @@ type TokenUsage struct {
 	TotalTokens              int      `json:"total_tokens,omitempty"`
 	TotalCostUSD             *float64 `json:"total_cost_usd,omitempty"`
 	Model                    string   `json:"model,omitempty"`
+	ModelSource              string   `json:"model_source,omitempty"`
 	Source                   string   `json:"source"`
 	Confidence               string   `json:"confidence"`
 	TurnID                   string   `json:"turn_id,omitempty"`

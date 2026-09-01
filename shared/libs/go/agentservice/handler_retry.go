@@ -272,6 +272,7 @@ func (s *Server) runTurn(
 			active = &activeExecution{
 				sessionID:     sessionID,
 				turnID:        turnID,
+				sessionModel:  record.Model,
 				correlationID: correlationID,
 				agentSess:     sess,
 				stdin:         stdin,

@@ -242,6 +242,9 @@ func TestParseJSONLinesEvent_Result_ModelUsageFallback(t *testing.T) {
 	if ev.Usage.Model != "claude-sonnet-4-6" {
 		t.Errorf("model = %q", ev.Usage.Model)
 	}
+	if ev.Usage.ModelSource != codingagent.ModelSourceAgent {
+		t.Errorf("model_source = %q", ev.Usage.ModelSource)
+	}
 }
 
 func TestParseJSONLinesEvent_Assistant_Usage(t *testing.T) {

@@ -26,6 +26,7 @@ const toolStillRunningContent = "tool_still_running"
 type activeExecution struct {
 	sessionID        string
 	turnID           string
+	sessionModel     string
 	correlationID    string
 	agentSess        codingagent.Session
 	stdin            codingagent.StdinWriter

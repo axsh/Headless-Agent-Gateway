@@ -61,6 +61,14 @@ func TestClaudeCodeE2E_TokenUsage_TurnAndSession(t *testing.T) {
 	if rep.Usage.OutputTokens < resultUsage.OutputTokens || len(rep.Turns) < 1 {
 		t.Fatalf("usage report = %+v", rep)
 	}
+	turnUsage := rep.Turns[0].Usage
+	if turnUsage.Model != "" {
+		switch turnUsage.ModelSource {
+		case codingagent.ModelSourceAgent, codingagent.ModelSourceTernSession:
+		default:
+			t.Fatalf("unexpected model_source = %q usage=%+v", turnUsage.ModelSource, turnUsage)
+		}
+	}
 
 	cli := v1.New(baseURL)
 	info, err := cli.GetSession(context.Background(), sessionID)

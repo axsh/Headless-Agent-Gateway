@@ -18,6 +18,12 @@ const (
 	UsageConfidenceLow  = "low"
 )
 
+// Model source identifiers (where TokenUsage.Model came from).
+const (
+	ModelSourceAgent       = "agent"
+	ModelSourceTernSession = "tern_session"
+)
+
 // TokenUsage is token accounting for a turn, call, or session aggregate.
 type TokenUsage struct {
 	InputTokens              int      `json:"input_tokens"`
@@ -28,6 +34,7 @@ type TokenUsage struct {
 	TotalTokens              int      `json:"total_tokens,omitempty"` // provider-supplied only; never synthesize
 	TotalCostUSD             *float64 `json:"total_cost_usd,omitempty"`
 	Model                    string   `json:"model,omitempty"`
+	ModelSource              string   `json:"model_source,omitempty"`
 	Source                   string   `json:"source"`
 	Confidence               string   `json:"confidence"`
 	TurnID                   string   `json:"turn_id,omitempty"`

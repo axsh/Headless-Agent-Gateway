@@ -116,3 +116,46 @@ func TestFilterTurnUsage_Since(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+func TestApplyModelAttribution_Agent(t *testing.T) {
+	u := &codingagent.TokenUsage{Model: "claude-sonnet-4-6"}
+	codingagent.ApplyModelAttribution(u, "gpt-4o")
+	if u.ModelSource != codingagent.ModelSourceAgent {
+		t.Fatalf("ModelSource = %q", u.ModelSource)
+	}
+	if u.Model != "claude-sonnet-4-6" {
+		t.Fatalf("Model = %q", u.Model)
+	}
+}
+
+func TestApplyModelAttribution_TernSession(t *testing.T) {
+	u := &codingagent.TokenUsage{InputTokens: 10, OutputTokens: 2, Source: codingagent.UsageSourceCodexTurnCompleted}
+	codingagent.ApplyModelAttribution(u, "gpt-4o")
+	if u.ModelSource != codingagent.ModelSourceTernSession {
+		t.Fatalf("ModelSource = %q", u.ModelSource)
+	}
+	if u.Model != "gpt-4o" {
+		t.Fatalf("Model = %q", u.Model)
+	}
+}
+
+func TestApplyModelAttribution_Empty(t *testing.T) {
+	u := &codingagent.TokenUsage{InputTokens: 1}
+	codingagent.ApplyModelAttribution(u, "")
+	if u.Model != "" || u.ModelSource != "" {
+		t.Fatalf("unexpected model fields: %+v", u)
+	}
+}
+
+func TestSumTurnUsage_OmitsModelFields(t *testing.T) {
+	sum := codingagent.SumTurnUsage([]codingagent.TurnUsageRecord{{
+		Usage: codingagent.TokenUsage{
+			InputTokens: 10, OutputTokens: 2,
+			Model: "m", ModelSource: codingagent.ModelSourceAgent,
+			Source: codingagent.UsageSourceClaudeResult, Confidence: codingagent.UsageConfidenceHigh,
+		},
+	}})
+	if sum.Model != "" || sum.ModelSource != "" {
+		t.Fatalf("aggregate should omit model fields: %+v", sum)
+	}
+}

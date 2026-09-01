@@ -242,6 +242,9 @@ func parseClaudeResultUsage(raw rawEvent) *codingagent.TokenUsage {
 			if cacheCreate > u.CacheCreationInputTokens {
 				u.CacheCreationInputTokens = cacheCreate
 			}
+			if u.Model != "" {
+				u.ModelSource = codingagent.ModelSourceAgent
+			}
 		}
 	}
 	if u.InputTokens == 0 && u.OutputTokens == 0 && u.CachedInputTokens == 0 &&
