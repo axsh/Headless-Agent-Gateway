@@ -116,8 +116,45 @@ Arctic Tern は Claude Code / Codex などの Coding Agent に対し、`POST /ap
 - `GET /api/v1/sessions/:id` のレスポンスに `usage`（セッション合計のみ）を含める。ターン／コールの詳細一覧はここに載せない（ペイロード肥大を避ける）。
 - ターン別・コール別の内訳は専用 Web API で取得する（**固定**）:
   - `GET /api/v1/sessions/:id/usage`
-  - レスポンスにセッション合計、`turns[]`（各ターン usage）、各ターン配下の `calls[]`（コール単位、欠落可）を含める。
+  - レスポンスに、**返却した `turns[]` の再合計**としての `usage`、各ターン usage、各ターン配下の `calls[]`（コール単位、欠落可）を含める。
+  - クエリ未指定時は全ターン（現行どおり）。
+- **Usage クエリ（Must）**: 直近ターンや差分取得のため、次のクエリをサポートする。
+
+| Query | 意味 |
+| :--- | :--- |
+| `last_n` | 末尾 N ターンのみ（0 / 省略 = 制限なし） |
+| `after_turn_id` | 指定 `turn_id` **より後**のターンのみ（排他） |
+| `from_turn_id` / `to_turn_id` | `turn_id` の inclusive 範囲（空は開放端） |
+| `since` / `until` | ターン終了時刻の範囲（RFC3339）。`TurnUsageRecord` に `ended_at` が無い場合は未対応でもよいが、フィールド追加を推奨 |
+
+- レスポンスのトップレベル `usage` は **フィルタ後の `turns` の合計**（`source=derived_session_sum`）。セッション全体の累計は `GET /sessions/:id` の `usage`、またはクエリなしの `GetUsage` で取る。
 - キャンセル／エラー終了のターン: 取得できた部分 usage があれば加算し、`partial: true` 等で明示する。完全に無い場合は加算しない。
+
+#### R3b: Client `GetUsage` は可変長引数でクエリする（メソッド分割しない）
+
+```go
+type UsageQuery struct {
+	LastN       int       // 0 = no limit
+	AfterTurnID string
+	FromTurnID  string
+	ToTurnID    string
+	Since       time.Time // zero = unset
+	Until       time.Time
+}
+
+func (c *Client) GetUsage(ctx context.Context, sessionID string, opts ...UsageQuery) (*SessionUsageReport, error)
+func (s *Session) GetUsage(ctx context.Context, opts ...UsageQuery) (*SessionUsageReport, error)
+
+// 全件
+rep, _ := sess.GetUsage(ctx)
+// 直近1ターン
+rep, _ := sess.GetUsage(ctx, client.UsageQuery{LastN: 1})
+// 前回より後
+rep, _ := sess.GetUsage(ctx, client.UsageQuery{AfterTurnID: prev})
+```
+
+- `GetUsageQuery` という別名メソッドは作らない。
+- 複数 `opts` が渡された場合は **先頭のみ有効**（またはマージ規則を実装計画で1つに固定）。推奨: 先頭のみ。
 
 #### R4: LLMコール単位を低信頼でも出せる仕組みを設ける
 
@@ -166,10 +203,10 @@ Web API と対になる Client SDK を **Must** とする。
 | :--- | :--- |
 | 型 | `TokenUsage`（または同等名）と、Get Usage レスポンス用の `SessionUsageReport`（セッション合計 + turns + calls）を定義する |
 | GetSession | `SessionInfo` にセッション合計 `Usage` フィールドを含める（Web の Get Session と対応） |
-| GetUsage | `Client.GetUsage(ctx, sessionID)` および `Session.GetUsage(ctx)` を提供し、`GET /api/v1/sessions/:id/usage` を呼ぶ |
+| GetUsage | `Client.GetUsage(ctx, sessionID, opts ...UsageQuery)` および `Session.GetUsage(ctx, opts ...UsageQuery)`。`opts` 省略で全件。`UsageQuery` は R3b のとおり。`GET .../usage` にクエリを載せる |
 | SendMessage | ストリーム終端の `result` イベントからターン `usage` を読めること（既存 Stream / イベント型の拡張）。破壊的変更はしない |
-| テスト | `client/v1` の単体テストで GetSession / GetUsage のデコードを検証する |
-| ドキュメント | Client 向け README または既存 docs に Usage 取得例を追記する |
+| テスト | `client/v1` の単体テストで GetSession / GetUsage（全件・LastN・AfterTurnID）のデコードを検証する |
+| ドキュメント | Client 向け README または既存 docs に Usage 取得例（全件と LastN:1）を追記する |
 
 ### 任意要件 (Should / May)
 
@@ -253,8 +290,9 @@ flowchart TB
 
 5. **API 契約（Web + Client。JSON キー名は実装計画で最終確定）**
 
-- Web: `GET /api/v1/sessions/:id`（セッション合計）、`GET /api/v1/sessions/:id/usage`（詳細）、SendMessage `result.usage`
-- Client: R8 の `GetSession` / `GetUsage` / ストリーム `result.usage` が上記と 1:1 対応すること
+- Web: `GET /api/v1/sessions/:id`（セッション累計）、`GET /api/v1/sessions/:id/usage[?last_n=&after_turn_id=&...]`（詳細・フィルタ可）、SendMessage `result.usage`
+- Client: `GetUsage(ctx)` / `GetUsage(ctx, UsageQuery{...})` が上記と対応。レスポンス `usage` は返却 turns の再合計
+- Get Session の `usage` は常にセッション累計（フィルタなし）
 
 SendMessage 終端:
 
