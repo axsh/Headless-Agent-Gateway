@@ -277,6 +277,7 @@ func (s *Server) runTurn(
 				stdin:         stdin,
 				relay:         relay,
 				status:        codingagent.StatusActive,
+				usageAgg:      newTurnUsageAggregator(turnID),
 			}
 			if err := s.execRegistry.Register(sessionID, active); err != nil {
 				finish()
@@ -392,6 +393,7 @@ func writeJSONEvents(w http.ResponseWriter, events []codingagent.StreamEvent) {
 }
 
 func (s *Server) handleRelaySideEffects(sessionID string, exec *activeExecution, ev codingagent.StreamEvent, writeSSE bool, w http.ResponseWriter, flusher http.Flusher) (suspended bool, writeErr error) {
+	s.applyUsageSideEffects(sessionID, exec, &ev)
 	if ev.Type == codingagent.EventUserInputRequired {
 		suspended = true
 		if rec, err := s.sessions.Get(sessionID); err == nil {
@@ -583,6 +585,7 @@ func (s *Server) attachSSE(ctx context.Context, w http.ResponseWriter, exec *act
 	writeEvent := func(ev codingagent.StreamEvent) bool {
 		ev.TurnID = exec.turnID
 		ev.CorrelationID = exec.correlationID
+		s.applyUsageSideEffects(sessionID, exec, &ev)
 		logicalID := idx
 		idx++
 		exec.streamOffset = idx
@@ -775,6 +778,7 @@ func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, ex
 					term = streamTerminal{kind: codingagent.EventError, retryable: true, content: ev.Content}
 					continue
 				}
+				s.applyUsageSideEffects(sessionID, exec, &ev)
 				if ev.Type == codingagent.EventResult {
 					term = streamTerminal{kind: codingagent.EventResult}
 				}
@@ -806,6 +810,7 @@ func (s *Server) respondJSONRelay(ctx context.Context, w http.ResponseWriter, ex
 				term = streamTerminal{kind: codingagent.EventError, retryable: true, content: ev.Content}
 				continue
 			}
+			s.applyUsageSideEffects(sessionID, exec, &ev)
 			events = append(events, ev)
 			if ev.Type == codingagent.EventResult {
 				term = streamTerminal{kind: codingagent.EventResult}

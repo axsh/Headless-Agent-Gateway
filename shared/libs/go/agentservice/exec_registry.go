@@ -34,6 +34,7 @@ type activeExecution struct {
 	streamOffset     int
 	sideEffectOffset int
 	savedFiles       []string
+	usageAgg         *turnUsageAggregator
 
 	subMu         sync.Mutex
 	subCancel     context.CancelFunc

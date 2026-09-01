@@ -417,6 +417,8 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		codingagent.WithIdleTimeout(agentCfg.IdleTimeoutSeconds),
 		codingagent.WithMaxExecution(agentCfg.MaxExecutionSeconds),
 		codingagent.WithSandboxMode(codingagent.EffectiveSandboxMode(record.SandboxMode)),
+		codingagent.WithTernSessionID(sessionID),
+		codingagent.WithTurnID(turnID),
 	}
 	if vh := VendorHomeDir(EffectiveStorageRoot(record), record.AgentName, record.SessionDir); vh != "" {
 		opts = append(opts, codingagent.WithSessionDir(vh))
