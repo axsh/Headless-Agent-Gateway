@@ -241,7 +241,6 @@ func TestParseExecEvent_EventMsg_TaskComplete(t *testing.T) {
 
 func TestParseExecEvent_EventMsg_Ignored(t *testing.T) {
 	lines := []string{
-		`{"type":"event_msg","payload":{"type":"token_count"}}`,
 		`{"type":"event_msg","payload":{"type":"user_message"}}`,
 		`{"type":"event_msg","payload":{"type":"task_started"}}`,
 	}
@@ -252,6 +251,41 @@ func TestParseExecEvent_EventMsg_Ignored(t *testing.T) {
 		}
 	}
 }
+
+func TestParseExecEvent_TurnCompleted_Usage(t *testing.T) {
+	line := `{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":15,"total_tokens":115}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil {
+		t.Fatal("expected non-nil")
+	}
+	if ev.Type != codingagent.EventResult {
+		t.Fatalf("type = %s", ev.Type)
+	}
+	if ev.Usage == nil {
+		t.Fatal("expected usage")
+	}
+	if ev.Usage.InputTokens != 100 || ev.Usage.OutputTokens != 15 || ev.Usage.CachedInputTokens != 20 {
+		t.Errorf("usage = %+v", ev.Usage)
+	}
+	if ev.Usage.Source != codingagent.UsageSourceCodexTurnCompleted {
+		t.Errorf("source = %q", ev.Usage.Source)
+	}
+}
+
+func TestParseExecEvent_TokenCount_LastUsage(t *testing.T) {
+	line := `{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":50,"output_tokens":7,"cached_input_tokens":3,"total_tokens":57}}}}`
+	ev := codex.ParseExecEvent(line)
+	if ev == nil || ev.Usage == nil {
+		t.Fatalf("expected usage event, got %+v", ev)
+	}
+	if ev.Usage.InputTokens != 50 || ev.Usage.OutputTokens != 7 {
+		t.Errorf("usage = %+v", ev.Usage)
+	}
+	if ev.Usage.Source != codingagent.UsageSourceCodexTokenCount {
+		t.Errorf("source = %q", ev.Usage.Source)
+	}
+}
+
 
 // --- item.started / item.completed format tests (Codex CLI 0.139.0 actual stdout) ---
 // These are the events that `codex exec --json` actually outputs to stdout.

@@ -75,8 +75,10 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 			return &codingagent.StreamEvent{Type: codingagent.EventText, Content: msg.Message}
 		case "task_complete":
 			return &codingagent.StreamEvent{Type: codingagent.EventResult}
+		case "token_count":
+			return parseCodexTokenCount(ev.Payload)
 		default:
-			// token_count, user_message, task_started etc. - ignore
+			// user_message, task_started etc. - ignore
 			return nil
 		}
 
@@ -190,7 +192,14 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 		}
 
 	case "turn.completed":
-		return &codingagent.StreamEvent{Type: codingagent.EventResult}
+		ev := &codingagent.StreamEvent{Type: codingagent.EventResult}
+		var completed struct {
+			Usage *codexUsageNums `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(line), &completed); err == nil && completed.Usage != nil {
+			ev.Usage = completed.Usage.toTokenUsage(codingagent.UsageSourceCodexTurnCompleted, codingagent.UsageConfidenceHigh, "")
+		}
+		return ev
 
 	case "thread.started", "turn.started":
 		// Persist Codex conversation id on Tern SessionRecord via EventSystem.
@@ -204,6 +213,54 @@ func ParseExecEvent(line string) *codingagent.StreamEvent {
 
 	default:
 		return nil
+	}
+}
+
+type codexUsageNums struct {
+	InputTokens           int `json:"input_tokens"`
+	CachedInputTokens     int `json:"cached_input_tokens"`
+	OutputTokens          int `json:"output_tokens"`
+	ReasoningOutputTokens int `json:"reasoning_output_tokens"`
+	TotalTokens           int `json:"total_tokens"`
+}
+
+func (u *codexUsageNums) toTokenUsage(source, confidence, callID string) *codingagent.TokenUsage {
+	if u == nil {
+		return nil
+	}
+	return &codingagent.TokenUsage{
+		InputTokens:           u.InputTokens,
+		OutputTokens:          u.OutputTokens,
+		CachedInputTokens:     u.CachedInputTokens,
+		ReasoningOutputTokens: u.ReasoningOutputTokens,
+		TotalTokens:           u.TotalTokens,
+		Source:                source,
+		Confidence:            confidence,
+		CallID:                callID,
+	}
+}
+
+func parseCodexTokenCount(payload json.RawMessage) *codingagent.StreamEvent {
+	var msg struct {
+		Type string `json:"type"`
+		Info *struct {
+			LastTokenUsage  *codexUsageNums `json:"last_token_usage"`
+			TotalTokenUsage *codexUsageNums `json:"total_token_usage"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(payload, &msg); err != nil || msg.Info == nil {
+		return nil
+	}
+	nums := msg.Info.LastTokenUsage
+	if nums == nil {
+		nums = msg.Info.TotalTokenUsage
+	}
+	if nums == nil {
+		return nil
+	}
+	return &codingagent.StreamEvent{
+		Type:  codingagent.EventSystem,
+		Usage: nums.toTokenUsage(codingagent.UsageSourceCodexTokenCount, codingagent.UsageConfidenceHigh, ""),
 	}
 }
 

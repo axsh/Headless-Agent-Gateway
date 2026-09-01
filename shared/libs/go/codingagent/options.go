@@ -51,6 +51,11 @@ type SessionConfig struct {
 	// SandboxMode is the resolved session sandbox policy (read-only | danger-full-access).
 	// When empty, adapters fall back to AdapterConfig.DisableSandbox for compatibility.
 	SandboxMode string
+
+	// TernSessionID is the HTTP session id used in LLMGP metering metadata (tern_sid=).
+	TernSessionID string
+	// TurnID is the current SendMessage turn id used in LLMGP metering metadata (tid=).
+	TurnID string
 }
 
 // WithModel sets the model name.
@@ -131,6 +136,16 @@ func WithMaxToolResultBytes(n int) SessionOption {
 // WithSandboxMode sets the resolved session sandbox mode (read-only | danger-full-access).
 func WithSandboxMode(mode string) SessionOption {
 	return func(c *SessionConfig) { c.SandboxMode = mode }
+}
+
+// WithTernSessionID sets the Tern HTTP session id for LLMGP metering metadata.
+func WithTernSessionID(id string) SessionOption {
+	return func(c *SessionConfig) { c.TernSessionID = id }
+}
+
+// WithTurnID sets the current SendMessage turn id for LLMGP metering metadata.
+func WithTurnID(id string) SessionOption {
+	return func(c *SessionConfig) { c.TurnID = id }
 }
 
 // NewSessionConfig applies the given SessionOptions and returns a SessionConfig.

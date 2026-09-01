@@ -27,8 +27,10 @@ type SessionRecord struct {
 	SandboxMode string `json:"sandbox_mode,omitempty"`
 	// FileChangeCollectors is nil for legacy records (Effective → defaults).
 	FileChangeCollectors *FileChangeCollectors `json:"file_change_collectors,omitempty"`
-	CreatedAt            time.Time             `json:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at"`
+	// Usage is the session-level token aggregate (sum of turn totals).
+	Usage     *TokenUsage `json:"usage,omitempty"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
 }
 
 // Session status constants.
