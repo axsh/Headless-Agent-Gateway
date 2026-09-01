@@ -32,6 +32,7 @@ type SessionInfo struct {
 	Followable     bool                    `json:"followable,omitempty"`
 	TurnID         string                  `json:"turn_id,omitempty"`
 	FileChangeCollectors *FileChangeCollectorsInfo `json:"file_change_collectors,omitempty"`
+	Usage          *TokenUsage             `json:"usage,omitempty"`
 }
 
 // AgentBinding is a native session id and ingest watermark for one coding agent.

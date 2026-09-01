@@ -45,6 +45,7 @@ type StreamEvent struct {
 	ChunkID       string                 `json:"chunk_id,omitempty"`
 	ChunkIndex    int                    `json:"index,omitempty"`
 	ChunkTotal    int                    `json:"total,omitempty"`
+	Usage         *TokenUsage            `json:"usage,omitempty"`
 	Error         error                  `json:"-"`
 	Retryable     bool                   `json:"-"`
 }

@@ -202,7 +202,7 @@ func TestParseJSONLinesEvent_V21_ThinkingBlock(t *testing.T) {
 
 // R2: v2.1 result with extended fields.
 func TestParseJSONLinesEvent_V21_Result(t *testing.T) {
-	input := `{"type":"result","subtype":"success","is_error":false,"duration_ms":6354,"num_turns":1,"result":"Hello!","stop_reason":"end_turn","total_cost_usd":0.01,"terminal_reason":"completed"}`
+	input := `{"type":"result","subtype":"success","is_error":false,"duration_ms":6354,"num_turns":1,"result":"Hello!","stop_reason":"end_turn","total_cost_usd":0.01,"terminal_reason":"completed","usage":{"input_tokens":12,"output_tokens":8,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}`
 	ev := claudecode.ParseJSONLinesEvent(input)
 	if ev == nil {
 		t.Fatal("expected non-nil event")
@@ -210,7 +210,63 @@ func TestParseJSONLinesEvent_V21_Result(t *testing.T) {
 	if ev.Type != codingagent.EventResult {
 		t.Errorf("Type = %v, want EventResult", ev.Type)
 	}
+	if ev.Usage == nil {
+		t.Fatal("expected Usage on result")
+	}
+	if ev.Usage.InputTokens != 12 || ev.Usage.OutputTokens != 8 {
+		t.Errorf("usage tokens = %d/%d, want 12/8", ev.Usage.InputTokens, ev.Usage.OutputTokens)
+	}
+	if ev.Usage.CachedInputTokens != 100 || ev.Usage.CacheCreationInputTokens != 20 {
+		t.Errorf("cache = %d/%d", ev.Usage.CachedInputTokens, ev.Usage.CacheCreationInputTokens)
+	}
+	if ev.Usage.Source != codingagent.UsageSourceClaudeResult {
+		t.Errorf("source = %q", ev.Usage.Source)
+	}
+	if ev.Usage.Confidence != codingagent.UsageConfidenceHigh {
+		t.Errorf("confidence = %q", ev.Usage.Confidence)
+	}
+	if ev.Usage.TotalCostUSD == nil || *ev.Usage.TotalCostUSD != 0.01 {
+		t.Errorf("TotalCostUSD = %v", ev.Usage.TotalCostUSD)
+	}
 }
+
+func TestParseJSONLinesEvent_Result_ModelUsageFallback(t *testing.T) {
+	input := `{"type":"result","subtype":"success","usage":{"input_tokens":0,"output_tokens":5},"modelUsage":{"claude-sonnet-4-6":{"inputTokens":0,"outputTokens":10,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.0001}},"total_cost_usd":0.0001}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	if ev == nil || ev.Usage == nil {
+		t.Fatal("expected usage")
+	}
+	if ev.Usage.OutputTokens != 10 {
+		t.Errorf("output = %d, want modelUsage fallback 10", ev.Usage.OutputTokens)
+	}
+	if ev.Usage.Model != "claude-sonnet-4-6" {
+		t.Errorf("model = %q", ev.Usage.Model)
+	}
+	if ev.Usage.ModelSource != codingagent.ModelSourceAgent {
+		t.Errorf("model_source = %q", ev.Usage.ModelSource)
+	}
+}
+
+func TestParseJSONLinesEvent_Assistant_Usage(t *testing.T) {
+	input := `{"type":"assistant","message":{"id":"msg_abc","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":100,"output_tokens":5,"cache_read_input_tokens":10,"cache_creation_input_tokens":2}}}`
+	ev := claudecode.ParseJSONLinesEvent(input)
+	if ev == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if ev.Usage == nil {
+		t.Fatal("expected Usage on assistant event")
+	}
+	if ev.Usage.CallID != "msg_abc" {
+		t.Errorf("CallID = %q", ev.Usage.CallID)
+	}
+	if ev.Usage.InputTokens != 100 || ev.Usage.OutputTokens != 5 {
+		t.Errorf("tokens = %d/%d", ev.Usage.InputTokens, ev.Usage.OutputTokens)
+	}
+	if ev.Usage.Source != codingagent.UsageSourceClaudeAssistant {
+		t.Errorf("source = %q", ev.Usage.Source)
+	}
+}
+
 
 // R3: mixed text and tool_use in assistant message (tool_use takes priority).
 func TestParseJSONLinesEvent_V21_TextAndToolUse(t *testing.T) {

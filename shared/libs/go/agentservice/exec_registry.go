@@ -26,6 +26,7 @@ const toolStillRunningContent = "tool_still_running"
 type activeExecution struct {
 	sessionID        string
 	turnID           string
+	sessionModel     string
 	correlationID    string
 	agentSess        codingagent.Session
 	stdin            codingagent.StdinWriter
@@ -34,6 +35,7 @@ type activeExecution struct {
 	streamOffset     int
 	sideEffectOffset int
 	savedFiles       []string
+	usageAgg         *turnUsageAggregator
 
 	subMu         sync.Mutex
 	subCancel     context.CancelFunc

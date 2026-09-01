@@ -26,7 +26,7 @@ By default, all API endpoints are exposed at `http://localhost:3100` (customizab
 | `GET` | `/api/v1/sessions/:id/events` | Reattach to the in-flight turn SSE (no new message). |
 | `POST` | `/api/v1/sessions/:id/cancel` | Abort the in-flight turn; keep the same session id (not closed). |
 | `POST` | `/api/v1/sessions/:id/terminate` | Force terminate an active session process (status becomes closed). |
-| `GET` | `/api/v1/sessions/:id/logs` | Stream detailed task logs generated during session execution. |
+| `GET` | `/api/v1/sessions/:id/usage` | Retrieve session / turn / call token usage aggregates. |
 
 ---
 
@@ -244,9 +244,66 @@ Retrieves metadata and the active state of a created session.
     "error": ""
   }
   ```
+  - `usage` (optional): Session-level token aggregate (`input_tokens`, `output_tokens`, `source`, `confidence`, …). Present after at least one turn has reported usage. Estimated `total_cost_usd` (when present) is not billing-authoritative.
   - `config_dir` is included when set at CreateSession time (or later via PATCH).
   - `file_change_collectors` is always present as the resolved three-key object (defaults applied for legacy records).
   - `agent_bindings` and `supplement` are the canonical metadata (effective supplement merges server defaults with the session strategy; turn override is not stored).
+
+---
+
+### 5.0 Get Session Usage
+
+Returns session, turn, and best-effort LLM-call token usage for a session.
+
+- **Method**: `GET`
+- **Path**: `/api/v1/sessions/:id/usage`
+- **Query** (all optional; omit for the full report):
+  - `last_n` (int) — keep only the last N turns after other filters
+  - `after_turn_id` (string) — turns strictly after this turn id
+  - `from_turn_id` / `to_turn_id` (string) — inclusive turn-id range
+  - `since` / `until` (RFC3339) — filter by turn `ended_at`
+- When any query filter is set, response `usage` is the **sum of the returned turns** (not the full-session cumulative). Full-session totals remain on `GET /api/v1/sessions/:id` (`usage`) or an unfiltered `GET .../usage`.
+- **Response (200 OK)**:
+  ```json
+  {
+    "session_id": "a95db64cb646901efb395a18d817a37d",
+    "usage": {
+      "input_tokens": 50000,
+      "output_tokens": 3200,
+      "source": "derived_session_sum",
+      "confidence": "high"
+    },
+    "turns": [
+      {
+        "turn_id": "turn-1",
+        "ended_at": "2026-09-01T12:00:00Z",
+        "usage": {
+          "input_tokens": 12000,
+          "output_tokens": 800,
+          "model": "claude-sonnet-4-6",
+          "model_source": "agent",
+          "source": "claude_result",
+          "confidence": "high"
+        },
+        "calls": [
+          {
+            "call_id": "msg_...",
+            "input_tokens": 10000,
+            "output_tokens": 200,
+            "source": "claude_assistant",
+            "confidence": "high"
+          }
+        ]
+      }
+    ]
+  }
+  ```
+- Turn totals are authoritative. Call-level entries may be incomplete (`confidence: low`) and must not rewrite turn totals.
+- **`model` / `model_source`**: `model_source` is `agent` when the Coding Agent CLI reported the model; `tern_session` when Tern backfilled the session model at turn start (common for Codex). Session aggregate `usage` omits both fields.
+- **SendMessage stream vs GET usage**: SSE `result.usage` is an immediate turn snapshot. The full session / turn / call report (including `calls[]`) is available from `GET .../usage` or `Session.GetUsage` after the stream completes.
+- Client SDK: `client/v1` `GetUsage(ctx, sessionID, opts ...UsageQuery)` / `Session.GetUsage(ctx, opts ...UsageQuery)` and `SessionInfo.Usage` on GetSession.
+  - Example: `sess.GetUsage(ctx)` (all turns); `sess.GetUsage(ctx, client.UsageQuery{LastN: 1})` (last turn only).
+- Demo: `examples/token-usage`.
 
 ---
 
@@ -367,6 +424,7 @@ Sends prompt text and image data to an active session, initiating agent executio
     - `session_id` (string, system events only): Agent-specific internal session ID.
     - `turn_id` (string, optional): Server-generated turn identifier for this SendMessage execution.
     - `correlation_id` (string, optional): Echoed user-supplied correlation ID.
+    - `usage` (object, optional): On terminal `result` events, turn-level token usage (`input_tokens`, `output_tokens`, `source`, `confidence`, …).
   - **Termination Signal**: Stream ends with `data: [DONE]`.
   - **Response Example**:
     ```http

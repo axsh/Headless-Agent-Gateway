@@ -73,6 +73,7 @@ type Server struct {
 	ssePostResultDrain      time.Duration
 	toolHeartbeatInterval   time.Duration // 0 = DefaultToolHeartbeatInterval unless configured off
 	toolHeartbeatConfigured bool          // true when WithToolHeartbeatInterval was applied
+	usageMeter              *llmgateway.UsageMeter
 }
 
 // ServerOption configures a Server.
@@ -165,6 +166,13 @@ func WithToolHeartbeatInterval(d time.Duration) ServerOption {
 	return func(s *Server) {
 		s.toolHeartbeatInterval = d
 		s.toolHeartbeatConfigured = true
+	}
+}
+
+// WithUsageMeter attaches an LLMGP usage meter for best-effort call-level token records.
+func WithUsageMeter(m *llmgateway.UsageMeter) ServerOption {
+	return func(s *Server) {
+		s.usageMeter = m
 	}
 }
 
@@ -533,6 +541,12 @@ func (s *Server) routeSessionByID(w http.ResponseWriter, r *http.Request) {
 		s.handleLogStream(w, r)
 	} else if strings.HasSuffix(path, "/events") {
 		s.handleFollow(w, r)
+	} else if strings.HasSuffix(path, "/usage") {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleGetSessionUsage(w, r)
 	} else {
 		switch r.Method {
 		case http.MethodGet:

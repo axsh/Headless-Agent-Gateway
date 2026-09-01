@@ -127,7 +127,7 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 		tokenPart = ";token=" + ac.GatewayToken
 		env["TERN_GATEWAY_TOKEN"] = ac.GatewayToken
 	}
-	env["OPENAI_API_KEY"] = apiKey + tokenPart + ";fallback=" + fallbackStr + ";sid=" + sid
+	env["OPENAI_API_KEY"] = apiKey + tokenPart + ";fallback=" + fallbackStr + ";sid=" + sid + codingagent.MeteringMetaSuffix(cfg.TernSessionID, cfg.TurnID)
 
 	// Session data storage directory override.
 	if cfg.SessionDir != "" {

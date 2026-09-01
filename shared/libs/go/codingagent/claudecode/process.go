@@ -120,7 +120,7 @@ func BuildEnv(ac *codingagent.AdapterConfig, cfg *codingagent.SessionConfig) []s
 		if ac.GatewayToken != "" {
 			tokenPart = ";token=" + ac.GatewayToken
 		}
-		env["ANTHROPIC_API_KEY"] = apiKey + tokenPart + ";fallback=" + fallbackStr + ";sid=" + sid
+		env["ANTHROPIC_API_KEY"] = apiKey + tokenPart + ";fallback=" + fallbackStr + ";sid=" + sid + codingagent.MeteringMetaSuffix(cfg.TernSessionID, cfg.TurnID)
 	}
 
 	if ac.DisableSandbox {
