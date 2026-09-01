@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
@@ -81,13 +82,16 @@ func appendTurnUsage(sessionDir, sessionID string, turn codingagent.TurnUsageRec
 	if !replaced {
 		rep.Turns = append(rep.Turns, turn)
 	}
-	sum := codingagent.TokenUsage{
-		Source:     codingagent.UsageSourceDerivedSessionSum,
-		Confidence: codingagent.UsageConfidenceHigh,
+	if turn.EndedAt.IsZero() {
+		// Ensure filter-by-time has a value for newly appended turns.
+		for i := range rep.Turns {
+			if rep.Turns[i].TurnID == turn.TurnID && rep.Turns[i].EndedAt.IsZero() {
+				rep.Turns[i].EndedAt = time.Now().UTC()
+				turn = rep.Turns[i]
+			}
+		}
 	}
-	for _, tr := range rep.Turns {
-		codingagent.AddUsage(&sum, tr.Usage)
-	}
+	sum := codingagent.SumTurnUsage(rep.Turns)
 	rep.Usage = sum
 	rep.SessionID = sessionID
 	if err := saveUsageReport(sessionDir, rep); err != nil {

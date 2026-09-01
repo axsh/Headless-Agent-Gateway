@@ -2,6 +2,7 @@ package codingagent_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
@@ -82,4 +83,36 @@ func floatPtr(v float64) *float64 { return &v }
 
 func TestAddUsage_NilDst(t *testing.T) {
 	codingagent.AddUsage(nil, codingagent.TokenUsage{InputTokens: 1})
+}
+
+func TestFilterTurnUsage_LastNAndAfter(t *testing.T) {
+	turns := []codingagent.TurnUsageRecord{
+		{TurnID: "t1", Usage: codingagent.TokenUsage{InputTokens: 1, OutputTokens: 1}},
+		{TurnID: "t2", Usage: codingagent.TokenUsage{InputTokens: 2, OutputTokens: 2}},
+		{TurnID: "t3", Usage: codingagent.TokenUsage{InputTokens: 3, OutputTokens: 3}},
+	}
+	got := codingagent.FilterTurnUsage(turns, codingagent.UsageQuery{LastN: 1})
+	if len(got) != 1 || got[0].TurnID != "t3" {
+		t.Fatalf("LastN=1 got %+v", got)
+	}
+	got = codingagent.FilterTurnUsage(turns, codingagent.UsageQuery{AfterTurnID: "t1"})
+	if len(got) != 2 || got[0].TurnID != "t2" {
+		t.Fatalf("AfterTurnID got %+v", got)
+	}
+	sum := codingagent.SumTurnUsage(got)
+	if sum.InputTokens != 5 || sum.OutputTokens != 5 {
+		t.Fatalf("sum = %+v", sum)
+	}
+}
+
+func TestFilterTurnUsage_Since(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	turns := []codingagent.TurnUsageRecord{
+		{TurnID: "t1", EndedAt: t0, Usage: codingagent.TokenUsage{InputTokens: 1}},
+		{TurnID: "t2", EndedAt: t0.Add(time.Hour), Usage: codingagent.TokenUsage{InputTokens: 2}},
+	}
+	got := codingagent.FilterTurnUsage(turns, codingagent.UsageQuery{Since: t0.Add(30 * time.Minute)})
+	if len(got) != 1 || got[0].TurnID != "t2" {
+		t.Fatalf("got %+v", got)
+	}
 }

@@ -2,7 +2,11 @@ package agentservice
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
 )
@@ -42,6 +46,9 @@ func (s *Server) persistTurnUsage(sessionID string, rec codingagent.TurnUsageRec
 	if err != nil || record == nil {
 		return
 	}
+	if rec.EndedAt.IsZero() {
+		rec.EndedAt = time.Now().UTC()
+	}
 	sum, err := appendTurnUsage(record.SessionDir, sessionID, rec)
 	if err != nil {
 		if s.logger != nil {
@@ -71,11 +78,59 @@ func (s *Server) handleGetSessionUsage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if record.Usage != nil {
+	q, err := parseUsageQuery(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !q.Empty() {
+		rep.Turns = codingagent.FilterTurnUsage(rep.Turns, q)
+		rep.Usage = codingagent.SumTurnUsage(rep.Turns)
+		if s.logger != nil {
+			s.logger.Debug("filtered session usage",
+				"session_id", sessionID,
+				"last_n", q.LastN,
+				"turns", len(rep.Turns),
+			)
+		}
+	} else if record.Usage != nil {
 		rep.Usage = *record.Usage
+	} else {
+		rep.Usage = codingagent.SumTurnUsage(rep.Turns)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(rep)
 }
+
+func parseUsageQuery(vals url.Values) (codingagent.UsageQuery, error) {
+	var q codingagent.UsageQuery
+	if v := vals.Get("last_n"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return q, errInvalidLastN
+		}
+		q.LastN = n
+	}
+	q.AfterTurnID = vals.Get("after_turn_id")
+	q.FromTurnID = vals.Get("from_turn_id")
+	q.ToTurnID = vals.Get("to_turn_id")
+	if v := vals.Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return q, err
+		}
+		q.Since = t
+	}
+	if v := vals.Get("until"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return q, err
+		}
+		q.Until = t
+	}
+	return q, nil
+}
+
+var errInvalidLastN = errors.New("invalid last_n")
 
