@@ -47,6 +47,8 @@
 
 #### R2: デモの流れ（学習順）
 
+> **Superseded by [002-Token-Usage-Stream-UX.md](file://prompts/phases/001-phase02/branches/feat-token-counter/ideas/002-Token-Usage-Stream-UX.md)**: Send 直後の `result.Usage` 表示（旧ステップ 3–5）は削除。`stream.Output` + 完了後 `GetUsage` に一本化。
+
 ```text
 1. CreateSession
 2. SendText #1（できればツールを1回使う短い指示）→ ストリーム消費

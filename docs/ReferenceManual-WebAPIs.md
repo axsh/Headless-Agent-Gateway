@@ -280,6 +280,8 @@ Returns session, turn, and best-effort LLM-call token usage for a session.
         "usage": {
           "input_tokens": 12000,
           "output_tokens": 800,
+          "model": "claude-sonnet-4-6",
+          "model_source": "agent",
           "source": "claude_result",
           "confidence": "high"
         },
@@ -297,6 +299,8 @@ Returns session, turn, and best-effort LLM-call token usage for a session.
   }
   ```
 - Turn totals are authoritative. Call-level entries may be incomplete (`confidence: low`) and must not rewrite turn totals.
+- **`model` / `model_source`**: `model_source` is `agent` when the Coding Agent CLI reported the model; `tern_session` when Tern backfilled the session model at turn start (common for Codex). Session aggregate `usage` omits both fields.
+- **SendMessage stream vs GET usage**: SSE `result.usage` is an immediate turn snapshot. The full session / turn / call report (including `calls[]`) is available from `GET .../usage` or `Session.GetUsage` after the stream completes.
 - Client SDK: `client/v1` `GetUsage(ctx, sessionID, opts ...UsageQuery)` / `Session.GetUsage(ctx, opts ...UsageQuery)` and `SessionInfo.Usage` on GetSession.
   - Example: `sess.GetUsage(ctx)` (all turns); `sess.GetUsage(ctx, client.UsageQuery{LastN: 1})` (last turn only).
 - Demo: `examples/token-usage`.

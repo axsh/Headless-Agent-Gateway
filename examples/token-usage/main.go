@@ -57,22 +57,12 @@ func main() {
 	defer session.Terminate(ctx)
 	log.Printf("session_id=%s work_dir=%s", session.ID, workDir)
 
-	turn1, err := sendAndCollectUsage(ctx, session,
-		"Create a file named ping.txt with content pong using a tool, then reply with exactly: done")
-	if err != nil {
+	if err := sendAndStream(ctx, session, "Create a file named ping.txt with content pong using a tool, then reply with exactly: done"); err != nil {
 		log.Fatalf("send #1: %v", err)
 	}
-	fmt.Println("=== Turn usage ===")
-	fmt.Printf("(stream result after SendText #1)\n")
-	printUsage("  ", turn1)
-
-	turn2, err := sendAndCollectUsage(ctx, session, "Reply with exactly: ok")
-	if err != nil {
+	if err := sendAndStream(ctx, session, "Reply with exactly: ok"); err != nil {
 		log.Fatalf("send #2: %v", err)
 	}
-	fmt.Println("=== Turn usage ===")
-	fmt.Printf("(stream result after SendText #2)\n")
-	printUsage("  ", turn2)
 
 	repAll, err := session.GetUsage(ctx)
 	if err != nil {
@@ -151,21 +141,12 @@ func main() {
 	log.Printf("done turns=%d last_n_turns=%d", len(repAll.Turns), len(repLast.Turns))
 }
 
-func sendAndCollectUsage(ctx context.Context, session *client.Session, text string) (*client.TokenUsage, error) {
+func sendAndStream(ctx context.Context, session *client.Session, text string) error {
 	stream, err := session.SendText(ctx, text)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var usage *client.TokenUsage
-	err = stream.OnResult(func(ev client.Event) {
-		usage = ev.Usage
-	}).OnError(func(msg string) {
-		log.Printf("stream error: %s", msg)
-	}).Run()
-	if err != nil {
-		return usage, err
-	}
-	return usage, nil
+	return stream.Output(os.Stdout)
 }
 
 func printUsage(prefix string, u *client.TokenUsage) {
@@ -178,6 +159,9 @@ func printUsage(prefix string, u *client.TokenUsage) {
 		u.InputTokens, u.OutputTokens, u.CachedInputTokens, u.CacheCreationInputTokens,
 		u.ReasoningOutputTokens, u.TotalTokens, u.Source, u.Confidence,
 	)
+	if u.Model != "" {
+		fmt.Printf(" model=%s model_source=%s", u.Model, u.ModelSource)
+	}
 	if u.TotalCostUSD != nil {
 		fmt.Printf(" total_cost_usd=%.6f (estimate)", *u.TotalCostUSD)
 	}
