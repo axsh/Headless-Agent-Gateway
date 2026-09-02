@@ -82,6 +82,8 @@ Retrieves the names of all available coding agents.
 
 Retrieves the list of all available LLM models and the default model, obtained via the LLM Gateway Proxy (LLMGP).
 
+After embedded or CLI `server.Launch`, Agent Service caches this list (including `default_model`) via `FetchModelsFromGateway`. Callers using the `server` package do not need a separate fetch.
+
 - **Method**: `GET`
 - **Path**: `/api/v1/models`
 - **Response (200 OK)**:

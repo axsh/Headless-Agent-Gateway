@@ -26,11 +26,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to launch tern server: %w", err)
 	}
 
-	// Fetch and cache model list after Launch (Gateway must be serving).
-	if err := srv.AgentService().FetchModelsFromGateway(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to fetch models from gateway: %v\n", err)
-	}
-
 	fmt.Println("tern server started and running...")
 
 	// Listen for OS signals.

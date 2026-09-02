@@ -78,6 +78,8 @@ srv.Launch(ctx)
 defer srv.Shutdown(ctx)
 ```
 
+`Launch` also fetches LLMGP `GET /v1/models` into the Agent Service cache (`default_model` and the model list). Callers do not need to call `FetchModelsFromGateway` themselves. CreateSession may omit `model` to use that gateway default (see [docs/ReferenceManual-WebAPIs.md](docs/ReferenceManual-WebAPIs.md)).
+
 ### Client Examples
 
 Tern client libraries ([examples/minimal-client](examples/minimal-client/main.go), [examples/multimodal-client](examples/multimodal-client/main.go)) simplify session interaction.
