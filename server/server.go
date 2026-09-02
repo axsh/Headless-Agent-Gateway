@@ -243,6 +243,14 @@ func (s *Server) Launch(ctx context.Context) error {
 	}
 	s.logger.Debug("agent service launched", "port", s.agentService.Port())
 
+	// Cache LLMGP models / default_model for CreateSession backfill (Issue #63).
+	// Failure must not abort Launch; empty gatewayDefault remains allowed.
+	if err := s.agentService.FetchModelsFromGateway(); err != nil {
+		s.logger.Warn("failed to fetch models from gateway", "error", err.Error())
+	} else {
+		s.logger.Debug("gateway models cached")
+	}
+
 	s.logger.Info("tern server started")
 	return nil
 }
