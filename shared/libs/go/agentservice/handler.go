@@ -115,6 +115,13 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// When client omits model, persist Tern gateway default onto the session record.
+	if req.Model == "" {
+		req.Model = s.effectiveSessionModel("")
+		if req.Model != "" && s.logger != nil {
+			s.logger.Debug("session model default applied", "model", req.Model)
+		}
+	}
 
 	sessionID := s.generateID()
 
@@ -210,6 +217,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"session_id": sessionID,
 		"status":     "created",
+		"model":      record.Model,
 	})
 }
 
@@ -285,6 +293,8 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
+	// Backfill empty model for sessions created before gateway default application.
+	s.applySessionModelDefault(record)
 
 		if exec, ok := s.execRegistry.Get(sessionID); ok {
 			writeSessionBusy(w, exec.status)

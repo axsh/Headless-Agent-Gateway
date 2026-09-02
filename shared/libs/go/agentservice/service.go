@@ -644,6 +644,37 @@ func (s *Server) SetGatewayModels(models []llmgateway.ModelInfo, defaultModel *l
 	s.gatewayDefault = defaultModel
 }
 
+// effectiveSessionModel returns recordModel, or gatewayDefault.Model when record is empty.
+func (s *Server) effectiveSessionModel(recordModel string) string {
+	if recordModel != "" {
+		return recordModel
+	}
+	if s.gatewayDefault != nil && s.gatewayDefault.Model != "" {
+		return s.gatewayDefault.Model
+	}
+	return ""
+}
+
+// applySessionModelDefault fills record.Model from gatewayDefault when empty and persists.
+// Returns true when a default was applied.
+func (s *Server) applySessionModelDefault(record *codingagent.SessionRecord) bool {
+	if record == nil || record.Model != "" {
+		return false
+	}
+	m := s.effectiveSessionModel("")
+	if m == "" {
+		return false
+	}
+	record.Model = m
+	if err := s.sessions.Update(record); err != nil && s.logger != nil {
+		s.logger.Debug("failed to persist session model default", "session_id", record.ID, "error", err.Error())
+	}
+	if s.logger != nil {
+		s.logger.Debug("session model default applied", "session_id", record.ID, "model", record.Model)
+	}
+	return true
+}
+
 // IsValidModel checks if a model name exists in the cached model list.
 func (s *Server) IsValidModel(model string) bool {
 	for _, m := range s.gatewayModels {
