@@ -115,7 +115,7 @@ sessionModel: record.Model, // 直前に effectiveSessionModel 適用済みで�
 - [x] 4. **SendMessage / turn start**: If `record.Model == ""`, apply helper, persist, then snapshot into `activeExecution.sessionModel`.
 - [x] 5. **E2E**: Add omitted-model TokenUsage case using `createE2ESessionNoModel`.
 - [x] 6. **Docs**: Update ReferenceManual-WebAPIs.md.
-- [/] 7. **Verify**: `./scripts/process/build.sh` then `./scripts/process/integration_test.sh --specify "TokenUsage"`.
+- [x] 7. **Verify**: `./scripts/process/build.sh` then `./scripts/process/integration_test.sh --specify "TokenUsage"`.
 
 ## Verification Plan
 
