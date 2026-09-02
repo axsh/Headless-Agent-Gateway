@@ -93,6 +93,10 @@ agent_service:
 	if err := srv.Launch(ctx); err != nil {
 		t.Fatalf("Launch failed: %v", err)
 	}
+	// Mirror tern cmd: cache gateway models / default_model after Launch.
+	if err := srv.AgentService().FetchModelsFromGateway(); err != nil {
+		t.Logf("warning: FetchModelsFromGateway: %v", err)
+	}
 
 	port := srv.AgentService().Port()
 	baseURL := fmt.Sprintf("http://localhost:%d", port)

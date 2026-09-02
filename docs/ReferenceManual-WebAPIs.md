@@ -150,7 +150,7 @@ Initializes a new coding session.
   - `session_id`: HTTP session identifier issued by Tern; not part of the Home path definition.
 - **Request Body (JSON)**:
   - `agent` (string, Required): The name of the agent to use (`claudecode`, `wayfinder`, etc.).
-  - `model` (string, Optional): The LLM model to use. If not specified, the default model is applied.
+  - `model` (string, Optional): The LLM model to use. When omitted, Tern applies `GET /api/v1/models` `default_model.model` (LLMGP gateway default) onto the session record so Create / GetSession / usage share the same effective model. If no gateway default is configured, `model` remains empty.
   - `work_dir` (string, Required): The absolute workspace directory path where the agent will operate.
   - `storage_root` (string, Optional): Parent directory for Agent Homes. Defaults to `work_dir`. When set to a path other than `work_dir`, `.tern`, `.codex`, and `.claude` are created under this parent.
   - `session_dir` (string, Optional): Override for the **canonical session folder** (Tern leaf). Defaults to `{storage_root}/.tern/{session_id}`. This is not the Codex/Claude CLI home; do not place CLI homes under `{session_dir}/native`.
@@ -197,9 +197,11 @@ Initializes a new coding session.
   ```json
   {
     "session_id": "a95db64cb646901efb395a18d817a37d",
-    "status": "created"
+    "status": "created",
+    "model": "claude-sonnet-4-20250514"
   }
   ```
+  - `model`: Effective session model after create-time resolution (explicit request model, or gateway `default_model` when omitted; empty string when neither is available).
 
 ---
 
@@ -299,7 +301,7 @@ Returns session, turn, and best-effort LLM-call token usage for a session.
   }
   ```
 - Turn totals are authoritative. Call-level entries may be incomplete (`confidence: low`) and must not rewrite turn totals.
-- **`model` / `model_source`**: `model_source` is `agent` when the Coding Agent CLI reported the model; `tern_session` when Tern backfilled the session model at turn start (common for Codex). Session aggregate `usage` omits both fields.
+- **`model` / `model_source`**: `model_source` is `agent` when the Coding Agent CLI reported the model; `tern_session` when Tern backfilled the effective session model at turn start (explicit CreateSession `model`, or gateway `default_model` applied when the client omitted `model`; common for Codex). Session aggregate `usage` omits both fields.
 - **SendMessage stream vs GET usage**: SSE `result.usage` is an immediate turn snapshot. The full session / turn / call report (including `calls[]`) is available from `GET .../usage` or `Session.GetUsage` after the stream completes.
 - Client SDK: `client/v1` `GetUsage(ctx, sessionID, opts ...UsageQuery)` / `Session.GetUsage(ctx, opts ...UsageQuery)` and `SessionInfo.Usage` on GetSession.
   - Example: `sess.GetUsage(ctx)` (all turns); `sess.GetUsage(ctx, client.UsageQuery{LastN: 1})` (last turn only).
