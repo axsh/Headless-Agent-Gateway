@@ -131,3 +131,63 @@ func TestClaudeCodeE2E_TokenUsage_LastN(t *testing.T) {
 		t.Fatalf("filtered usage should equal last turn: usage=%+v turn=%+v", last.Usage, last.Turns[0].Usage)
 	}
 }
+
+// TestClaudeCodeE2E_TokenUsage_OmittedModel_UsesDefault verifies CreateSession without
+// model persists Tern gateway default and usage attribution is agent or tern_session.
+func TestClaudeCodeE2E_TokenUsage_OmittedModel_UsesDefault(t *testing.T) {
+	baseURL, cleanup := startE2EServer(t)
+	defer cleanup()
+
+	workDir := t.TempDir()
+	sessionID := createE2ESessionNoModel(t, baseURL, "claudecode", workDir)
+
+	cli := v1.New(baseURL)
+	info, err := cli.GetSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Model == "" {
+		t.Skip("Skipping: server has no gateway default_model to apply")
+	}
+
+	body := sendE2EMessage(t, baseURL, sessionID, "Reply with exactly: pong", 3*time.Minute)
+	defer body.Body.Close()
+	events, _ := parseE2ESSEEvents(t, body)
+	var resultUsage *codingagent.TokenUsage
+	for _, ev := range events {
+		if ev.Type == codingagent.EventResult {
+			resultUsage = ev.Usage
+		}
+		if ev.Type == codingagent.EventError {
+			t.Skipf("Skipping: agent error: %s", ev.Content)
+		}
+	}
+	if resultUsage == nil {
+		t.Fatal("expected result.usage")
+	}
+	if resultUsage.Model == "" {
+		t.Fatalf("result usage model empty = %+v (session model=%q)", resultUsage, info.Model)
+	}
+	switch resultUsage.ModelSource {
+	case codingagent.ModelSourceAgent, codingagent.ModelSourceTernSession:
+	default:
+		t.Fatalf("unexpected model_source = %q usage=%+v", resultUsage.ModelSource, resultUsage)
+	}
+
+	rep, err := cli.GetUsage(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Turns) < 1 {
+		t.Fatalf("usage report = %+v", rep)
+	}
+	tu := rep.Turns[0].Usage
+	if tu.Model == "" {
+		t.Fatalf("GET usage turn model empty = %+v", tu)
+	}
+	switch tu.ModelSource {
+	case codingagent.ModelSourceAgent, codingagent.ModelSourceTernSession:
+	default:
+		t.Fatalf("unexpected model_source = %q", tu.ModelSource)
+	}
+}
