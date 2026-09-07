@@ -1,7 +1,11 @@
 // Package llmgateway provides the LLM Gateway Proxy backend interface and implementations.
 package llmgateway
 
-import "context"
+import (
+	"context"
+
+	"github.com/axsh/arctic-tern/shared/libs/go/config"
+)
 
 // LLMGatewayBackend is the interface for LLM proxy backends.
 // Implementations include ProxyServer (HTTP proxy with Bifrost) and StubGateway (testing).
@@ -28,9 +32,10 @@ type LLMGatewayBackend interface {
 
 // ModelInfo describes a configured model.
 type ModelInfo struct {
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	ToolCallFallback bool   `json:"tool_call_fallback,omitempty"`
+	Provider         string                 `json:"provider"`
+	Model            string                 `json:"model"`
+	ToolCallFallback bool                   `json:"tool_call_fallback,omitempty"`
+	Reasoning        *config.ModelReasoning `json:"reasoning,omitempty"`
 }
 
 // HealthStatus describes the backend health.

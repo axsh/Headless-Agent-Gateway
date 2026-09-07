@@ -8,10 +8,18 @@ import (
 	"net/http"
 )
 
+// ModelReasoning describes reasoning constraints and defaults for a model.
+type ModelReasoning struct {
+	Required         bool     `json:"required"`
+	SupportedEfforts []string `json:"supported_efforts,omitempty"`
+	DefaultEffort    string   `json:"default_effort,omitempty"`
+}
+
 // ModelInfo describes an available model.
 type ModelInfo struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
+	Provider  string          `json:"provider"`
+	Model     string          `json:"model"`
+	Reasoning *ModelReasoning `json:"reasoning,omitempty"`
 }
 
 // ModelsResponse is the response from the models endpoint.

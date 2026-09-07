@@ -175,10 +175,15 @@ func (p *ProxyServer) ListModels() []ModelInfo {
 				if config.IsEmbeddingMode(model.Mode) {
 					continue
 				}
-				models = append(models, ModelInfo{
+				info := ModelInfo{
 					Provider: providerName,
 					Model:    model.Name,
-				})
+				}
+				if model.Behavior != nil {
+					info.ToolCallFallback = model.Behavior.ToolCallFallback
+					info.Reasoning = model.Behavior.Reasoning
+				}
+				models = append(models, info)
 			}
 		}
 	}
@@ -210,6 +215,7 @@ func (p *ProxyServer) DefaultModel() *ModelInfo {
 					}
 					if m.Behavior != nil {
 						info.ToolCallFallback = m.Behavior.ToolCallFallback
+						info.Reasoning = m.Behavior.Reasoning
 					}
 					return info
 				}

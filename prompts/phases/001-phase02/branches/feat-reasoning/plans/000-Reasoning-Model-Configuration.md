@@ -337,14 +337,14 @@ OpenAI Responses API において推論パラメータが必須化され `effort
     - `shared/libs/go/llmgateway/routing.go` で `ResolveModel` コピーロジックを実装。
     - コミット: `feat(llmgateway): propagate ModelReasoning to RoutedModel during routing`
 
-- [/] **Step 5: Model Info & Discovery API 更新**:
+- [x] **Step 5: Model Info & Discovery API 更新**:
     - `shared/libs/go/llmgateway/backend.go` の `ModelInfo` に `Reasoning` を追加。
     - `client/v1/models.go` の `ModelInfo` に `Reasoning` を追加。
     - `shared/libs/go/llmgateway/proxy_test.go` に `TestProxyServer_ListModels_Reasoning` を追加。
     - `shared/libs/go/llmgateway/proxy.go` の `ListModels` / `DefaultModel` で `Reasoning` を設定。
     - コミット: `feat(llmgateway): expose model reasoning metadata in ListModels and models API`
 
-- [ ] **Step 6: Gateway Early Validation & Backfill 実装**:
+- [/] **Step 6: Gateway Early Validation & Backfill 実装**:
     - `shared/libs/go/llmgateway/openai/responses_reasoning_test.go` を新規作成（Red）。
     - `shared/libs/go/llmgateway/openai/handler.go` で `handleResponses` にバリデーション & 補完ロジックを実装（Green）。
     - コミット: `feat(llmgateway): implement reasoning effort backfill and early validation on /v1/responses`
