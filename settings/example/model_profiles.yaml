@@ -18,6 +18,14 @@ providers:
           - name: gpt-4.1-mini
           - name: gpt-5.3-codex
             mode: responses
+          # GPT-6 reasoning model configuration example
+          # - name: gpt-6-astra
+          #   mode: responses
+          #   behavior:
+          #     reasoning:
+          #       required: true
+          #       supported_efforts: ["minimal", "low", "medium", "high", "xhigh", "max"]
+          #       default_effort: medium
           - name: text-embedding-3-small
             mode: embedding
           - name: text-embedding-3-large

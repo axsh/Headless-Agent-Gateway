@@ -349,12 +349,12 @@ OpenAI Responses API において推論パラメータが必須化され `effort
     - `shared/libs/go/llmgateway/openai/handler.go` で `handleResponses` にバリデーション & 補完ロジックを実装（Green）。
     - コミット: `feat(llmgateway): implement reasoning effort backfill and early validation on /v1/responses`
 
-- [/] **Step 7: 統合テスト用データおよび E2E テスト追加**:
+- [x] **Step 7: 統合テスト用データおよび E2E テスト追加**:
     - `tests/testdata/model_profiles.yaml` に `gpt-6-astra` を追加。
     - `tests/llm_gateway_reasoning_test.go` を新規作成し、API 露出および Upstream 電文の推論パラメータ透過性を検証。
     - コミット: `test(e2e): add end-to-end integration tests for gpt-6-astra reasoning support`
 
-- [ ] **Step 8: 全体验証パイプライン実行**:
+- [/] **Step 8: 全体验証パイプライン実行**:
     - `./scripts/process/build.sh --skip-frontend --skip-etc`
     - `./scripts/process/integration_test.sh --specify "TestLLMGateway_GPT6Astra"`
     - 全テスト通過を確認。
