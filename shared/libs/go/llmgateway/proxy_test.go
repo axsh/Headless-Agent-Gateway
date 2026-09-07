@@ -814,3 +814,101 @@ providers:
 	}
 }
 
+func TestProxyServer_ListModels_Reasoning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "model_profiles.yaml")
+	yamlContent := `
+default_profile:
+  provider: openai
+  model: gpt-6-astra
+providers:
+  openai:
+    api_keys:
+      - name: default
+        secret: "vault://providers/openai/default"
+        models:
+          - name: gpt-6-astra
+            behavior:
+              reasoning:
+                required: true
+                supported_efforts: ["low", "medium", "high", "xhigh", "max"]
+                default_effort: "medium"
+          - name: gpt-4o
+`
+	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("write profiles: %v", err)
+	}
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{ModelProfilesPath: path},
+	}
+	p, err := NewProxyServer(cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("NewProxyServer: %v", err)
+	}
+
+	// 1. Verify p.ListModels()
+	models := p.ListModels()
+	if len(models) != 2 {
+		t.Fatalf("ListModels() len = %d, want 2", len(models))
+	}
+	var astraModel, gpt4oModel *ModelInfo
+	for i := range models {
+		if models[i].Model == "gpt-6-astra" {
+			astraModel = &models[i]
+		} else if models[i].Model == "gpt-4o" {
+			gpt4oModel = &models[i]
+		}
+	}
+	if astraModel == nil || astraModel.Reasoning == nil {
+		t.Fatal("expected gpt-6-astra to have non-nil Reasoning")
+	}
+	if !astraModel.Reasoning.Required {
+		t.Errorf("astra Reasoning.Required = false, want true")
+	}
+	if astraModel.Reasoning.DefaultEffort != "medium" {
+		t.Errorf("astra Reasoning.DefaultEffort = %q, want medium", astraModel.Reasoning.DefaultEffort)
+	}
+	if len(astraModel.Reasoning.SupportedEfforts) != 5 {
+		t.Errorf("astra Reasoning.SupportedEfforts len = %d, want 5", len(astraModel.Reasoning.SupportedEfforts))
+	}
+	if gpt4oModel == nil || gpt4oModel.Reasoning != nil {
+		t.Errorf("expected gpt-4o to have nil Reasoning, got %+v", gpt4oModel)
+	}
+
+	// 2. Verify p.DefaultModel()
+	dm := p.DefaultModel()
+	if dm == nil || dm.Reasoning == nil {
+		t.Fatal("expected DefaultModel() to have non-nil Reasoning")
+	}
+	if dm.Model != "gpt-6-astra" {
+		t.Errorf("DefaultModel() model = %q, want gpt-6-astra", dm.Model)
+	}
+
+	// 3. Verify GET /v1/models JSON response
+	if err := p.Launch(nil); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer p.Shutdown(nil)
+
+	resp, err := http.Get(p.ProxyURL() + "/v1/models")
+	if err != nil {
+		t.Fatalf("GET /v1/models: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Models       []ModelInfo `json:"models"`
+		DefaultModel *ModelInfo  `json:"default_model"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.DefaultModel == nil || body.DefaultModel.Reasoning == nil {
+		t.Fatal("expected GET /v1/models default_model to have Reasoning")
+	}
+	if !body.DefaultModel.Reasoning.Required {
+		t.Error("expected default_model.reasoning.required = true")
+	}
+}
+
+

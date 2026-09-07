@@ -51,13 +51,14 @@ type ModelRouter interface {
 
 // RoutedModel holds the routing result for a model request.
 type RoutedModel struct {
-	Provider         string `json:"provider"`                    // e.g. "anthropic"
-	KeyName          string `json:"key_name,omitempty"`          // e.g. "primary"
-	KeyValue         string `json:"-"`                           // actual API key value from profile
-	Model            string `json:"model"`                       // e.g. "claude-sonnet-4-20250514"
-	Mode             string `json:"mode,omitempty"`              // "chat", "responses", "embedding", or "" (treated as "chat")
-	ToolCallFallback bool   `json:"tool_call_fallback"`          // enable text-to-tool-call conversion
-	MaxOutputTokens  int    `json:"max_output_tokens,omitempty"` // override default max_tokens
+	Provider         string                 `json:"provider"`                    // e.g. "anthropic"
+	KeyName          string                 `json:"key_name,omitempty"`          // e.g. "primary"
+	KeyValue         string                 `json:"-"`                           // actual API key value from profile
+	Model            string                 `json:"model"`                       // e.g. "claude-sonnet-4-20250514"
+	Mode             string                 `json:"mode,omitempty"`              // "chat", "responses", "embedding", or "" (treated as "chat")
+	ToolCallFallback bool                   `json:"tool_call_fallback"`          // enable text-to-tool-call conversion
+	MaxOutputTokens  int                    `json:"max_output_tokens,omitempty"` // override default max_tokens
+	Reasoning        *config.ModelReasoning `json:"reasoning,omitempty"`          // reasoning constraints and defaults
 }
 
 // GatewayError represents an API error response.

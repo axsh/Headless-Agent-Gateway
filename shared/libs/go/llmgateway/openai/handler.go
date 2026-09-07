@@ -118,6 +118,50 @@ func handleResponses(ctx handlerctx.HandlerContext, w http.ResponseWriter, r *ht
 
 	log.Debug("responses request routed", "model", routed.Model, "provider", routed.Provider, "mode", routed.Mode)
 
+	// Apply early validation and backfill for models with reasoning configuration.
+	if routed.Reasoning != nil {
+		rCfg := routed.Reasoning
+		effortMissing := oaiReq.Reasoning == nil || oaiReq.Reasoning.Effort == nil || *oaiReq.Reasoning.Effort == ""
+		if effortMissing {
+			if rCfg.DefaultEffort != "" {
+				if oaiReq.Reasoning == nil {
+					oaiReq.Reasoning = &bifrostSchemas.ResponsesParametersReasoning{}
+				}
+				effort := rCfg.DefaultEffort
+				oaiReq.Reasoning.Effort = &effort
+				log.Debug("backfilled reasoning effort", "model", routed.Model, "effort", effort)
+			} else if rCfg.Required {
+				writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
+					Type:    "invalid_request_error",
+					Message: "reasoning effort is required for model " + routed.Model,
+					Code:    "missing_reasoning_effort",
+					Status:  http.StatusBadRequest,
+				})
+				return
+			}
+		} else {
+			reqEffort := *oaiReq.Reasoning.Effort
+			if len(rCfg.SupportedEfforts) > 0 {
+				supported := false
+				for _, eff := range rCfg.SupportedEfforts {
+					if eff == reqEffort {
+						supported = true
+						break
+					}
+				}
+				if !supported {
+					writeGWError(ctx, w, r, modelName, &handlerctx.GatewayError{
+						Type:    "invalid_request_error",
+						Message: fmt.Sprintf("reasoning effort %q is not supported for model %s (supported: %v)", reqEffort, routed.Model, rCfg.SupportedEfforts),
+						Code:    "unsupported_reasoning_effort",
+						Status:  http.StatusBadRequest,
+					})
+					return
+				}
+			}
+		}
+	}
+
 	// Bifrost SDK path (required)
 	bifrostSDK := ctx.BifrostSDK()
 	if bifrostSDK == nil {

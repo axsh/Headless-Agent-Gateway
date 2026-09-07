@@ -162,6 +162,35 @@ type ModelConfig struct {
 	Behavior    *ModelBehavior `yaml:"behavior,omitempty"`
 }
 
+// Supported OpenAI reasoning effort levels.
+const (
+	ReasoningEffortNone    = "none"
+	ReasoningEffortMinimal = "minimal"
+	ReasoningEffortLow     = "low"
+	ReasoningEffortMedium  = "medium"
+	ReasoningEffortHigh    = "high"
+	ReasoningEffortXHigh   = "xhigh"
+	ReasoningEffortMax     = "max"
+)
+
+// ValidReasoningEfforts is the set of all recognized reasoning effort levels.
+var ValidReasoningEfforts = map[string]struct{}{
+	ReasoningEffortNone:    {},
+	ReasoningEffortMinimal: {},
+	ReasoningEffortLow:     {},
+	ReasoningEffortMedium:  {},
+	ReasoningEffortHigh:    {},
+	ReasoningEffortXHigh:   {},
+	ReasoningEffortMax:     {},
+}
+
+// ModelReasoning defines reasoning capability constraints and defaults for a model.
+type ModelReasoning struct {
+	Required         bool     `yaml:"required" json:"required"`
+	SupportedEfforts []string `yaml:"supported_efforts,omitempty" json:"supported_efforts,omitempty"`
+	DefaultEffort    string   `yaml:"default_effort,omitempty" json:"default_effort,omitempty"`
+}
+
 // ModelBehavior holds model-specific behavior settings.
 type ModelBehavior struct {
 	// ToolCallFallback enables text-to-tool-call conversion for local LLMs.
@@ -171,6 +200,8 @@ type ModelBehavior struct {
 	// MaxOutputTokens overrides the default max_tokens for LLM responses.
 	// When set to 0 (default), the system default is used.
 	MaxOutputTokens int `yaml:"max_output_tokens,omitempty"`
+	// Reasoning defines constraints and defaults for reasoning effort.
+	Reasoning *ModelReasoning `yaml:"reasoning,omitempty"`
 }
 
 // NetworkConfig holds provider-specific network settings.
@@ -202,6 +233,11 @@ func (c *ModelProfilesConfig) Validate() error {
 				}
 				if err := validateModelMode(model.Mode); err != nil {
 					return fmt.Errorf("provider %q key %q model %q: %w", provName, key.Name, model.Name, err)
+				}
+				if model.Behavior != nil && model.Behavior.Reasoning != nil {
+					if err := validateReasoningConfig(model.Behavior.Reasoning); err != nil {
+						return fmt.Errorf("provider %q key %q model %q reasoning: %w", provName, key.Name, model.Name, err)
+					}
 				}
 			}
 		}
@@ -241,3 +277,46 @@ func validateModelMode(mode string) error {
 		return fmt.Errorf("unknown mode %q (want chat, responses, embedding, or empty)", mode)
 	}
 }
+
+func validateReasoningConfig(r *ModelReasoning) error {
+	if r == nil {
+		return nil
+	}
+
+	seenEfforts := make(map[string]struct{}, len(r.SupportedEfforts))
+	for _, effort := range r.SupportedEfforts {
+		if _, ok := ValidReasoningEfforts[effort]; !ok {
+			return fmt.Errorf("unknown reasoning effort %q", effort)
+		}
+		if _, exists := seenEfforts[effort]; exists {
+			return fmt.Errorf("duplicate effort %q in supported_efforts", effort)
+		}
+		seenEfforts[effort] = struct{}{}
+	}
+
+	if r.Required {
+		if len(r.SupportedEfforts) == 0 {
+			return fmt.Errorf("supported_efforts cannot be empty when required is true")
+		}
+		if _, hasNone := seenEfforts[ReasoningEffortNone]; hasNone {
+			return fmt.Errorf("effort %s is not permitted when required is true", ReasoningEffortNone)
+		}
+		if r.DefaultEffort == "" {
+			return fmt.Errorf("default_effort is required when required is true")
+		}
+	}
+
+	if r.DefaultEffort != "" {
+		if _, ok := ValidReasoningEfforts[r.DefaultEffort]; !ok {
+			return fmt.Errorf("unknown default_effort %q", r.DefaultEffort)
+		}
+		if len(r.SupportedEfforts) > 0 {
+			if _, ok := seenEfforts[r.DefaultEffort]; !ok {
+				return fmt.Errorf("default_effort %q is not in supported_efforts", r.DefaultEffort)
+			}
+		}
+	}
+
+	return nil
+}
+

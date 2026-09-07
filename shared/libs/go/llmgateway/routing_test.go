@@ -2,6 +2,7 @@ package llmgateway
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -334,3 +335,84 @@ func TestModelRouter_ResolveModel_MaxOutputTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestModelRouter_ResolveModel_Reasoning(t *testing.T) {
+	tests := []struct {
+		name          string
+		modelName     string
+		behavior      *config.ModelBehavior
+		wantReasoning *config.ModelReasoning
+	}{
+		{
+			name:      "reasoning configured",
+			modelName: "gpt-6-astra",
+			behavior: &config.ModelBehavior{
+				Reasoning: &config.ModelReasoning{
+					Required:         true,
+					SupportedEfforts: []string{"low", "medium", "high", "xhigh", "max"},
+					DefaultEffort:    "medium",
+				},
+			},
+			wantReasoning: &config.ModelReasoning{
+				Required:         true,
+				SupportedEfforts: []string{"low", "medium", "high", "xhigh", "max"},
+				DefaultEffort:    "medium",
+			},
+		},
+		{
+			name:          "reasoning not configured",
+			modelName:     "gpt-4o",
+			behavior:      &config.ModelBehavior{},
+			wantReasoning: nil,
+		},
+		{
+			name:          "behavior nil",
+			modelName:     "gpt-4o",
+			behavior:      nil,
+			wantReasoning: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profiles := &config.ModelProfilesConfig{
+				Providers: map[string]config.ProviderConfig{
+					"openai": {
+						ApiKeys: []config.KeyConfig{{
+							Name:   "default",
+							Secret: "test-key",
+							Models: []config.ModelConfig{{
+								Name:     tt.modelName,
+								Behavior: tt.behavior,
+							}},
+						}},
+					},
+				},
+			}
+			router := NewModelRouter(profiles, nil, nil)
+			got, err := router.ResolveModel(tt.modelName, "")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantReasoning == nil {
+				if got.Reasoning != nil {
+					t.Errorf("expected nil Reasoning, got %+v", got.Reasoning)
+				}
+				return
+			}
+			if got.Reasoning == nil {
+				t.Fatal("expected non-nil Reasoning")
+			}
+			if got.Reasoning.Required != tt.wantReasoning.Required {
+				t.Errorf("Required = %v, want %v", got.Reasoning.Required, tt.wantReasoning.Required)
+			}
+			if !reflect.DeepEqual(got.Reasoning.SupportedEfforts, tt.wantReasoning.SupportedEfforts) {
+				t.Errorf("SupportedEfforts = %v, want %v", got.Reasoning.SupportedEfforts, tt.wantReasoning.SupportedEfforts)
+			}
+			if got.Reasoning.DefaultEffort != tt.wantReasoning.DefaultEffort {
+				t.Errorf("DefaultEffort = %q, want %q", got.Reasoning.DefaultEffort, tt.wantReasoning.DefaultEffort)
+			}
+		})
+	}
+}
+

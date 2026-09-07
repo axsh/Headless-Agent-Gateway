@@ -1,6 +1,8 @@
 package config
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/axsh/arctic-tern/shared/libs/go/codingagent"
@@ -405,4 +407,214 @@ coding_agents:
 		t.Errorf("ExecutionMode = %q", agent.ExecutionMode)
 	}
 }
+
+func TestModelBehavior_Reasoning_YAMLParse(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		wantReasoning *ModelReasoning
+	}{
+		{
+			name: "full reasoning config",
+			input: `
+name: gpt-6-astra
+behavior:
+  reasoning:
+    required: true
+    supported_efforts: ["low", "medium", "high", "xhigh", "max"]
+    default_effort: "medium"
+`,
+			wantReasoning: &ModelReasoning{
+				Required:         true,
+				SupportedEfforts: []string{"low", "medium", "high", "xhigh", "max"},
+				DefaultEffort:    "medium",
+			},
+		},
+		{
+			name: "reasoning omitted",
+			input: `
+name: gpt-4o
+behavior:
+  structured_output: true
+`,
+			wantReasoning: nil,
+		},
+		{
+			name: "behavior omitted",
+			input: `
+name: gpt-4o
+`,
+			wantReasoning: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mc ModelConfig
+			if err := yaml.Unmarshal([]byte(tt.input), &mc); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if tt.wantReasoning == nil {
+				if mc.Behavior != nil && mc.Behavior.Reasoning != nil {
+					t.Fatalf("expected nil Reasoning, got %+v", mc.Behavior.Reasoning)
+				}
+				return
+			}
+			if mc.Behavior == nil || mc.Behavior.Reasoning == nil {
+				t.Fatal("expected non-nil Reasoning")
+			}
+			r := mc.Behavior.Reasoning
+			if r.Required != tt.wantReasoning.Required {
+				t.Errorf("Required = %v, want %v", r.Required, tt.wantReasoning.Required)
+			}
+			if !reflect.DeepEqual(r.SupportedEfforts, tt.wantReasoning.SupportedEfforts) {
+				t.Errorf("SupportedEfforts = %v, want %v", r.SupportedEfforts, tt.wantReasoning.SupportedEfforts)
+			}
+			if r.DefaultEffort != tt.wantReasoning.DefaultEffort {
+				t.Errorf("DefaultEffort = %q, want %q", r.DefaultEffort, tt.wantReasoning.DefaultEffort)
+			}
+		})
+	}
+}
+
+func TestModelProfilesConfig_Validate_Reasoning(t *testing.T) {
+	baseConfig := func() ModelProfilesConfig {
+		return ModelProfilesConfig{
+			DefaultProfile: DefaultProfileConfig{Provider: "openai", Model: "gpt-6-astra"},
+			Providers: map[string]ProviderConfig{
+				"openai": {
+					ApiKeys: []KeyConfig{
+						{
+							Name:   "primary",
+							Secret: "vault://openai/key",
+							Models: []ModelConfig{
+								{
+									Name: "gpt-6-astra",
+									Behavior: &ModelBehavior{
+										Reasoning: &ModelReasoning{
+											Required:         true,
+											SupportedEfforts: []string{"low", "medium", "high", "xhigh", "max"},
+											DefaultEffort:    "medium",
+										},
+									},
+								},
+								{
+									Name: "gpt-4o",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		modify    func(*ModelProfilesConfig)
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "valid reasoning config",
+			modify:  func(c *ModelProfilesConfig) {},
+			wantErr: false,
+		},
+		{
+			name: "valid optional reasoning with none",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning = &ModelReasoning{
+					Required:         false,
+					SupportedEfforts: []string{"none", "low", "medium"},
+					DefaultEffort:    "none",
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid optional reasoning with empty default",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning = &ModelReasoning{
+					Required:         false,
+					SupportedEfforts: []string{"none", "low", "medium"},
+					DefaultEffort:    "",
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "unknown supported effort",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.SupportedEfforts = []string{"low", "super-fast"}
+			},
+			wantErr:   true,
+			errSubstr: "unknown reasoning effort",
+		},
+		{
+			name: "unknown default effort",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.DefaultEffort = "super-fast"
+			},
+			wantErr:   true,
+			errSubstr: "unknown default_effort",
+		},
+		{
+			name: "required true but empty supported_efforts",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.SupportedEfforts = nil
+			},
+			wantErr:   true,
+			errSubstr: "supported_efforts cannot be empty",
+		},
+		{
+			name: "required true but contains none",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.SupportedEfforts = []string{"none", "low", "medium"}
+			},
+			wantErr:   true,
+			errSubstr: "effort none is not permitted",
+		},
+		{
+			name: "default_effort not in supported_efforts",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.DefaultEffort = "max"
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.SupportedEfforts = []string{"low", "medium"}
+			},
+			wantErr:   true,
+			errSubstr: "default_effort \"max\" is not in supported_efforts",
+		},
+		{
+			name: "required true but empty default_effort",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.DefaultEffort = ""
+			},
+			wantErr:   true,
+			errSubstr: "default_effort is required",
+		},
+		{
+			name: "duplicate supported effort",
+			modify: func(c *ModelProfilesConfig) {
+				c.Providers["openai"].ApiKeys[0].Models[0].Behavior.Reasoning.SupportedEfforts = []string{"low", "medium", "low"}
+			},
+			wantErr:   true,
+			errSubstr: "duplicate effort",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseConfig()
+			tt.modify(&cfg)
+			err := cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && tt.errSubstr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("Validate() error = %v, want substr %q", err, tt.errSubstr)
+				}
+			}
+		})
+	}
+}
+
 
