@@ -322,11 +322,11 @@ OpenAI Responses API において推論パラメータが必須化され `effort
     - `go mod tidy` を実行し、依存関係を解決。
     - コミット: `chore(deps): replace bifrost/core with axsh/bifrost commit e05e7f8`
 
-- [/] **Step 2: Config Layer テスト作成 (TDD Red)**:
+- [x] **Step 2: Config Layer テスト作成 (TDD Red)**:
     - `shared/libs/go/config/model_profiles_test.go` に `TestModelBehavior_Reasoning_YAMLParse` および `TestModelProfilesConfig_Validate_Reasoning` を追加。
     - コミット: `test(config): add unit tests for model reasoning config and validation`
 
-- [ ] **Step 3: Config Layer 実装 (TDD Green)**:
+- [/] **Step 3: Config Layer 実装 (TDD Green)**:
     - `shared/libs/go/config/model_profiles.go` に `ModelReasoning`, `ModelBehavior.Reasoning`, `ReasoningEffort*` 定数、`validateReasoningConfig` を実装。
     - 単体テストを実行して Green を確認。
     - コミット: `feat(config): add ModelReasoning to ModelBehavior and validate reasoning rules`
