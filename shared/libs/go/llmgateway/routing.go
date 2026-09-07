@@ -64,9 +64,11 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 				if model.Name == modelName {
 					var fallback bool
 					var maxOutputTokens int
+					var reasoning *config.ModelReasoning
 					if model.Behavior != nil {
 						fallback = model.Behavior.ToolCallFallback
 						maxOutputTokens = model.Behavior.MaxOutputTokens
+						reasoning = model.Behavior.Reasoning
 					}
 					resolved = &RoutedModel{
 						Provider:         providerName,
@@ -76,6 +78,7 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 						Mode:             model.Mode,
 						ToolCallFallback: fallback,
 						MaxOutputTokens:  maxOutputTokens,
+						Reasoning:        reasoning,
 					}
 					break
 				}
@@ -98,6 +101,13 @@ func (r *ModelRouter) ResolveModel(modelName string, sessionID string) (*RoutedM
 				"provider", resolved.Provider,
 				"mode", resolved.Mode,
 			)
+			if resolved.Reasoning != nil {
+				r.logger.Debug("model reasoning config",
+					"model", resolved.Model,
+					"required", resolved.Reasoning.Required,
+					"default_effort", resolved.Reasoning.DefaultEffort,
+				)
+			}
 			baseURL := ""
 			if provider, ok := r.profiles.Providers[resolved.Provider]; ok && provider.NetworkConfig != nil {
 				baseURL = provider.NetworkConfig.BaseURL
