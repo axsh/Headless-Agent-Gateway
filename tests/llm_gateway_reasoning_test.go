@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	client "github.com/axsh/arctic-tern/client/v1"
 	"github.com/axsh/arctic-tern/server"
@@ -514,3 +515,131 @@ providers:
 		t.Errorf("Case C wire reasoning = %v, want effort: max (body: %s)", wireC["reasoning"], string(capturedBodies[2]))
 	}
 }
+
+func TestLLMGateway_GPT6Astra_LiveUpstream(t *testing.T) {
+	checkKeyringAvailable(t, "openai")
+
+	profilesPath, err := filepath.Abs(filepath.Join("testdata", "model_profiles.yaml"))
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+
+	gwPort := freePort(t)
+	asPort := freePort(t)
+	wsPort := freePort(t)
+
+	cfg := &config.AppConfig{
+		LLMGateway: config.LLMGatewayConfig{
+			Port:              gwPort,
+			ModelProfilesPath: profilesPath,
+		},
+		AgentService: config.AgentServiceConfig{
+			Port: asPort,
+		},
+		WebSocket: config.WebSocketConfig{
+			Port: wsPort,
+		},
+	}
+
+	srv, err := server.New(
+		server.WithConfig(cfg),
+		server.WithKeyringVault(),
+	)
+	if err != nil {
+		t.Fatalf("server.New: %v", err)
+	}
+	if err := srv.Launch(t.Context()); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer srv.Shutdown(t.Context())
+
+	baseURL := srv.Gateway().ProxyURL()
+	token := srv.GatewayToken()
+
+	client := &http.Client{Timeout: 90 * time.Second}
+
+	cases := []struct {
+		name       string
+		effort     string
+		wantEffort string
+	}{
+		{
+			name:       "default backfill (medium)",
+			effort:     "",
+			wantEffort: "medium",
+		},
+		{
+			name:       "explicit low effort",
+			effort:     "low",
+			wantEffort: "low",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := map[string]any{
+				"model": "gpt-6-astra",
+				"input": []any{
+					map[string]any{
+						"type":    "message",
+						"role":    "user",
+						"content": "Reply with 'ok' only.",
+					},
+				},
+			}
+			if tc.effort != "" {
+				payload["reasoning"] = map[string]any{
+					"effort": tc.effort,
+				}
+			}
+
+			bodyBytes, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatalf("marshal payload: %v", err)
+			}
+
+			req, err := http.NewRequest(http.MethodPost, baseURL+"/v1/responses", bytes.NewReader(bodyBytes))
+			if err != nil {
+				t.Fatalf("new request: %v", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Gateway-Token", token)
+
+			t.Logf("[%s] Sending live request to OpenAI for model gpt-6-astra...", tc.name)
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("do request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			respBody, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
+			}
+
+			var res struct {
+				Model     string `json:"model"`
+				Reasoning struct {
+					Effort string `json:"effort"`
+				} `json:"reasoning"`
+				Output []struct {
+					Content []struct {
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"output"`
+			}
+			if err := json.Unmarshal(respBody, &res); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+
+			t.Logf("[%s] Model=%s, Reasoning.Effort=%s, Output=%+v", tc.name, res.Model, res.Reasoning.Effort, res.Output)
+			if res.Model != "gpt-6-astra" {
+				t.Errorf("model = %q, want gpt-6-astra", res.Model)
+			}
+			if res.Reasoning.Effort != tc.wantEffort {
+				t.Errorf("reasoning.effort = %q, want %q", res.Reasoning.Effort, tc.wantEffort)
+			}
+		})
+	}
+}
+
