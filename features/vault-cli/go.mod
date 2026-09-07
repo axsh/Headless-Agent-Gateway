@@ -1,6 +1,6 @@
 module github.com/axsh/arctic-tern/features/vault-cli
 
-go 1.26.5
+go 1.27.0
 
 require (
 	github.com/axsh/arctic-tern v0.0.0
@@ -10,7 +10,7 @@ require (
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
 
 replace github.com/axsh/arctic-tern => ../../

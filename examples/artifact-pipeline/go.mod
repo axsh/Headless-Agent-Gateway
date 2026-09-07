@@ -1,6 +1,6 @@
 module github.com/axsh/arctic-tern/examples/artifact-pipeline
 
-go 1.26.5
+go 1.27.0
 
 require github.com/axsh/arctic-tern v0.0.0
 

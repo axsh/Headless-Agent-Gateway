@@ -326,12 +326,12 @@ OpenAI Responses API において推論パラメータが必須化され `effort
     - `shared/libs/go/config/model_profiles_test.go` に `TestModelBehavior_Reasoning_YAMLParse` および `TestModelProfilesConfig_Validate_Reasoning` を追加。
     - コミット: `test(config): add unit tests for model reasoning config and validation`
 
-- [/] **Step 3: Config Layer 実装 (TDD Green)**:
+- [x] **Step 3: Config Layer 実装 (TDD Green)**:
     - `shared/libs/go/config/model_profiles.go` に `ModelReasoning`, `ModelBehavior.Reasoning`, `ReasoningEffort*` 定数、`validateReasoningConfig` を実装。
     - 単体テストを実行して Green を確認。
     - コミット: `feat(config): add ModelReasoning to ModelBehavior and validate reasoning rules`
 
-- [ ] **Step 4: Routing & HandlerContext レイヤ更新**:
+- [/] **Step 4: Routing & HandlerContext レイヤ更新**:
     - `shared/libs/go/llmgateway/handlerctx/context.go` の `RoutedModel` に `Reasoning` フィールドを追加。
     - `shared/libs/go/llmgateway/routing_test.go` に `TestModelRouter_ResolveModel_Reasoning` を追加。
     - `shared/libs/go/llmgateway/routing.go` で `ResolveModel` コピーロジックを実装。
