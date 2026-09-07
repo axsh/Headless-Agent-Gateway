@@ -344,12 +344,12 @@ OpenAI Responses API において推論パラメータが必須化され `effort
     - `shared/libs/go/llmgateway/proxy.go` の `ListModels` / `DefaultModel` で `Reasoning` を設定。
     - コミット: `feat(llmgateway): expose model reasoning metadata in ListModels and models API`
 
-- [/] **Step 6: Gateway Early Validation & Backfill 実装**:
+- [x] **Step 6: Gateway Early Validation & Backfill 実装**:
     - `shared/libs/go/llmgateway/openai/responses_reasoning_test.go` を新規作成（Red）。
     - `shared/libs/go/llmgateway/openai/handler.go` で `handleResponses` にバリデーション & 補完ロジックを実装（Green）。
     - コミット: `feat(llmgateway): implement reasoning effort backfill and early validation on /v1/responses`
 
-- [ ] **Step 7: 統合テスト用データおよび E2E テスト追加**:
+- [/] **Step 7: 統合テスト用データおよび E2E テスト追加**:
     - `tests/testdata/model_profiles.yaml` に `gpt-6-astra` を追加。
     - `tests/llm_gateway_reasoning_test.go` を新規作成し、API 露出および Upstream 電文の推論パラメータ透過性を検証。
     - コミット: `test(e2e): add end-to-end integration tests for gpt-6-astra reasoning support`
